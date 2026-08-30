@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Managed registry cleanup recognizes Helm OCI manifests that omit a top-level media type.",
+  "summary": "App deletion no longer leaves Environment Git projection indexing stuck after the App catalog row is removed.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.416"
+  "version": "0.1.0-rc.417"
 }
