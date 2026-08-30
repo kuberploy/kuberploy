@@ -67,6 +67,41 @@ func TestPhysicalRegistryCheckpointProvesExplicitReachability(t *testing.T) {
 	}
 }
 
+func TestPhysicalRegistryCheckpointAcceptsOCIManifestWithoutTopLevelMediaType(t *testing.T) {
+	root := t.TempDir()
+	base := filepath.Join(root, "docker", "registry", "v2")
+	configBody := []byte("helm-config")
+	configDigest := digestBytes(configBody)
+	chartBody := []byte("helm-chart")
+	chartDigest := digestBytes(chartBody)
+	manifestBody := []byte(fmt.Sprintf(`{"schemaVersion":2,"config":{"mediaType":"application/vnd.cncf.helm.config.v1+json","digest":%q,"size":%d},"layers":[{"mediaType":"application/vnd.cncf.helm.chart.content.v1.tar+gzip","digest":%q,"size":%d}]}`,
+		configDigest, len(configBody), chartDigest, len(chartBody)))
+	manifestDigest := digestBytes(manifestBody)
+	writeRegistryBlobForTest(t, base, configDigest, configBody)
+	writeRegistryBlobForTest(t, base, chartDigest, chartBody)
+	writeRegistryBlobForTest(t, base, manifestDigest, manifestBody)
+	revisionLink := filepath.Join(base, "repositories", "kuberploy", "chart", "_manifests", "revisions", "sha256",
+		manifestDigest[len("sha256:"):], "link")
+	if err := os.MkdirAll(filepath.Dir(revisionLink), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(revisionLink, []byte(manifestDigest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	candidateDigest, candidates, err := cleanupCandidateSetDigest([]string{chartDigest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := maintenanceHelperRequest{Version: 1, Mode: "checkpoint", TargetID: "11111111-1111-4111-8111-111111111111",
+		PlanID: "22222222-2222-4222-8222-222222222222", PlanDigest: "sha256:" + repeatHex("a", 64),
+		ExecutionKey: "sha256:" + repeatHex("b", 64), CandidateSetDigest: candidateDigest,
+		CandidateDigests: candidates, NotBefore: time.Now().UTC().Add(-time.Minute)}
+	checkpoint, err := scanRegistryStorageAt(context.Background(), root, request)
+	if err != nil || len(checkpoint.Blobs) != 1 || !checkpoint.Blobs[0].Present || !checkpoint.Blobs[0].Reachable {
+		t.Fatalf("checkpoint=%+v err=%v", checkpoint, err)
+	}
+}
+
 func writeRegistryBlobForTest(t *testing.T, base, digest string, body []byte) {
 	t.Helper()
 	hash := digest[len("sha256:"):]

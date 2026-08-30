@@ -248,7 +248,20 @@ func scanRegistryStorageAt(ctx context.Context, root string, request maintenance
 		}
 		zeroBytes(body)
 		reachable[digest] = struct{}{}
-		switch document.MediaType {
+		mediaType := document.MediaType
+		if mediaType == "" {
+			// OCI permits clients to omit the top-level mediaType. Distribution
+			// still serves these objects as OCI manifests, including ordinary Helm
+			// chart artifacts. The offline scanner has no HTTP Content-Type header,
+			// so derive only the unambiguous document shape before walking edges.
+			switch {
+			case len(document.Manifests) > 0 && document.Config.Digest == "" && len(document.Layers) == 0:
+				mediaType = ociIndexMediaType
+			case len(document.Manifests) == 0 && validBlobDescriptor(document.Config):
+				mediaType = ociManifestMediaType
+			}
+		}
+		switch mediaType {
 		case ociIndexMediaType, dockerIndexMediaType:
 			for _, child := range document.Manifests {
 				if !validManifestDescriptor(child, true) {
