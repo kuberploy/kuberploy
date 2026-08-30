@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "App deletion no longer leaves Environment Git projection indexing stuck after the App catalog row is removed.",
+  "summary": "App rollout status advances only after the matching Argo desired state is verified.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.418"
+  "version": "0.1.0-rc.419"
 }
