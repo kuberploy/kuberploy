@@ -120,6 +120,25 @@ describe("CopyButton", () => {
 });
 
 describe("Select", () => {
+  it("does not emit a change when opening the current selection", async () => {
+    const onChange = vi.fn();
+
+    render(
+      <Select
+        aria-label="Project"
+        defaultValue="project-a"
+        onChange={onChange}
+      >
+        <option value="project-a">Payments</option>
+        <option value="project-b">Storefront</option>
+      </Select>,
+    );
+
+    await openSelect(screen.getByRole("combobox", { name: "Project" }));
+
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it("uses a styled listbox and emits the native select change contract", async () => {
     const onChange = vi.fn();
 

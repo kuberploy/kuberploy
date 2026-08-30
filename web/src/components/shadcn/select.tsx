@@ -167,6 +167,7 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select(
           if (details.reason === "none" || !userInteractionRef.current) return;
           const next = nextValue?.key ?? "";
           userInteractionRef.current = false;
+          if (next === selectedValue) return;
           if (inputRef.current) inputRef.current.value = next;
           if (currentValue === undefined) setUncontrolledValue(next);
           onChange?.(nativeEvent(next));
