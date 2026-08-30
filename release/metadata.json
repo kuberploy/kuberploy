@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Deployment writes recover after a worker restart.",
+  "summary": "App terminology is consistent across the dashboard.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.423"
+  "version": "0.1.0-rc.424"
 }
