@@ -632,7 +632,7 @@ export function CertificateBindingsPanel({
       <EmptyState
         icon="route"
         title="Certificate metadata access not granted"
-        description="An exact certificate-bindings:read capability covering an application environment is required."
+        description="An exact certificate-bindings:read capability covering an App Environment is required."
       />
     );
   }
@@ -681,7 +681,7 @@ export function CertificateBindingsPanel({
             <small>Public metadata is readable; PEM is write-only.</small>
           </span>
         </div>
-        <Field label="Application environment">
+        <Field label="App Environment">
           <Select
             aria-label="Certificate environment"
             value={selectedEnvironment.id}

@@ -52,7 +52,7 @@ export function hasBuildApplicationCapability(
       case "application":
         return capability.scopeId === application.id;
       default:
-        // Builds are application-scoped across environments. An environment or
+        // Builds are App-scoped across Environments. An Environment or
         // namespace grant must never expand into source or registry authority.
         return false;
     }

@@ -84,7 +84,7 @@ export function DashboardPage() {
       >
         {[
           ["Projects", projects.data?.items.length ?? 0, "Git-backed scopes"],
-          ["Applications", applications.data?.items.length ?? 0, "Workloads"],
+          ["Apps", applications.data?.items.length ?? 0, "Workloads"],
           [
             "App instances",
             deployments.data?.items.length ?? 0,
@@ -160,7 +160,7 @@ export function DashboardPage() {
           <div className="flex items-center justify-between flex-wrap gap-y-2 gap-x-5 py-4 px-0 border-b border-b-line [&>div]:min-w-0 [&_h2]:m-0 [&_h2]:text-lead [&_h2]:font-semibold [&_h2]:tracking-[-0.015em] [&_p]:mt-1 [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-ink-faint [&_p]:text-meta">
             <div>
               <h2>Recent Apps</h2>
-              <p>Latest desired state by application and environment.</p>
+              <p>Latest desired state by App and Environment.</p>
             </div>
             <Link
               to="/projects"

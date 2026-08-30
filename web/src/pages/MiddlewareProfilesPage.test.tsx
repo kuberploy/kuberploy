@@ -123,7 +123,7 @@ describe("middleware profile management", () => {
       await screen.findByLabelText("Environment"),
       "environment-a",
     );
-    await selectOption(screen.getByLabelText("Application"), "application-a");
+    await selectOption(screen.getByLabelText("App"), "application-a");
     await user.click(await screen.findByRole("button", { name: "Delete" }));
     expect(
       screen.getByRole("alertdialog", {
@@ -208,7 +208,7 @@ describe("middleware profile management", () => {
       await screen.findByLabelText("Environment"),
       "environment-a",
     );
-    await selectOption(screen.getByLabelText("Application"), "application-a");
+    await selectOption(screen.getByLabelText("App"), "application-a");
     await user.click(await screen.findByRole("button", { name: "Revise" }));
     await queryClient.invalidateQueries({
       queryKey: ["middleware-profile-catalog"],
@@ -262,7 +262,7 @@ describe("middleware profile management", () => {
 
     const environment = await screen.findByLabelText("Environment");
     await selectOption(environment, "environment-a");
-    const application = screen.getByLabelText("Application");
+    const application = screen.getByLabelText("App");
     await selectOption(application, "application-a");
     expect(environment).toHaveValue("environment-a");
     expect(application).toHaveValue("application-a");

@@ -360,7 +360,7 @@ export function MiddlewareProfilesPage() {
   return (
     <Page narrow className="[&>header]:mb-0">
       <PageHeader
-        eyebrow="Application policy"
+        eyebrow="App policy"
         title="Middleware profiles"
         description="Manage versioned reusable Traefik HTTP middleware profiles. The catalog is filtered to exact scopes you can administer."
       />
@@ -383,7 +383,7 @@ export function MiddlewareProfilesPage() {
               ))}
             </Select>
           </Field>
-          <Field label="Application">
+          <Field label="App">
             <Select
               value={applicationId}
               disabled={!environment}
@@ -392,7 +392,7 @@ export function MiddlewareProfilesPage() {
                 reset();
               }}
             >
-              <option value="">Select application</option>
+              <option value="">Select App</option>
               {applications.data?.items
                 .filter((item) => item.projectId === environment?.projectId)
                 .map((item) => (
@@ -408,7 +408,7 @@ export function MiddlewareProfilesPage() {
               disabled={!targetValid}
               onChange={(event) => setScope(event.target.value as Scope)}
             >
-              <option value="application">Application</option>
+              <option value="application">App</option>
               <option value="environment">Environment</option>
               <option value="project">Project</option>
             </Select>
@@ -554,7 +554,7 @@ export function MiddlewareProfilesPage() {
         <EmptyState
           compact
           title="Select an exact target"
-          description="Choose an environment and application in the same project to load the authorized library."
+          description="Choose an Environment and App in the same Project to load the authorized library."
         />
       )}
       {deactivationCandidate ? (

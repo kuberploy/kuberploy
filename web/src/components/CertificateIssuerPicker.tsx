@@ -64,9 +64,7 @@ export function CertificateIssuerPicker({
           {unavailableReason ?? "Certificate issuers are unavailable."}
         </small>
       ) : !scoped ? (
-        <small>
-          Choose an existing application, environment, and hostname first.
-        </small>
+        <small>Choose an existing App, Environment, and hostname first.</small>
       ) : catalog.error ? (
         <small>
           The approved issuer catalog is unavailable. The current YAML value is

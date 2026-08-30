@@ -178,9 +178,7 @@ describe("new deployment runtime controls", () => {
 
     render(<NewDeploymentPage />, { wrapper: wrapper(queryClient) });
 
-    expect(
-      await screen.findByRole("radio", { name: "New application" }),
-    ).toBeChecked();
+    expect(await screen.findByRole("radio", { name: "New App" })).toBeChecked();
     resolveApplications({
       items: [
         {
@@ -193,11 +191,9 @@ describe("new deployment runtime controls", () => {
     });
 
     await waitFor(() =>
-      expect(
-        screen.getByRole("radio", { name: "Existing application" }),
-      ).toBeChecked(),
+      expect(screen.getByRole("radio", { name: "Existing App" })).toBeChecked(),
     );
-    expect(screen.getByRole("combobox", { name: "Application" })).toHaveValue(
+    expect(screen.getByRole("combobox", { name: "App" })).toHaveValue(
       "application-new",
     );
   });
@@ -259,11 +255,9 @@ describe("new deployment runtime controls", () => {
         screen.getByRole("combobox", { name: /^Environment/ }),
         "environment-1",
       );
-      await user.click(
-        screen.getByRole("radio", { name: "Existing application" }),
-      );
+      await user.click(screen.getByRole("radio", { name: "Existing App" }));
       await selectOption(
-        screen.getByRole("combobox", { name: "Application" }),
+        screen.getByRole("combobox", { name: "App" }),
         "application-1",
       );
       await user.type(
@@ -301,14 +295,14 @@ describe("new deployment runtime controls", () => {
       "project-1",
     );
     await user.type(
-      screen.getByRole("textbox", { name: /^Application name/ }),
+      screen.getByRole("textbox", { name: /^App name/ }),
       "New API",
     );
     await user.click(
-      screen.getByRole("button", { name: "Create application identity" }),
+      screen.getByRole("button", { name: "Create App identity" }),
     );
 
-    await screen.findByText("Application identity created");
+    await screen.findByText("App identity created");
     expect(createApplication).toHaveBeenCalledWith(
       { projectId: "project-1", name: "New API", sourceKind: "oci" },
       expect.any(String),
@@ -317,9 +311,9 @@ describe("new deployment runtime controls", () => {
       screen.getByRole("link", { name: "Source options" }),
     ).toBeInTheDocument();
 
-    await user.click(screen.getByRole("radio", { name: "New application" }));
+    await user.click(screen.getByRole("radio", { name: "New App" }));
     await user.click(
-      screen.getByRole("button", { name: "Create application identity" }),
+      screen.getByRole("button", { name: "Create App identity" }),
     );
     await waitFor(() => expect(createApplication).toHaveBeenCalledTimes(2));
     expect(createApplication.mock.calls[1]?.[1]).not.toBe(
@@ -346,16 +340,14 @@ describe("new deployment runtime controls", () => {
       screen.getByRole("combobox", { name: "Project" }),
       "project-1",
     );
-    const name = screen.getByRole("textbox", { name: /^Application name/ });
+    const name = screen.getByRole("textbox", { name: /^App name/ });
     await user.type(name, "New API");
     await user.click(
-      screen.getByRole("button", { name: "Create application identity" }),
+      screen.getByRole("button", { name: "Create App identity" }),
     );
     await waitFor(() => expect(createApplication).toHaveBeenCalledOnce());
 
-    await user.click(
-      screen.getByRole("radio", { name: "Existing application" }),
-    );
+    await user.click(screen.getByRole("radio", { name: "Existing App" }));
     resolveApplication?.({
       id: "application-stale",
       projectId: "project-1",
@@ -363,15 +355,9 @@ describe("new deployment runtime controls", () => {
     });
 
     await waitFor(() => expect(createApplication).toHaveReturned());
-    expect(
-      screen.getByRole("radio", { name: "Existing application" }),
-    ).toBeChecked();
-    expect(screen.getByRole("combobox", { name: "Application" })).toHaveValue(
-      "",
-    );
-    expect(
-      screen.queryByText("Application identity created"),
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Existing App" })).toBeChecked();
+    expect(screen.getByRole("combobox", { name: "App" })).toHaveValue("");
+    expect(screen.queryByText("App identity created")).not.toBeInTheDocument();
   });
 
   it("clears an environment removed by an authorization refresh", async () => {
@@ -443,11 +429,9 @@ describe("new deployment runtime controls", () => {
       screen.getByRole("combobox", { name: /^Environment/ }),
       "environment-1",
     );
-    await user.click(
-      screen.getByRole("radio", { name: "Existing application" }),
-    );
+    await user.click(screen.getByRole("radio", { name: "Existing App" }));
     await selectOption(
-      screen.getByRole("combobox", { name: "Application" }),
+      screen.getByRole("combobox", { name: "App" }),
       "application-1",
     );
     const image = screen.getByRole("textbox", { name: /^Image digest/ });
@@ -509,11 +493,9 @@ describe("new deployment runtime controls", () => {
       screen.getByRole("combobox", { name: /^Environment/ }),
       "environment-1",
     );
-    await user.click(
-      screen.getByRole("radio", { name: "Existing application" }),
-    );
+    await user.click(screen.getByRole("radio", { name: "Existing App" }));
     await selectOption(
-      screen.getByRole("combobox", { name: "Application" }),
+      screen.getByRole("combobox", { name: "App" }),
       "application-1",
     );
     const image = screen.getByRole("textbox", { name: /^Image digest/ });
@@ -574,11 +556,9 @@ describe("new deployment runtime controls", () => {
       name: /^Environment/,
     });
     await selectOption(environment, "environment-1");
-    await user.click(
-      screen.getByRole("radio", { name: "Existing application" }),
-    );
+    await user.click(screen.getByRole("radio", { name: "Existing App" }));
     await selectOption(
-      screen.getByRole("combobox", { name: "Application" }),
+      screen.getByRole("combobox", { name: "App" }),
       "application-1",
     );
     const image = screen.getByRole("textbox", { name: /^Image digest/ });
@@ -623,11 +603,9 @@ describe("new deployment runtime controls", () => {
       screen.getByRole("combobox", { name: /^Environment/ }),
       "environment-1",
     );
-    await user.click(
-      screen.getByRole("radio", { name: "Existing application" }),
-    );
+    await user.click(screen.getByRole("radio", { name: "Existing App" }));
     await selectOption(
-      screen.getByRole("combobox", { name: "Application" }),
+      screen.getByRole("combobox", { name: "App" }),
       "application-1",
     );
     const image = screen.getByRole("textbox", { name: /^Image digest/ });
@@ -739,11 +717,9 @@ describe("new deployment runtime controls", () => {
       screen.getByRole("combobox", { name: /^Environment/ }),
       "environment-1",
     );
-    await user.click(
-      screen.getByRole("radio", { name: "Existing application" }),
-    );
+    await user.click(screen.getByRole("radio", { name: "Existing App" }));
     await selectOption(
-      screen.getByRole("combobox", { name: "Application" }),
+      screen.getByRole("combobox", { name: "App" }),
       "application-1",
     );
     await user.type(
@@ -843,11 +819,9 @@ describe("new deployment runtime controls", () => {
       screen.getByRole("combobox", { name: /^Environment/ }),
       "environment-1",
     );
-    await user.click(
-      screen.getByRole("radio", { name: "Existing application" }),
-    );
+    await user.click(screen.getByRole("radio", { name: "Existing App" }));
     await selectOption(
-      screen.getByRole("combobox", { name: "Application" }),
+      screen.getByRole("combobox", { name: "App" }),
       "application-1",
     );
     const image = screen.getByRole("textbox", { name: /^Image digest/ });
@@ -906,11 +880,9 @@ describe("new deployment runtime controls", () => {
       screen.getByRole("combobox", { name: /^Environment/ }),
       "environment-1",
     );
-    await user.click(
-      screen.getByRole("radio", { name: "Existing application" }),
-    );
+    await user.click(screen.getByRole("radio", { name: "Existing App" }));
     await selectOption(
-      screen.getByRole("combobox", { name: "Application" }),
+      screen.getByRole("combobox", { name: "App" }),
       "application-1",
     );
     await user.click(screen.getByRole("button", { name: "Add label" }));
@@ -961,11 +933,9 @@ describe("new deployment runtime controls", () => {
       screen.getByRole("combobox", { name: /^Environment/ }),
       "environment-1",
     );
-    await user.click(
-      screen.getByRole("radio", { name: "Existing application" }),
-    );
+    await user.click(screen.getByRole("radio", { name: "Existing App" }));
     await selectOption(
-      screen.getByRole("combobox", { name: "Application" }),
+      screen.getByRole("combobox", { name: "App" }),
       "application-1",
     );
     await selectOption(
@@ -1012,10 +982,8 @@ describe("new deployment runtime controls", () => {
       screen.getByRole("combobox", { name: /^Environment/ }),
       "environment-1",
     );
-    await user.click(
-      screen.getByRole("radio", { name: "Existing application" }),
-    );
-    const application = screen.getByRole("combobox", { name: "Application" });
+    await user.click(screen.getByRole("radio", { name: "Existing App" }));
+    const application = screen.getByRole("combobox", { name: "App" });
     await selectOption(application, "application-1");
     await user.click(screen.getByRole("button", { name: "Add label" }));
     await user.type(
@@ -1052,10 +1020,8 @@ describe("new deployment runtime controls", () => {
       screen.getByRole("combobox", { name: /^Environment/ }),
       "environment-1",
     );
-    await user.click(
-      screen.getByRole("radio", { name: "Existing application" }),
-    );
-    const application = screen.getByRole("combobox", { name: "Application" });
+    await user.click(screen.getByRole("radio", { name: "Existing App" }));
+    const application = screen.getByRole("combobox", { name: "App" });
     await selectOption(application, "application-1");
     await user.click(screen.getByRole("button", { name: "Add value" }));
     await user.type(
@@ -1104,11 +1070,9 @@ describe("new deployment runtime controls", () => {
       screen.getByRole("combobox", { name: /^Environment/ }),
       "environment-1",
     );
-    await user.click(
-      screen.getByRole("radio", { name: "Existing application" }),
-    );
+    await user.click(screen.getByRole("radio", { name: "Existing App" }));
     await selectOption(
-      screen.getByRole("combobox", { name: "Application" }),
+      screen.getByRole("combobox", { name: "App" }),
       "application-1",
     );
     await user.click(screen.getByRole("button", { name: "Add label" }));
@@ -1127,7 +1091,7 @@ describe("new deployment runtime controls", () => {
       "old.example.com",
     );
 
-    await user.click(screen.getByRole("radio", { name: "New application" }));
+    await user.click(screen.getByRole("radio", { name: "New App" }));
 
     await waitFor(() => {
       expect(
@@ -1144,12 +1108,8 @@ describe("new deployment runtime controls", () => {
       ).toBeChecked();
     });
 
-    await user.click(
-      screen.getByRole("radio", { name: "Existing application" }),
-    );
-    expect(screen.getByRole("combobox", { name: "Application" })).toHaveValue(
-      "",
-    );
+    await user.click(screen.getByRole("radio", { name: "Existing App" }));
+    expect(screen.getByRole("combobox", { name: "App" })).toHaveValue("");
   });
 
   it("clears stale environment and application scope when the project changes", async () => {
@@ -1192,10 +1152,8 @@ describe("new deployment runtime controls", () => {
       name: /^Environment/,
     });
     await selectOption(environment, "environment-1");
-    await user.click(
-      screen.getByRole("radio", { name: "Existing application" }),
-    );
-    const application = screen.getByRole("combobox", { name: "Application" });
+    await user.click(screen.getByRole("radio", { name: "Existing App" }));
+    const application = screen.getByRole("combobox", { name: "App" });
     await selectOption(application, "application-1");
     await user.click(screen.getByRole("button", { name: "Add label" }));
     expect(
@@ -1261,11 +1219,9 @@ describe("new deployment runtime controls", () => {
       screen.getByRole("combobox", { name: /^Environment/ }),
       "environment-1",
     );
-    await user.click(
-      screen.getByRole("radio", { name: "Existing application" }),
-    );
+    await user.click(screen.getByRole("radio", { name: "Existing App" }));
     await selectOption(
-      screen.getByRole("combobox", { name: "Application" }),
+      screen.getByRole("combobox", { name: "App" }),
       "application-1",
     );
 

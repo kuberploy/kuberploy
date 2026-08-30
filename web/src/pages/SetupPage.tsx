@@ -61,7 +61,7 @@ export function SetupPage() {
     },
     {
       name: "Argo CD",
-      description: "The only normal writer for application workloads.",
+      description: "The only normal writer for App workloads.",
       icon: "refresh",
       state: featureState(
         capabilities.data?.featureStates,

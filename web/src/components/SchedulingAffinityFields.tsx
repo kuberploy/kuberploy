@@ -272,11 +272,11 @@ export function SchedulingAffinityFields({
       <div className="col-[1/-1]">
         <CardHeader>
           <div>
-            <h3>Same-application pod anti-affinity</h3>
+            <h3>Same-App pod anti-affinity</h3>
             <p>
               Choose only enforcement and topology. Kuberploy derives the exact
-              current application selector; no label selector or other
-              application identity is accepted.
+              current App selector; no label selector or other App identity is
+              accepted.
             </p>
           </div>
           <Button

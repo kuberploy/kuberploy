@@ -187,7 +187,7 @@ function ActiveReferencePicker({
       ? "Loading authorized ready bindings…"
       : choices.length
         ? "The stable ID and current active version come from runtime-secret metadata."
-        : "No ready Sealed Secret binding is available in this application and environment.";
+        : "No ready Sealed Secret binding is available in this App and Environment.";
   const keyHint = !environmentName.trim()
     ? "Enter the environment variable name before choosing its authorized key."
     : detail.error
@@ -291,7 +291,7 @@ export function RuntimeSecretReferencePicker({
         value={value}
         reason={
           unavailableReason ??
-          "Select an existing application and environment with runtime-secret support."
+          "Select an existing App and Environment with runtime-secret support."
         }
       />
     );

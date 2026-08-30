@@ -190,7 +190,7 @@ function HeaderMapEditor({
       <span className="text-tone-warn text-xs leading-[1.45]">
         Header names and literal values are committed to Git. Credential,
         cookie, forwarding, routing, and hop-by-hop headers are blocked here;
-        use a runtime secret inside the application instead.
+        use a runtime secret inside the App instead.
       </span>
       <div className="grid gap-1.5">
         {values.map((entry, index) => (
@@ -1021,7 +1021,7 @@ function ReusableProfileAttacher({
     <div className="grid grid-cols-[minmax(220px,_360px)_auto] items-end gap-3 [&>[data-slot='button']]:justify-self-start to-760:grid-cols-[1fr]">
       <Field
         label="Reusable middleware profile"
-        hint="Only exact active revisions assigned to this application and environment are shown."
+        hint="Only exact active revisions assigned to this App and Environment are shown."
       >
         <Select
           aria-label="Reusable middleware profile"
@@ -1207,7 +1207,7 @@ export function TraefikMiddlewareEditor({
         <div>
           <h3>Traefik middleware</h3>
           <p>
-            Application-scoped, ordered definitions and an exact route chain. No
+            App-scoped, ordered definitions and an exact route chain. No
             cross-namespace, secret, ForwardAuth, plugin, or chain references
             are accepted in Guided mode.
           </p>
@@ -1430,8 +1430,8 @@ export function TraefikMiddlewareEditor({
           </div>
         ) : (
           <div className="p-4 border border-dashed border-[var(--line)] rounded-lg text-ink-faint bg-surface-soft text-meta text-center">
-            No middleware definitions. Add a bounded Traefik family when the
-            application needs route-specific behavior.
+            No middleware definitions. Add a bounded Traefik family when the App
+            needs route-specific behavior.
           </div>
         )}
 
@@ -1465,7 +1465,7 @@ export function TraefikMiddlewareEditor({
           {!routeEnabled ? (
             <div className="p-4 border border-dashed border-[var(--line)] rounded-lg text-ink-faint bg-surface-soft text-meta text-center">
               Add a public hostname before assigning a route chain. Definitions
-              remain application-scoped and are not exposed by themselves.
+              remain App-scoped and are not exposed by themselves.
             </div>
           ) : refs.length ? (
             <div className="grid gap-1.5">

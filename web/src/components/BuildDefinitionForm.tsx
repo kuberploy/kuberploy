@@ -329,8 +329,8 @@ export function BuildDefinitionForm({
         <div>
           <strong>App source is read-only</strong>
           <p>
-            Your effective application scope does not include permission to
-            manage this App's source.
+            Your effective App scope does not include permission to manage this
+            App's source.
           </p>
         </div>
       </Notice>
@@ -733,7 +733,7 @@ export function BuildDefinitionForm({
           <div>
             <strong>No accessible registry target</strong>
             <p>
-              Attach a registry policy to this application or ask a platform
+              Attach a registry policy to this App or ask a platform
               administrator to configure a target.
             </p>
           </div>

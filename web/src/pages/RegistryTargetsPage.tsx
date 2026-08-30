@@ -267,7 +267,7 @@ export function RegistryTargetsPage() {
                 compact
                 icon="layers"
                 title="No registry targets"
-                description="Add an approved OCI endpoint before attaching an application policy."
+                description="Add an approved OCI endpoint before attaching an App policy."
               />
             ) : (
               <div className="grid gap-4">

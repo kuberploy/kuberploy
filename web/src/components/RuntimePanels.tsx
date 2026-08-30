@@ -661,7 +661,7 @@ export function MetricsPanel({ deploymentId }: { deploymentId: string }) {
         <div>
           <strong>
             {available
-              ? "Monitoring is connected; no application series were returned."
+              ? "Monitoring is connected; no App series were returned."
               : "Metrics are explicitly unavailable"}
           </strong>
           <p>

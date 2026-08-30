@@ -281,11 +281,11 @@ export function ApplicationPage() {
           <Icon name="arrow" /> Projects
         </Link>
         <span>/</span>
-        <span>{application.data?.name ?? "Application"}</span>
+        <span>{application.data?.name ?? "App"}</span>
       </div>
       <PageHeader
         eyebrow="App runtime"
-        title={application.data?.name ?? "Loading application"}
+        title={application.data?.name ?? "Loading App"}
         description={
           deployment.data
             ? `${deployment.data.image ?? deployment.data.source?.reference ?? "Image resolving"} · runtime ${shortId(deployment.data.id)}`
@@ -371,7 +371,7 @@ export function ApplicationPage() {
 
       <nav
         className="[&_button:focus-visible]:outline-[3px] [&_button:focus-visible]:outline-focus [&_button:focus-visible]:outline-offset-[2px] flex gap-6 mt-[-4px] mx-0 mb-5 border-b border-b-line [&_button]:relative [&_button]:pt-0 [&_button]:px-px [&_button]:pb-[11px] [&_button]:border-0 [&_button]:text-ink-faint [&_button]:bg-transparent [&_button]:cursor-pointer [&_button]:text-meta [&_button]:font-semibold [&_button]:pb-3 [&_button]:transition-[color] [&_button]:duration-(--motion-fast) [&_button]:ease-(--ease-standard) [&_button.active]:text-ink [&_button.active::after]:absolute [&_button.active::after]:right-0 [&_button.active::after]:bottom-[-1px] [&_button.active::after]:left-0 [&_button.active::after]:h-0.5 [&_button.active::after]:content-[''] [&_button.active::after]:bg-mint-dark [&_button.active::after]:origin-left [&_button.active::after]:animate-[tab-underline_var(--motion-base)_var(--ease-standard)] to-580:max-w-full to-580:gap-4 to-580:overflow-x-auto pointer-coarse:[&_button]:min-h-10 [&_button:hover:not(:disabled)]:text-ink"
-        aria-label="Application sections"
+        aria-label="App sections"
       >
         {tabs.map((item) => (
           <button

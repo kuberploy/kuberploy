@@ -13,7 +13,7 @@ export function MonacoYamlEditor({
   value,
   onChange,
   readOnly = false,
-  ariaLabel = "Application configuration YAML",
+  ariaLabel = "App configuration YAML",
 }: {
   value: string;
   onChange: (value: string) => void;

@@ -139,7 +139,7 @@ export function BuildDetailPage() {
           <EmptyState
             icon="terminal"
             title="Build access required"
-            description="A coarse action union or an environment-only grant does not authorize application-wide build metadata."
+            description="A coarse action union or an Environment-only grant does not authorize App-wide build metadata."
           />
         </Card>
       </Page>
@@ -179,7 +179,7 @@ export function BuildDetailPage() {
           <EmptyState
             icon="terminal"
             title="Build not available in this scope"
-            description="The attempt, application, and project ancestry must match one effective builds.read grant."
+            description="The attempt, App, and Project ancestry must match one effective builds.read grant."
           />
         </Card>
       </Page>
@@ -336,9 +336,8 @@ export function BuildDetailPage() {
           <Eyebrow>Verified release</Eyebrow>
           <h2>Promote to an environment</h2>
           <p>
-            Select only the intended App target. Application, project,
-            namespace, registry release, and exact image digest are derived by
-            the server.
+            Select only the intended App target. App, Project, namespace,
+            registry release, and exact image digest are derived by the server.
           </p>
         </div>
         <BuildPromotionPanel
@@ -365,7 +364,7 @@ export function BuildDetailPage() {
             }
             description={
               buildLogsEnabled
-                ? "This build is visible, but logs.read is not granted for its exact application scope."
+                ? "This build is visible, but logs.read is not granted for its exact App scope."
                 : "Attempt metadata remains available. Live logs stay closed until the separate verified Kubernetes log boundary is ready."
             }
             compact
@@ -379,8 +378,8 @@ export function BuildDetailPage() {
             <Eyebrow>High-risk command</Eyebrow>
             <h2>Attempt controls</h2>
             <p>
-              Commands require an exact effective application permission and a
-              human session in this UI.
+              Commands require an exact effective App permission and a human
+              session in this UI.
             </p>
           </div>
           <BuildAttemptActions

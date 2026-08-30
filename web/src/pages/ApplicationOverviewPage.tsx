@@ -431,8 +431,8 @@ export function ApplicationOverviewPage() {
     return (
       <Page>
         <EmptyState
-          title="Application scope is unavailable"
-          description="The application or its project is no longer readable."
+          title="App scope is unavailable"
+          description="The App or its Project is no longer readable."
         />
       </Page>
     );
@@ -631,7 +631,7 @@ export function ApplicationOverviewPage() {
               with the current item marked is what a screen reader should hear. */}
           <ul
             className="flex gap-1 m-0 py-0 px-6 border-t border-t-line bg-surface-soft list-none [&_li]:inline-flex [&_li]:min-h-[50px] [&_li]:items-center [&_li]:gap-2 [&_li]:py-0 [&_li]:px-4 [&_li]:border-b [&_li]:border-b-transparent [&_li]:text-ink-soft [&_li]:text-meta [&_li]:font-medium [&_li_svg]:w-4 [&_li[aria-current='true']]:text-ink [&_li[aria-current='true']]:border-b-ink [&_li[aria-current='true']]:bg-surface [&_li[data-inactive]]:text-ink-faint [&_li[data-inactive]_svg]:opacity-55 to-760:overflow-x-auto to-760:px-3 to-760:[&_li]:flex-none to-760:[&_li]:px-3"
-            aria-label="Application source"
+            aria-label="App source"
           >
             {sourceKinds.map(([kind, icon, label]) => (
               <li
@@ -930,7 +930,7 @@ export function ApplicationOverviewPage() {
             <Field
               label="Environment"
               required
-              hint="Helm desired state is scoped to this application and one environment."
+              hint="Helm desired state is scoped to this App and one Environment."
             >
               <Select
                 value={environmentId}
@@ -947,7 +947,7 @@ export function ApplicationOverviewPage() {
           </Card>
           {features?.helmDeployments !== true ? (
             <EmptyState
-              title="Helm applications are not ready"
+              title="Helm Apps are not ready"
               description="The Helm desired-state feature must report ready before a release can be configured."
             />
           ) : selectedEnvironment ? (

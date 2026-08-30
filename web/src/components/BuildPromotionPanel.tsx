@@ -186,8 +186,8 @@ export function BuildPromotionPanel({
         <div>
           <strong>Promotion accepted</strong>
           <p>
-            The server derived the application and exact image digest from this
-            exact build.
+            The server derived the App and exact image digest from this exact
+            build.
           </p>
         </div>
         <Link

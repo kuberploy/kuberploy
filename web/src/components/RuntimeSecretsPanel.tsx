@@ -973,7 +973,7 @@ export function RuntimeSecretsPanel({
       <EmptyState
         icon="code"
         title="Secret metadata access not granted"
-        description="An exact effective secret-bindings:read capability covering an application environment is required."
+        description="An exact effective secret-bindings:read capability covering an App Environment is required."
         action={<PlaceholderBadge>Scoped access required</PlaceholderBadge>}
       />
     );
@@ -1029,7 +1029,7 @@ export function RuntimeSecretsPanel({
             <small>Metadata is readable; values are write-only.</small>
           </span>
         </div>
-        <Field label="Application environment">
+        <Field label="App Environment">
           <Select
             aria-label="Runtime secret environment"
             value={selectedEnvironment.id}

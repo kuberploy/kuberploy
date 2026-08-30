@@ -536,9 +536,7 @@ export function NewDeploymentPage() {
     }) => {
       const normalizedName = name.trim();
       if (!projectId || !normalizedName) {
-        throw new Error(
-          "Select a project and enter an application name first.",
-        );
+        throw new Error("Select a Project and enter an App name first.");
       }
       return api.createApplication(
         { projectId, name: normalizedName, sourceKind: "oci" },
@@ -604,8 +602,8 @@ export function NewDeploymentPage() {
           "A current server-resolved digest preview is required for this image tag.",
         );
       }
-      // Application identity is created explicitly before this mutation. That
-      // makes every application-scoped preview available on a first release.
+      // App identity is created explicitly before this mutation. That makes
+      // every App-scoped preview available on a first release.
       const workloadProcess = workloadProcessFromGuided(values);
       const workloadScheduling = workloadSchedulingFromGuided(values);
       const workloadProbes = workloadProbesFromGuided(values.probes, [
@@ -616,7 +614,7 @@ export function NewDeploymentPage() {
         values.secretVariables.length
       ) {
         throw new Error(
-          "Runtime-secret bindings belong to an existing application. Create the application before selecting a binding.",
+          "Runtime-secret bindings belong to an existing App. Create the App before selecting a binding.",
         );
       }
       const secretEnvironment = values.secretVariables.map(
@@ -799,7 +797,7 @@ export function NewDeploymentPage() {
         <EmptyState
           icon="layers"
           title="A project comes first"
-          description="Create a project and an environment namespace before deploying an application."
+          description="Create a Project and an Environment namespace before deploying an App."
           action={
             <Link
               to="/projects"
@@ -909,7 +907,7 @@ export function NewDeploymentPage() {
           <FormCard>
             <FormCardHeading step="02">
               <div>
-                <h2>Application identity</h2>
+                <h2>App identity</h2>
                 <p>
                   Create the durable logical identity before previewing image,
                   sslip.io, TLS, DNS, middleware, or secret configuration.
@@ -919,7 +917,7 @@ export function NewDeploymentPage() {
             <div
               className="flex w-max p-1 border border-line rounded-[9px] bg-surface-soft [&_label]:cursor-pointer [&_input]:absolute [&_input]:w-px [&_input]:h-px [&_input]:opacity-0 [&_span]:block [&_span]:py-2 [&_span]:px-3 [&_span]:rounded-md [&_span]:text-ink-faint [&_span]:text-meta [&_span]:font-semibold [&_input:checked_+_span]:text-ink [&_input:checked_+_span]:bg-surface [&_input:checked_+_span]:shadow-[0_1px_4px_rgba(15_34_26_0.1)] pointer-coarse:[&_button]:min-h-10"
               role="radiogroup"
-              aria-label="Application identity mode"
+              aria-label="App identity mode"
             >
               <label>
                 <input
@@ -958,7 +956,7 @@ export function NewDeploymentPage() {
                     },
                   })}
                 />
-                <span>New application</span>
+                <span>New App</span>
               </label>
               <label>
                 <input
@@ -966,13 +964,13 @@ export function NewDeploymentPage() {
                   value="existing"
                   {...form.register("applicationMode")}
                 />
-                <span>Existing application</span>
+                <span>Existing App</span>
               </label>
             </div>
             {applicationMode === "new" ? (
               <div className="grid gap-4">
                 <Field
-                  label="Application name"
+                  label="App name"
                   required
                   hint="Stable identity, independent of environment and release."
                   error={form.formState.errors.applicationName?.message}
@@ -982,7 +980,7 @@ export function NewDeploymentPage() {
                     {...form.register("applicationName", {
                       required:
                         applicationMode === "new"
-                          ? "Enter an application name."
+                          ? "Enter an App name."
                           : false,
                     })}
                   />
@@ -994,31 +992,29 @@ export function NewDeploymentPage() {
                     busy={reserveApplication.isPending}
                     onClick={reserveApplicationIdentity}
                   >
-                    Create application identity
+                    Create App identity
                   </Button>
                   <MutedCopy>
-                    This creates a recoverable application record, not a
-                    workload. It remains available from Projects even if you
-                    leave this App setup.
+                    This creates a recoverable App record, not a workload. It
+                    remains available from Projects even if you leave this App
+                    setup.
                   </MutedCopy>
                 </div>
               </div>
             ) : (
               <Field
-                label="Application"
+                label="App"
                 required
                 error={form.formState.errors.applicationId?.message}
               >
                 <Select
                   {...form.register("applicationId", {
                     required:
-                      applicationMode === "existing"
-                        ? "Select an application."
-                        : false,
+                      applicationMode === "existing" ? "Select an App." : false,
                   })}
                   value={form.watch("applicationId")}
                 >
-                  <option value="">Select application</option>
+                  <option value="">Select App</option>
                   {filteredApplications.map((application) => (
                     <option key={application.id} value={application.id}>
                       {application.name}
@@ -1030,10 +1026,10 @@ export function NewDeploymentPage() {
             {reservedApplicationId ? (
               <Notice tone="success" role="status">
                 <div>
-                  <strong>Application identity created</strong>
+                  <strong>App identity created</strong>
                   <p>
-                    Application-scoped previews are now enabled. You can deploy
-                    here or configure another source from its application page.
+                    App-scoped previews are now enabled. You can deploy here or
+                    configure another source from its App page.
                   </p>
                 </div>
                 <Link
@@ -1047,7 +1043,7 @@ export function NewDeploymentPage() {
             ) : null}
             {reserveApplication.error ? (
               <ErrorPanel
-                title="Application identity was not created"
+                title="App identity was not created"
                 error={reserveApplication.error}
                 onRetry={reserveApplicationIdentity}
               />
@@ -1130,7 +1126,7 @@ export function NewDeploymentPage() {
                       }
                       unavailableReason={
                         applicationMode !== "existing"
-                          ? "Create the application first; runtime-secret bindings are scoped to an existing application and environment."
+                          ? "Create the App first; runtime-secret bindings are scoped to an existing App and Environment."
                           : "Runtime-secret references remain unavailable until the strict Sealed Secrets runtime is ready."
                       }
                       onChange={(reference) =>
@@ -1164,8 +1160,7 @@ export function NewDeploymentPage() {
                 <h2>Artifact & runtime</h2>
                 <p>
                   Exact digests submit directly. Authorized tags require a fresh
-                  server-owned resolution preview for this application and
-                  environment.
+                  server-owned resolution preview for this App and environment.
                 </p>
               </div>
             </FormCardHeading>
@@ -1197,9 +1192,9 @@ export function NewDeploymentPage() {
                 <strong>Resolve this tag before deploying the App</strong>
                 {applicationMode !== "existing" ? (
                   <p>
-                    Tag resolution requires an existing application so the
-                    server can enforce its exact registry policy. Create the
-                    application first, or use an exact digest.
+                    Tag resolution requires an existing App so the server can
+                    enforce its exact registry policy. Create the App first, or
+                    use an exact digest.
                   </p>
                 ) : !imageTagResolutionEnabled ? (
                   <p>
@@ -1417,7 +1412,7 @@ export function NewDeploymentPage() {
             />
             <p className="mt-1 mx-0 mb-0 text-ink-faint text-xs leading-[1.45]">
               Affinity, anti-affinity, and topology selectors are bound to this
-              exact application identity.
+              exact App identity.
             </p>
           </FormCard>
 
@@ -1595,8 +1590,8 @@ export function NewDeploymentPage() {
               </small>
             ) : applicationMode !== "existing" ? (
               <small className="mt-2 block text-ink-faint text-xs">
-                Select an existing application to preview its exact sslip.io
-                hostname before deploying the App.
+                Select an existing App to preview its exact sslip.io hostname
+                before deploying the App.
               </small>
             ) : sslipHostname.error ? (
               <small className="mt-2 block text-ink-faint text-xs">
@@ -1697,8 +1692,8 @@ export function NewDeploymentPage() {
             <Notice tone="info" role="status">
               <strong>Loading current Git configuration</strong>
               <p>
-                Existing applications use the current strong Git bundle ETag for
-                a safe App update.
+                Existing Apps use the current strong Git bundle ETag for a safe
+                App update.
               </p>
             </Notice>
           ) : null}

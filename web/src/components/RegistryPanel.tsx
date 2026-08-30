@@ -793,7 +793,7 @@ export function RegistryPanel({
         <EmptyState
           icon="settings"
           title="Registry access required"
-          description="An exact registry:read capability covering this application is required."
+          description="An exact registry:read capability covering this App is required."
         />
       </Card>
     );
@@ -821,7 +821,7 @@ export function RegistryPanel({
           <EmptyState
             icon="layers"
             title="No registry policy configured"
-            description="A platform administrator can attach an approved target. Scoped administrators can edit an existing application policy."
+            description="A platform administrator can attach an approved target. Scoped administrators can edit an existing App policy."
           />
         </Card>
       ) : (
@@ -842,7 +842,7 @@ export function RegistryPanel({
         <Card>
           <CardHeader>
             <div>
-              <Eyebrow>Application policy</Eyebrow>
+              <Eyebrow>App policy</Eyebrow>
               <h2>Attach an approved target</h2>
             </div>
           </CardHeader>
@@ -854,7 +854,7 @@ export function RegistryPanel({
           ) : null}
           {attachableTargets.length === 0 ? (
             <MutedCopy>
-              Every configured target is already attached to this application.
+              Every configured target is already attached to this App.
             </MutedCopy>
           ) : (
             <>

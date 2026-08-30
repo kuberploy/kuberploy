@@ -76,7 +76,7 @@ type SelectProps = Omit<
 >;
 
 /**
- * Shadcn-style, application-wide Select. It intentionally accepts the native
+ * Shadcn-style, app-wide Select. It intentionally accepts the native
  * single-select API so existing forms retain their event and registration
  * contracts while the visible control is an accessible Base UI listbox.
  */

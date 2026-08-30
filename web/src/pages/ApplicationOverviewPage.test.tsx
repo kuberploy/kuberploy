@@ -194,7 +194,7 @@ describe("application source overview", () => {
 
     await user.click(screen.getByRole("button", { name: "Source & build" }));
     const sourceList = screen.getByRole("list", {
-      name: "Application source",
+      name: "App source",
     });
     const kinds = within(sourceList).getAllByRole("listitem");
     expect(kinds.map((item) => item.textContent)).toEqual([

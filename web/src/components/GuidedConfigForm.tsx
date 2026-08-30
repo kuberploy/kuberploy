@@ -532,7 +532,7 @@ export function GuidedConfigForm({
       : externalDNSCatalogError
         ? externalDNSCatalogError
         : !selectedDNSIntegration
-          ? "Select an integration authorized for this application and environment."
+          ? "Select an integration authorized for this App and Environment."
           : selectedDNSIntegration.runtimeAvailable !== true
             ? "The selected External DNS integration revision is not freshly observed ready."
             : host &&
@@ -553,7 +553,7 @@ export function GuidedConfigForm({
       className="min-w-0 m-0 pt-1.5 px-6 pb-0 border-0 disabled:opacity-100 [&:disabled_input]:text-ink-soft [&:disabled_input]:cursor-not-allowed [&:disabled_input]:bg-surface-soft [&:disabled_select]:text-ink-soft [&:disabled_select]:cursor-not-allowed [&:disabled_select]:bg-surface-soft [&:disabled_textarea]:text-ink-soft [&:disabled_textarea]:cursor-not-allowed [&:disabled_textarea]:bg-surface-soft"
       disabled={readOnly}
     >
-      <legend className="sr-only">Guided application configuration</legend>
+      <legend className="sr-only">Guided App configuration</legend>
       <section className="border-b border-line px-0 py-6 last:border-b-0 [&_h3]:m-0 [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:tracking-[-0.01em] [&_h3]:text-ink [&_p]:mx-0 [&_p]:mt-1 [&_p]:mb-0 [&_p]:text-xs [&_p]:text-ink-faint">
         <div className="mb-4 grid grid-cols-[34px_1fr] items-center gap-3">
           <span className="grid size-8 place-items-center rounded-[9px] bg-mint-soft text-mint-dark [&_svg]:w-[15px]">
@@ -977,8 +977,8 @@ export function GuidedConfigForm({
         />
         <p className="mt-1 mx-0 mb-0 text-ink-faint text-xs leading-[1.45]">
           Placement is stored directly with this app. Pod affinity,
-          anti-affinity, and topology selectors may target only this exact
-          application. Kuberploy never edits Nodes, taints, or provisioners.
+          anti-affinity, and topology selectors may target only this exact App.
+          Kuberploy never edits Nodes, taints, or provisioners.
         </p>
       </section>
 
@@ -1205,7 +1205,7 @@ export function GuidedConfigForm({
                   hint={
                     externalDNSCatalogPending
                       ? "Loading the authorized environment catalog…"
-                      : "Only exact profiles authorized for this application and environment are selectable."
+                      : "Only exact profiles authorized for this App and Environment are selectable."
                   }
                 >
                   <Select

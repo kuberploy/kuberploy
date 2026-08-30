@@ -201,7 +201,7 @@ function VariableSetEditor({
           <h2>{scopeLabel(snapshot.scope)}</h2>
           <p>
             {snapshot.scope === "project"
-              ? "Inherited by applications through this concrete environment Git authority."
+              ? "Inherited by Apps through this concrete Environment Git authority."
               : "Overrides project values for this environment."}
           </p>
         </div>
@@ -379,7 +379,7 @@ export function VariableSetsView({ environmentId }: { environmentId: string }) {
             ? `${environment.data.name} variables`
             : "Project & environment variables"
         }
-        description="Manage ordinary values in the exact inherited Git sources. Application values remain highest precedence, and secret bindings stay application-scoped."
+        description="Manage ordinary values in the exact inherited Git sources. App values remain highest precedence, and secret bindings stay App-scoped."
         actions={
           <Link
             to="/projects"
