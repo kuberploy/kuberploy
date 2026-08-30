@@ -329,8 +329,8 @@ func TestPostgreSQLProjectionContract(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT desired_revision FROM deployments WHERE id=$1`, pgDeployment).Scan(&desiredRevision); err != nil {
 		t.Fatal(err)
 	}
-	if desiredRevision != parentHead {
-		t.Fatalf("parent VariableSet activation left deployment desired revision=%q want=%q", desiredRevision, parentHead)
+	if desiredRevision != effectiveDocument.ConfigRevision {
+		t.Fatalf("projection activation advanced deployment before Argo publication: desired=%q want=%q", desiredRevision, effectiveDocument.ConfigRevision)
 	}
 	if err = store.FinishReconciliation(ctx, parentWork.Lease, gitprojection.ReconciliationOutcome{LastCommit: parentHead,
 		NextPollAt: testStart.Add(time.Hour)}, testStart.Add(13*time.Second)); err != nil {

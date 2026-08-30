@@ -339,9 +339,22 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 	if registry.calls != beforeCalls {
 		t.Fatal("mutable registry freshness was consulted after durable Git commit")
 	}
+	var deploymentDesiredRevision string
+	if err = pool.QueryRow(ctx, `SELECT desired_revision FROM deployments WHERE id=$1`, deploymentID).Scan(&deploymentDesiredRevision); err != nil {
+		t.Fatal(err)
+	}
+	if deploymentDesiredRevision != "" {
+		t.Fatalf("deployment advanced before Argo desired state verification: %q", deploymentDesiredRevision)
+	}
 	verified, err := argoStore.CompleteDesiredStateVerified(ctx, *committed.Lease, committedRevision, receiptAt.Add(2*time.Second))
 	if err != nil || verified.State != DesiredStateVerified {
 		t.Fatalf("complete verified command=%#v err=%v", verified, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT desired_revision FROM deployments WHERE id=$1`, deploymentID).Scan(&deploymentDesiredRevision); err != nil {
+		t.Fatal(err)
+	}
+	if deploymentDesiredRevision != document.ConfigRevision {
+		t.Fatalf("verified Argo desired state left deployment revision=%q want=%q", deploymentDesiredRevision, document.ConfigRevision)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO git_projected_documents(binding_id,generation,path,application_id,source_revision,config_revision,blob_id,content_sha256,raw,parsed,valid,diagnostics,schema_version,parser_version,indexed_at)
 		VALUES($1,2,$2,$3,$4,$4,$5,$6,$7,$8,true,$9,$10,$11,$12)`, binding.ID, document.Path, applicationID,

@@ -341,18 +341,38 @@ func (s *PostgreSQLStore) CompleteDesiredStateVerified(ctx context.Context, leas
 	if lease.Validate() != nil || !commitRE.MatchString(revision) || now.IsZero() {
 		return DesiredStateCommand{}, ErrInvalid
 	}
-	command, err := scanDesiredState(s.pool.QueryRow(ctx, `UPDATE argo_desired_state_commands SET
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return DesiredStateCommand{}, classifyPostgres(err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	command, err := scanDesiredState(tx.QueryRow(ctx, `UPDATE argo_desired_state_commands SET
 		state='verified',verified_at=$7,completed_at=$7,lease_owner=NULL,lease_until=NULL,
 		worker_contract=NULL,worker_config_digest=NULL,updated_at=$7
 		WHERE id=$1 AND lease_owner=$2 AND lease_epoch=$3 AND worker_contract=$4 AND worker_config_digest=$5
 		AND lease_until>$7 AND state='git-committed' AND committed_revision=$6 AND committed_at<=$7
 		RETURNING `+desiredStateColumns,
 		lease.CommandID, lease.Owner, lease.Epoch, lease.Contract, lease.ConfigDigest, revision, now.UTC()))
-	if err == nil {
-		return command, nil
+	if err != nil {
+		current, currentErr := s.DesiredStateCommand(ctx, lease.CommandID)
+		return DesiredStateCommand{}, desiredStateWriteMiss(current, currentErr, lease, now)
 	}
-	current, currentErr := s.DesiredStateCommand(ctx, lease.CommandID)
-	return DesiredStateCommand{}, desiredStateWriteMiss(current, currentErr, lease, now)
+	// AppConfig config_revision is the complete App + parent VariableSet input.
+	// Advance the user-visible desired revision only after the exact
+	// ApplicationSet generation that pins those revisions is provider-verified.
+	if _, err = tx.Exec(ctx, `UPDATE deployments d SET desired_revision=doc.config_revision,updated_at=$3
+		FROM git_projected_documents doc,applications a
+		WHERE doc.binding_id=$1 AND doc.generation=$2 AND doc.valid
+		AND doc.application_id=d.application_id AND d.environment_id=$4
+		AND a.id=d.application_id AND a.project_id=$5
+		AND d.desired_revision IS DISTINCT FROM doc.config_revision`,
+		command.EnvironmentBindingID, command.EnvironmentGeneration, now.UTC(), command.EnvironmentID, command.ProjectID); err != nil {
+		return DesiredStateCommand{}, classifyPostgres(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return DesiredStateCommand{}, classifyPostgres(err)
+	}
+	return command, nil
 }
 
 func (s *PostgreSQLStore) RetryDesiredState(ctx context.Context, lease DesiredStateLease, retry DesiredStateRetry, now time.Time) (DesiredStateCommand, error) {
