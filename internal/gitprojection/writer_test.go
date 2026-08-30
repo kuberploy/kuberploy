@@ -653,6 +653,44 @@ func TestProjectionWriterRecoversPushBeforeDatabaseFinalization(t *testing.T) {
 	}
 }
 
+func TestProjectionWriterReclaimsExpiredReservationAfterWorkerRestart(t *testing.T) {
+	fixture := seedRepository(t, false)
+	now := time.Now().UTC()
+	binding := readyFixtureBinding(fixture, now)
+	store := gitprojection.NewMemoryStore()
+	if err := store.PutBinding(t.Context(), binding); err != nil {
+		t.Fatal(err)
+	}
+	command := newCreateCommand(t, binding, operationID, "66666666-6666-4666-8666-666666666666", fixture.config, now)
+	if err := store.PutWriteCommand(t.Context(), command); err != nil {
+		t.Fatal(err)
+	}
+	leaseDuration := 30 * time.Second
+	leaseUntil := now.Add(leaseDuration)
+	reservation := gitprojection.PathReservation{BindingID: binding.ID, TargetRef: binding.TargetRef, Path: command.Path, OperationID: operationID,
+		Owner: "worker-before-restart", BaseRevision: fixture.head, State: gitprojection.ReservationCandidate,
+		LeaseUntil: &leaseUntil, CreatedAt: now, UpdatedAt: now}
+	if _, _, err := store.AcquirePath(t.Context(), reservation, now, leaseDuration); err != nil {
+		t.Fatal(err)
+	}
+	observed := leaseUntil
+	manager := &gitprojection.MirrorManager{Root: t.TempDir(), AllowLocalTests: true, LocalRemote: fixture.remote}
+	writer := &gitprojection.ProjectionWriter{Store: store, Commands: store, Provider: localHeadVerifier(t, fixture.remote, &observed),
+		Manager: manager, Owner: "worker-after-restart", LeaseDuration: leaseDuration, Now: func() time.Time { return observed.Add(time.Second) }}
+	revision, err := writer.CommitOperation(t.Context(), operationID)
+	if err != nil || revision == "" || revision == fixture.head {
+		t.Fatalf("revision=%q head=%q err=%v", revision, fixture.head, err)
+	}
+	stored, err := store.WriteCommand(t.Context(), operationID)
+	if err != nil || stored.State != gitprojection.WriteCommandGitCommitted || stored.CommittedRevision != revision {
+		t.Fatalf("stored=%#v err=%v", stored, err)
+	}
+	reclaimed, err := store.PathReservation(t.Context(), binding.ID, binding.TargetRef, command.Path)
+	if err != nil || reclaimed.Owner != "worker-after-restart" || reclaimed.State != gitprojection.ReservationCommittedPendingIndex {
+		t.Fatalf("reservation=%#v err=%v", reclaimed, err)
+	}
+}
+
 func TestProjectionWriterMarksPostPushProviderOutageReconcilePending(t *testing.T) {
 	fixture := seedRepository(t, false)
 	now := time.Now().UTC()

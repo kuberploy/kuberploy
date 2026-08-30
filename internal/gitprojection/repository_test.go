@@ -771,17 +771,35 @@ func TestMemoryProjectionAtomicityFreshnessTombstonesAndReservations(t *testing.
 	if _, _, err = store.AcquirePath(t.Context(), reservation, leaseStart, lease); err != nil {
 		t.Fatal(err)
 	}
+	restarted := reservation
+	restarted.Owner = "worker-b"
+	restarted.CreatedAt = until.Add(time.Second)
+	restarted.UpdatedAt = restarted.CreatedAt
+	restartedUntil := restarted.UpdatedAt.Add(lease)
+	restarted.LeaseUntil = &restartedUntil
+	activeRestart := restarted
+	activeRestart.CreatedAt = leaseStart.Add(time.Second)
+	activeRestart.UpdatedAt = activeRestart.CreatedAt
+	activeRestartUntil := activeRestart.UpdatedAt.Add(lease)
+	activeRestart.LeaseUntil = &activeRestartUntil
+	if _, _, err = store.AcquirePath(t.Context(), activeRestart, activeRestart.UpdatedAt, lease); !errors.Is(err, gitprojection.ErrLeaseHeld) {
+		t.Fatalf("active reservation changed worker owner: %v", err)
+	}
+	reclaimed, replay, err := store.AcquirePath(t.Context(), restarted, restarted.UpdatedAt, lease)
+	if err != nil || !replay || reclaimed.Owner != restarted.Owner || reclaimed.LeaseUntil == nil || !reclaimed.LeaseUntil.Equal(restartedUntil) {
+		t.Fatalf("same operation was not reclaimed after worker restart: reservation=%#v replay=%v err=%v", reclaimed, replay, err)
+	}
 	other := reservation
 	other.OperationID = "66666666-6666-4666-8666-666666666666"
-	other.Owner = "worker-b"
-	other.CreatedAt = until.Add(time.Second)
+	other.Owner = "worker-c"
+	other.CreatedAt = restartedUntil.Add(time.Second)
 	other.UpdatedAt = other.CreatedAt
 	otherUntil := other.UpdatedAt.Add(lease)
 	other.LeaseUntil = &otherUntil
 	if _, _, err = store.AcquirePath(t.Context(), other, other.UpdatedAt, lease); !errors.Is(err, gitprojection.ErrLeaseHeld) {
 		t.Fatalf("expired reservation was stolen: %v", err)
 	}
-	if err = store.RepairExpiredPath(t.Context(), binding.ID, binding.TargetRef, document.Path, false, "", until.Add(time.Second)); err != nil {
+	if err = store.RepairExpiredPath(t.Context(), binding.ID, binding.TargetRef, document.Path, false, "", other.UpdatedAt); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err = store.AcquirePath(t.Context(), other, other.UpdatedAt, lease); err != nil {

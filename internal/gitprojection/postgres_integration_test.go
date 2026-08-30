@@ -193,7 +193,18 @@ func TestPostgreSQLProjectionContract(t *testing.T) {
 	if _, replay, err = store.AcquirePath(ctx, reservation, leaseNow, lease); err != nil || !replay {
 		t.Fatalf("reserve replay=%v err=%v", replay, err)
 	}
-	if _, err = store.FinalizePath(ctx, binding.ID, binding.TargetRef, document.Path, pgOperation, strings.Repeat("d", 40), leaseNow.Add(time.Second)); err != nil {
+	takeoverAt := leaseUntil.Add(time.Second)
+	takeoverUntil := takeoverAt.Add(lease)
+	takeover := reservation
+	takeover.Owner = "postgres-worker-restarted"
+	takeover.CreatedAt = takeoverAt
+	takeover.UpdatedAt = takeoverAt
+	takeover.LeaseUntil = &takeoverUntil
+	reclaimed, replay, err := store.AcquirePath(ctx, takeover, takeoverAt, lease)
+	if err != nil || !replay || reclaimed.Owner != takeover.Owner || reclaimed.LeaseUntil == nil || !reclaimed.LeaseUntil.Equal(takeoverUntil) {
+		t.Fatalf("restart reclaim=%#v replay=%v err=%v", reclaimed, replay, err)
+	}
+	if _, err = store.FinalizePath(ctx, binding.ID, binding.TargetRef, document.Path, pgOperation, strings.Repeat("d", 40), takeoverAt.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -204,7 +215,7 @@ func TestPostgreSQLProjectionContract(t *testing.T) {
 	if _, err = pool.Exec(ctx, `DELETE FROM git_path_reservations WHERE binding_id=$1`, pgBinding); err != nil {
 		t.Fatal(err)
 	}
-	testStart := leaseNow.Add(3 * time.Second)
+	testStart := takeoverAt.Add(3 * time.Second)
 	if _, err = pool.Exec(ctx, `INSERT INTO operations(id,kind,status,target_type,target_id,request_id,generation,created_at,updated_at)
 		VALUES($1,'deployment.git-write','queued','deployment',$2,'postgres-descendant-convergence',1,$3,$3)`, pgWriteOperation, pgDeployment, testStart); err != nil {
 		t.Fatal(err)

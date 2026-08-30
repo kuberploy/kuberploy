@@ -946,6 +946,20 @@ func (s *PostgreSQLStore) AcquirePath(ctx context.Context, candidate PathReserva
 		}
 		return current, true, nil
 	}
+	if current.OperationID == candidate.OperationID && current.BaseRevision == candidate.BaseRevision &&
+		current.State == ReservationCandidate && current.LeaseUntil != nil && !current.LeaseUntil.After(now) {
+		if _, err = tx.Exec(ctx, `UPDATE git_path_reservations SET owner=$4,lease_until=$5,updated_at=$6 WHERE binding_id=$1 AND target_ref=$2 AND path=$3 AND operation_id=$7`,
+			candidate.BindingID, candidate.TargetRef, candidate.Path, candidate.Owner, candidate.LeaseUntil, now.UTC(), candidate.OperationID); err != nil {
+			return PathReservation{}, false, classifyPostgres(err)
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return PathReservation{}, false, classifyPostgres(err)
+		}
+		current.Owner = candidate.Owner
+		current.LeaseUntil = candidate.LeaseUntil
+		current.UpdatedAt = now.UTC()
+		return current, true, nil
+	}
 	return PathReservation{}, false, ErrLeaseHeld
 }
 

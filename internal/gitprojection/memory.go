@@ -638,6 +638,14 @@ func (s *MemoryStore) AcquirePath(_ context.Context, candidate PathReservation, 
 		if current.OperationID == candidate.OperationID && current.Owner == candidate.Owner && current.BaseRevision == candidate.BaseRevision {
 			return current, true, nil
 		}
+		if current.OperationID == candidate.OperationID && current.BaseRevision == candidate.BaseRevision &&
+			current.State == ReservationCandidate && current.LeaseUntil != nil && !current.LeaseUntil.After(now) {
+			current.Owner = candidate.Owner
+			current.LeaseUntil = candidate.LeaseUntil
+			current.UpdatedAt = now.UTC()
+			s.reservations[key] = current
+			return current, true, nil
+		}
 		// Expiry alone never permits stealing. A repair worker must verify that
 		// the previous operation commit is absent from authoritative history.
 		return PathReservation{}, false, ErrLeaseHeld
