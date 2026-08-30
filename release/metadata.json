@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Environment foundations recover after concurrent protected Git updates.",
+  "summary": "Deployment writes recover after a worker restart.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.422"
+  "version": "0.1.0-rc.423"
 }
