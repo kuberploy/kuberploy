@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Healthy existing certificate issuers stay available while protected Git updates retry.",
+  "summary": "Environment foundations recover after concurrent protected Git updates.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.421"
+  "version": "0.1.0-rc.422"
 }
