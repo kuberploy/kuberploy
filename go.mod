@@ -4,17 +4,13 @@ go 1.26.5
 
 require (
 	github.com/jackc/pgx/v5 v5.10.0
-	github.com/miekg/dns v1.1.72
+	github.com/miekg/dns v1.1.73
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
-	github.com/valkey-io/valkey-go v1.0.76
+	github.com/valkey-io/valkey-go v1.0.77
 	go.yaml.in/yaml/v3 v3.0.5
 )
 
-require (
-	golang.org/x/mod v0.38.0 // indirect
-	golang.org/x/net v0.57.0 // indirect
-	golang.org/x/tools v0.48.0 // indirect
-)
+require golang.org/x/net v0.57.0 // indirect
 
 require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
