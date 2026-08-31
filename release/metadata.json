@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "App registry inventory stays scoped to repositories owned by the selected App.",
+  "summary": "Environment deletion prunes both protected Git manifests and repairs cleanup completed by earlier release candidates.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.428"
+  "version": "0.1.0-rc.429"
 }
