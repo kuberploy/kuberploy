@@ -17,7 +17,10 @@ import {
   buttonVariants,
 } from "../components/ui";
 import { formatDate, titleCase } from "../lib/format";
+import { operationTitle } from "../lib/operations";
 import type { OperationStep } from "../api/types";
+
+export { operationTitle };
 
 const terminalStates = new Set([
   "succeeded",
@@ -176,21 +179,6 @@ export function OperationPage() {
       ) : null}
     </Page>
   );
-}
-
-export function operationTitle(kind: string): string {
-  switch (kind) {
-    case "deployment.git-write":
-      return "Apply App change";
-    case "deployment.config-draft-save":
-      return "Save App draft";
-    case "deployment.clone-draft":
-      return "Clone App draft";
-    case "variable-set.git-write":
-      return "Apply variable changes";
-    default:
-      return titleCase(kind);
-  }
 }
 
 export function operationStageTitle(name: string): string {

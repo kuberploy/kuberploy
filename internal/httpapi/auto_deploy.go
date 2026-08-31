@@ -195,7 +195,7 @@ func (s *Server) autoDeployPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	policy, revision, replay, err := s.autoDeployService.Revise(r.Context(), actor.ID, autodeploy.RevisePolicyInput{
-		Policy: status.Policy, TemplateDeploymentID: input.TemplateDeploymentID, ServiceActorID: input.ServiceActorID,
+		Policy: status.Policy, CurrentRevision: status.CurrentRevision, TemplateDeploymentID: input.TemplateDeploymentID, ServiceActorID: input.ServiceActorID,
 		Enabled: input.Enabled, IdempotencyKey: key, RequestDigest: requestDigest, RequestID: requestID(r.Context()),
 	})
 	if err != nil {

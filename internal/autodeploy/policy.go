@@ -88,6 +88,7 @@ type CreatePolicyInput struct {
 
 type RevisePolicyInput struct {
 	Policy               Policy
+	CurrentRevision      Revision
 	TemplateDeploymentID string
 	ServiceActorID       string
 	Enabled              bool
@@ -133,25 +134,43 @@ func (s *PolicyService) Create(ctx context.Context, actor string, input CreatePo
 }
 
 func (s *PolicyService) Revise(ctx context.Context, actor string, input RevisePolicyInput) (Policy, Revision, bool, error) {
-	if s == nil || s.Catalog == nil || s.Store == nil || !uuidRE.MatchString(actor) || input.Policy.Validate() != nil ||
-		!uuidRE.MatchString(input.TemplateDeploymentID) || !uuidRE.MatchString(input.ServiceActorID) || input.IdempotencyKey == "" || input.RequestDigest == "" || input.RequestID == "" {
+	if s == nil || s.Store == nil || !uuidRE.MatchString(actor) || input.Policy.Validate() != nil ||
+		input.IdempotencyKey == "" || input.RequestDigest == "" || input.RequestID == "" {
 		return Policy{}, Revision{}, false, ErrInvalid
 	}
 	if policy, revision, found, err := s.CommandReplay(ctx, actor, input.IdempotencyKey, "revise", input.RequestDigest, input.Policy.ApplicationID, input.Policy.ID); err != nil || found {
 		return policy, revision, found, err
 	}
-	definition, err := s.Catalog.BuildDefinitionIdentity(ctx, input.Policy.ApplicationID)
-	if err != nil || definition.ProjectID != input.Policy.ProjectID || definition.ApplicationID != input.Policy.ApplicationID {
-		return Policy{}, Revision{}, false, ErrConflict
-	}
-	_, _, template, err := s.resolveTemplate(ctx, definition, input.Policy.EnvironmentID, input.TemplateDeploymentID, input.ServiceActorID)
-	if err != nil {
-		return Policy{}, Revision{}, false, err
-	}
 	next := input.Policy
 	next.CurrentRevision++
-	revision := Revision{PolicyID: next.ID, Revision: next.CurrentRevision, Enabled: input.Enabled, Template: template,
-		TemplateDigest: TemplateDigest(template), ServiceActorID: input.ServiceActorID, CreatedBy: actor, CreatedAt: s.now()}
+	var revision Revision
+	if !input.Enabled {
+		current := input.CurrentRevision
+		if current.ValidateFor(input.Policy) != nil || current.Revision != input.Policy.CurrentRevision ||
+			input.TemplateDeploymentID != "" && input.TemplateDeploymentID != current.Template.SourceDeploymentID ||
+			input.ServiceActorID != "" && input.ServiceActorID != current.ServiceActorID {
+			return Policy{}, Revision{}, false, ErrConflict
+		}
+		revision = current
+		revision.Revision = next.CurrentRevision
+		revision.Enabled = false
+		revision.CreatedBy = actor
+		revision.CreatedAt = s.now()
+	} else {
+		if s.Catalog == nil || !uuidRE.MatchString(input.TemplateDeploymentID) || !uuidRE.MatchString(input.ServiceActorID) {
+			return Policy{}, Revision{}, false, ErrInvalid
+		}
+		definition, err := s.Catalog.BuildDefinitionIdentity(ctx, input.Policy.ApplicationID)
+		if err != nil || definition.ProjectID != input.Policy.ProjectID || definition.ApplicationID != input.Policy.ApplicationID {
+			return Policy{}, Revision{}, false, ErrConflict
+		}
+		_, _, template, err := s.resolveTemplate(ctx, definition, input.Policy.EnvironmentID, input.TemplateDeploymentID, input.ServiceActorID)
+		if err != nil {
+			return Policy{}, Revision{}, false, err
+		}
+		revision = Revision{PolicyID: next.ID, Revision: next.CurrentRevision, Enabled: true, Template: template,
+			TemplateDigest: TemplateDigest(template), ServiceActorID: input.ServiceActorID, CreatedBy: actor, CreatedAt: s.now()}
+	}
 	if revision.ValidateFor(next) != nil {
 		return Policy{}, Revision{}, false, ErrInvalid
 	}

@@ -1,5 +1,6 @@
 import type { Operation } from "../api/types";
-import { formatDate, titleCase } from "../lib/format";
+import { formatDate } from "../lib/format";
+import { operationTitle } from "../lib/operations";
 import { EmptyState, StatusPill } from "./ui";
 
 export function OperationTimeline({
@@ -31,7 +32,7 @@ export function OperationTimeline({
           </span>
           <div className="pb-4 [&>div]:flex [&>div]:items-center [&>div]:justify-between [&>div]:gap-2 [&_strong]:text-meta [&_p]:my-1 [&_p]:mx-0 [&_p]:text-ink-soft [&_p]:text-meta [&_p]:leading-[1.45] [&_small]:text-ink-faint [&_small]:text-xs [&_code]:text-[inherit]">
             <div>
-              <strong>{titleCase(operation.kind)}</strong>
+              <strong>{operationTitle(operation.kind)}</strong>
               <StatusPill value={operation.state} />
             </div>
             <p>

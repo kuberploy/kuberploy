@@ -1,6 +1,7 @@
 package autodeploy
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -85,7 +86,30 @@ func (s *policyRecorder) CreatePolicy(_ context.Context, policy Policy, revision
 }
 func (s *policyRecorder) RevisePolicy(_ context.Context, _ Policy, revision Revision, _, _, _ string) (Policy, Revision, bool, error) {
 	s.revision = revision
-	return Policy{}, revision, false, nil
+	return s.policy, revision, false, nil
+}
+
+func TestPolicyDisablePreservesCurrentTemplateAfterSourceDrift(t *testing.T) {
+	template := Template{SourceDeploymentID: deploymentID, SourceDeploymentGeneration: 4,
+		SourceConfigETag: `"sha256:` + repeat("2", 64) + `"`, ConfigIntent: []byte(`{"apiVersion":"kuberploy.io/v1alpha1","kind":"AppConfig","spec":{"delivery":{"mode":"image"}}}`)}
+	policy := Policy{ID: policyID, BuildDefinitionID: definitionID, ProjectID: projectID, ApplicationID: applicationID,
+		EnvironmentID: environmentID, CurrentRevision: 1, CreatedBy: creatorID, CreatedAt: fixedNow}
+	current := Revision{PolicyID: policyID, Revision: 1, Enabled: true, Template: template,
+		TemplateDigest: TemplateDigest(template), ServiceActorID: serviceActor, CreatedBy: creatorID, CreatedAt: fixedNow}
+	store := &policyRecorder{policy: policy, revision: current}
+	service := &PolicyService{Store: store, Now: func() time.Time { return fixedNow.Add(time.Minute) }}
+
+	updated, revision, replay, err := service.Revise(t.Context(), creatorID, RevisePolicyInput{
+		Policy: policy, CurrentRevision: current, TemplateDeploymentID: deploymentID, ServiceActorID: serviceActor,
+		Enabled: false, IdempotencyKey: "disable-stale-policy", RequestDigest: "sha256:" + repeat("9", 64), RequestID: "request-disable-stale-policy",
+	})
+	if err != nil || replay || revision.Enabled || revision.Revision != 2 || updated.ID != policyID {
+		t.Fatalf("updated=%#v revision=%#v replay=%v err=%v", updated, revision, replay, err)
+	}
+	if revision.TemplateDigest != current.TemplateDigest || revision.ServiceActorID != current.ServiceActorID ||
+		!bytes.Equal(revision.Template.ConfigIntent, current.Template.ConfigIntent) {
+		t.Fatalf("disable changed pinned policy inputs: current=%#v revision=%#v", current, revision)
+	}
 }
 
 func TestPolicyCreationBindsExactResourcesAndStoresOnlyReusableInputs(t *testing.T) {
