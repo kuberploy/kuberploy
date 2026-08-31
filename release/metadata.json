@@ -2,5 +2,5 @@
   "breakingChanges": true,
   "summary": "Styled selectors preserve dependent form state when reopened.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.426"
+  "version": "0.1.0-rc.427"
 }
