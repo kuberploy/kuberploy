@@ -178,6 +178,8 @@ func TestProtectedGitPublisherDeletesExactPublishedFoundation(t *testing.T) {
 	if _, err = fixture.store.RecordReady(ctx, fixture.lease, receipt, fixture.now.Add(6*time.Second)); err != nil {
 		t.Fatal(err)
 	}
+	desiredStatePath := gitprojection.PlatformPrefix() + "/argocd/environments/" + current.EnvironmentID + ".yaml"
+	appendFoundationRemote(t, fixture.verifier.remote, desiredStatePath, []byte("apiVersion: argoproj.io/v1alpha1\nkind: ApplicationSet\n"))
 	updated := fixture.now.Add(7 * time.Second)
 	until := updated.Add(time.Minute)
 	deletion := Deletion{ID: testIntentID2, EnvironmentID: current.EnvironmentID, ProjectID: current.ProjectID,
@@ -197,6 +199,10 @@ func TestProtectedGitPublisherDeletesExactPublishedFoundation(t *testing.T) {
 	command := exec.Command("git", "--git-dir", fixture.verifier.remote, "show", deleted.CommittedRevision+":"+current.Path)
 	if output, showErr := command.CombinedOutput(); showErr == nil {
 		t.Fatalf("foundation path still exists: %s", output)
+	}
+	command = exec.Command("git", "--git-dir", fixture.verifier.remote, "show", deleted.CommittedRevision+":"+desiredStatePath)
+	if output, showErr := command.CombinedOutput(); showErr == nil {
+		t.Fatalf("Environment desired-state path still exists: %s", output)
 	}
 	// Recovery observes the already absent exact path and returns a stable no-op receipt.
 	fixture.verifier.now = fixture.now.Add(11 * time.Second)

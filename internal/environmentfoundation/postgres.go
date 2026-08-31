@@ -2,7 +2,9 @@ package environmentfoundation
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -426,7 +428,8 @@ func (s *PostgresStore) ExactReady(ctx context.Context, profile, publisher strin
 		  AND contract_version=$1 AND identity->>'profileDigest'=$2 AND config_digest=$3
 		  AND (observation->>'activeIntentCount')::integer=$4
 		  AND observed_at<=$5 AND lease_until>$5),
-		(SELECT count(*) FROM environment_foundation_deletions WHERE state<>'ready')
+		(SELECT count(*) FROM environment_foundation_deletions
+		 WHERE state<>'ready' OR provider_request NOT LIKE 'cleanup-v2:sha256:%')
 		FROM environment_foundation_intents
 		WHERE active AND profile_digest=$2 AND publisher_config_digest=$3`,
 		Contract, profile, publisher, count, now).Scan(&environments, &active, &ready, &found, &pendingDeletions)
@@ -446,10 +449,13 @@ func (s *PostgresStore) ClaimDeletion(ctx context.Context, owner string, now tim
 	now, until := now.UTC(), now.UTC().Add(duration)
 	value, err := scanDeletion(s.pool.QueryRow(ctx, `WITH candidate AS (
 		SELECT id FROM environment_foundation_deletions
-		WHERE (state='pending' OR (state='claimed' AND lease_until<=$1)) AND next_attempt_at<=$1
+		WHERE (state='pending' OR (state='claimed' AND lease_until<=$1) OR
+		       (state='ready' AND provider_request NOT LIKE 'cleanup-v2:sha256:%'))
+		  AND next_attempt_at<=$1
 		ORDER BY next_attempt_at,id FOR UPDATE SKIP LOCKED LIMIT 1
 	) UPDATE environment_foundation_deletions d SET state='claimed',lease_owner=$2,
-		lease_epoch=d.lease_epoch+1,lease_until=$3,attempts=d.attempts+1,updated_at=$1
+		lease_epoch=d.lease_epoch+1,lease_until=$3,attempts=d.attempts+1,updated_at=$1,
+		committed_revision='',provider_request='',completed_at=NULL
 	FROM candidate WHERE d.id=candidate.id RETURNING `+deletionColumns, now, owner, until))
 	if errors.Is(err, ErrNotFound) {
 		return DeletionLease{}, false, nil
@@ -467,10 +473,12 @@ func (s *PostgresStore) RecordDeletionReady(ctx context.Context, lease DeletionL
 		!gitCommitRE.MatchString(receipt.CommittedRevision) || !requestRE.MatchString(receipt.ProviderRequest) || now.IsZero() {
 		return ErrInvalid
 	}
+	providerDigest := sha256.Sum256([]byte(receipt.ProviderRequest))
+	storedProviderRequest := fmt.Sprintf("cleanup-v2:sha256:%x", providerDigest)
 	tag, err := s.pool.Exec(ctx, `UPDATE environment_foundation_deletions SET state='ready',lease_owner=NULL,
 		lease_until=NULL,committed_revision=$5,provider_request=$6,completed_at=$7,updated_at=$7
 		WHERE id=$1 AND state='claimed' AND lease_owner=$2 AND lease_epoch=$3 AND lease_until=$4`,
-		lease.Deletion.ID, lease.Owner, lease.Epoch, lease.Until, receipt.CommittedRevision, receipt.ProviderRequest, now.UTC())
+		lease.Deletion.ID, lease.Owner, lease.Epoch, lease.Until, receipt.CommittedRevision, storedProviderRequest, now.UTC())
 	if err != nil {
 		return mapPG(err)
 	}

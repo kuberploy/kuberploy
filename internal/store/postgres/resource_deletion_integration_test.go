@@ -290,8 +290,23 @@ func TestPostgreSQLApplicationAndEnvironmentDeletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = store.pool.QueryRow(ctx, `SELECT state FROM environment_foundation_deletions WHERE environment_id=$1`, environment.Value.ID).Scan(&deletionState); err != nil || deletionState != "ready" {
-		t.Fatalf("completed foundation deletion state=%q err=%v", deletionState, err)
+	var storedProviderRequest string
+	if err = store.pool.QueryRow(ctx, `SELECT state,provider_request FROM environment_foundation_deletions WHERE environment_id=$1`, environment.Value.ID).Scan(&deletionState, &storedProviderRequest); err != nil || deletionState != "ready" || !strings.HasPrefix(storedProviderRequest, "cleanup-v2:sha256:") {
+		t.Fatalf("completed Environment Git cleanup state=%q contract=%q err=%v", deletionState, storedProviderRequest, err)
+	}
+	if _, err = store.pool.Exec(ctx, `UPDATE environment_foundation_deletions SET provider_request='legacy-foundation-cleanup' WHERE environment_id=$1`, environment.Value.ID); err != nil {
+		t.Fatal(err)
+	}
+	legacyLease, found, err := foundationStore.ClaimDeletion(ctx, worker, time.Now().UTC().Add(time.Second), time.Minute)
+	if err != nil || !found || legacyLease.Deletion.EnvironmentID != environment.Value.ID || legacyLease.Deletion.CompletedAt != nil {
+		t.Fatalf("legacy cleanup replay=%#v found=%t err=%v", legacyLease, found, err)
+	}
+	if err = foundationStore.RecordDeletionReady(ctx, legacyLease, environmentfoundation.DeletionReceipt{
+		OperationID: legacyLease.Deletion.ID, BindingID: legacyLease.Deletion.BindingID, TargetRef: legacyLease.Deletion.TargetRef,
+		Path: legacyLease.Deletion.Path, ParentRevision: cleanupRevision, CommittedRevision: cleanupRevision,
+		ProviderRequest: "test-environment-cleanup-v2",
+	}, time.Now().UTC().Add(2*time.Second)); err != nil {
+		t.Fatal(err)
 	}
 	account, err := store.CreateServiceAccount(ctx, actorID, "delete-project-account-"+suffix, "delete-project-account", "request-project-account-"+suffix, domain.CreateServiceAccount{
 		ProjectID: project.Value.ID, Name: "Cleanup automation", Role: domain.RoleViewer,

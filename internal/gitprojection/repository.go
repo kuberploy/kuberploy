@@ -841,6 +841,35 @@ func (p *PreparedRepository) ProtectedFoundationPreimage(ctx context.Context, do
 	return true, `"` + value + `"`, value, nil
 }
 
+// ProtectedPlatformEnvironmentPreimage returns the exact CAS receipt for the
+// server-owned Argo manifest of one Environment. It cannot read another
+// platform path, and callers supply only the Environment identity.
+func (p *PreparedRepository) ProtectedPlatformEnvironmentPreimage(ctx context.Context, environmentID, revision string) (string, bool, string, string, error) {
+	documentPath := PlatformPrefix() + "/argocd/environments/" + environmentID + ".yaml"
+	if ctx == nil || p == nil || p.manager == nil || p.Binding.Validate() != nil || p.Head.ValidateFor(p.Binding) != nil ||
+		p.Binding.Kind != BindingPlatform || !uuidRE.MatchString(environmentID) || !commitRE.MatchString(revision) ||
+		!validProtectedDocumentPath(p.Binding, documentPath) {
+		return "", false, "", "", ErrInvalid
+	}
+	if _, err := p.manager.git(ctx, p.MirrorPath, "merge-base", "--is-ancestor", revision, p.Head.Commit); err != nil {
+		return "", false, "", "", fmt.Errorf("%w: Environment desired-state revision is not in verified ancestry", ErrConflict)
+	}
+	present, err := p.pathExists(ctx, revision, documentPath)
+	if err != nil || !present {
+		return documentPath, present, "", "", err
+	}
+	content, err := p.manager.git(ctx, p.MirrorPath, "cat-file", "blob", revision+":"+documentPath)
+	if err != nil {
+		return "", false, "", "", err
+	}
+	if len(content) == 0 || len(content) > MaxDocumentBytes {
+		return "", false, "", "", ErrInvalid
+	}
+	digest := sha256.Sum256([]byte(content))
+	value := "sha256:" + hex.EncodeToString(digest[:])
+	return documentPath, true, `"` + value + `"`, value, nil
+}
+
 // validProtectedDocumentPath closes read-side receipt proofs to the same
 // server-owned document families used by the environment AppConfig writer and
 // protected Argo desired-state writer. A merely prefix-contained sibling is
