@@ -301,7 +301,7 @@ func safeRegistryApplicationTarget(snapshot domain.RegistryLifecycleSnapshot, li
 		CacheGenerations: make([]registryCacheGenerationView, 0), ObservedAt: snapshot.AsOf,
 	}
 	if snapshot.Inventory.RegistryTargetID != "" {
-		repositories := append([]string{}, snapshot.Inventory.Repositories...)
+		repositories := filterRegistryApplicationRepositories(snapshot, snapshot.Inventory.Repositories)
 		sort.Strings(repositories)
 		repositoriesTruncated := len(repositories) > limit
 		if repositoriesTruncated {
@@ -313,7 +313,7 @@ func safeRegistryApplicationTarget(snapshot domain.RegistryLifecycleSnapshot, li
 			ObservedAt: snapshot.Inventory.ObservedAt,
 		}
 	}
-	catalogs := append([]domain.RegistryCatalogObservation{}, snapshot.CatalogObservations...)
+	catalogs := filterRegistryApplicationCatalogs(snapshot, snapshot.CatalogObservations)
 	sort.Slice(catalogs, func(i, j int) bool { return catalogs[i].Repository < catalogs[j].Repository })
 	view.CatalogTruncated = len(catalogs) > limit
 	if view.CatalogTruncated {
@@ -374,6 +374,46 @@ func safeRegistryApplicationTarget(snapshot domain.RegistryLifecycleSnapshot, li
 		})
 	}
 	return view
+}
+
+func registryApplicationRepositorySet(snapshot domain.RegistryLifecycleSnapshot) map[string]struct{} {
+	repositories := make(map[string]struct{}, 1+len(snapshot.Releases)+len(snapshot.CacheGenerations))
+	if repository := strings.TrimSpace(snapshot.Policy.Repository); repository != "" {
+		repositories[repository] = struct{}{}
+	}
+	for _, release := range snapshot.Releases {
+		if repository := strings.TrimSpace(release.Repository); repository != "" {
+			repositories[repository] = struct{}{}
+		}
+	}
+	for _, cache := range snapshot.CacheGenerations {
+		if repository := strings.TrimSpace(cache.Repository); repository != "" {
+			repositories[repository] = struct{}{}
+		}
+	}
+	return repositories
+}
+
+func filterRegistryApplicationRepositories(snapshot domain.RegistryLifecycleSnapshot, values []string) []string {
+	allowed := registryApplicationRepositorySet(snapshot)
+	result := make([]string, 0, len(allowed))
+	for _, repository := range values {
+		if _, ok := allowed[repository]; ok {
+			result = append(result, repository)
+		}
+	}
+	return result
+}
+
+func filterRegistryApplicationCatalogs(snapshot domain.RegistryLifecycleSnapshot, values []domain.RegistryCatalogObservation) []domain.RegistryCatalogObservation {
+	allowed := registryApplicationRepositorySet(snapshot)
+	result := make([]domain.RegistryCatalogObservation, 0, len(allowed))
+	for _, observation := range values {
+		if _, ok := allowed[observation.Repository]; ok {
+			result = append(result, observation)
+		}
+	}
+	return result
 }
 
 func (h *registryHTTP) applicationInventory(w http.ResponseWriter, r *http.Request) {
