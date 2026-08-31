@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Styled selectors preserve dependent form state when reopened.",
+  "summary": "App registry inventory stays scoped to repositories owned by the selected App.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.427"
+  "version": "0.1.0-rc.428"
 }
