@@ -1428,8 +1428,9 @@ secret-decryption plugin, so plaintext does not enter generated-manifest caches.
 
 The installer is the authority for cross-namespace runtime-secret access. Its
 closed `integrations.runtimeSecrets` values enumerate exact Environment
-namespaces and managed Environment namespace prefixes plus pre-created
-fingerprint/public-certificate Secret references. The default `kp-` prefix
+namespaces and managed Environment namespace prefixes plus the pre-created
+fingerprint Secret reference. The active public certificate comes directly from
+the managed Sealed Secrets controller service. The default `kp-` prefix
 covers Environments created after installation without a control-plane restart.
 API authorization still resolves every target from persisted Project and
 Environment ownership before the prefix policy is consulted. The installer

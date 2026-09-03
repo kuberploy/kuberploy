@@ -129,7 +129,7 @@
           "allOf": [
             {
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
-              "then": { "properties": { "fingerprintKeyID": { "minLength": 1 }, "fingerprintSecretName": { "minLength": 1 }, "fingerprintSecretKey": { "minLength": 1 }, "sealingCertificateSecretName": { "minLength": 1 }, "sealingCertificateSecretKey": { "minLength": 1 } } }
+              "then": { "properties": { "fingerprintKeyID": { "minLength": 1 }, "fingerprintSecretName": { "minLength": 1 }, "fingerprintSecretKey": { "minLength": 1 } } }
             }
           ]
         },

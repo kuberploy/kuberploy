@@ -38,7 +38,6 @@ func httpRuntimeSecretConfig(t *testing.T) secrets.RuntimeConfig {
 	config.Namespaces = []string{"kp-platform-no-secrets-production", "kp-secret-project-production"}
 	config.FingerprintSecretRef = "kuberploy-runtime-secret-fingerprint"
 	config.FingerprintKeyID = "http-secret-key-v1"
-	config.SealingCertificateSecretRef = "sealed-secrets-key"
 	if err := config.Validate(); err != nil {
 		t.Fatal(err)
 	}

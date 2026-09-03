@@ -112,24 +112,25 @@ export function AppShell({ user }: { user: Principal }) {
     ? "Add App"
     : pathname.match(/^\/projects\/[^/]+\/environments\/[^/]+\/apps\/[^/]+$/)
       ? "App"
-      : pathname.match(/^\/projects\/[^/]+\/environments\/[^/]+$/) ||
-          pathname.match(/^\/environments\/[^/]+\/variables$/)
-        ? "Environment"
-        : pathname.match(/^\/projects\/[^/]+$/)
-          ? "Project"
-          : pathname.match(/^\/applications\/[^/]+\/deployments\/[^/]+$/)
-            ? "App"
-            : pathname.match(/^\/applications\/[^/]+$/)
+      : pathname.match(/^\/environments\/[^/]+\/variables$/)
+        ? "Environment variables"
+        : pathname.match(/^\/projects\/[^/]+\/environments\/[^/]+$/)
+          ? "Environment"
+          : pathname.match(/^\/projects\/[^/]+$/)
+            ? "Project"
+            : pathname.match(/^\/applications\/[^/]+\/deployments\/[^/]+$/)
               ? "App"
-              : pathname === "/deploy"
-                ? "Add App"
-                : pathname === "/"
-                  ? "Dashboard"
-                  : (pathname
-                      .split("/")
-                      .filter(Boolean)
-                      .at(-1)
-                      ?.replace(/-/g, " ") ?? "Dashboard");
+              : pathname.match(/^\/applications\/[^/]+$/)
+                ? "App"
+                : pathname === "/deploy"
+                  ? "Add App"
+                  : pathname === "/"
+                    ? "Dashboard"
+                    : (pathname
+                        .split("/")
+                        .filter(Boolean)
+                        .at(-1)
+                        ?.replace(/-/g, " ") ?? "Dashboard");
 
   const registryNavigationVisible =
     capabilities.data?.features?.registry === true &&

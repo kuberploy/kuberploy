@@ -73,6 +73,8 @@ integrations:
     fingerprintKeyID: runtime-secrets-hmac-v1
     fingerprintSecretName: ""
     fingerprintSecretKey: runtime-secret-fingerprint.key
+    # Deprecated compatibility inputs. The control plane reads the active public
+    # certificate directly from the managed Sealed Secrets controller service.
     sealingCertificateSecretName: ""
     sealingCertificateSecretKey: tls.crt
   github:

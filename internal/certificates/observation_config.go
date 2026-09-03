@@ -90,8 +90,8 @@ func ObservationConfigFromLookup(lookup func(string) (string, bool), runtimeSecr
 
 // ObservationPolicyDigest gives Git projection a stable default-off identity
 // as well as the exact enabled observer identity. The enclosing projection
-// policy also digests runtimeSecrets, which binds the fixed public sealing-
-// certificate projection metadata without exposing any key material.
+// policy also digests runtimeSecrets, which binds the fixed managed sealing-
+// certificate endpoint without exposing any key material.
 func ObservationPolicyDigest(config ObservationConfig) (string, error) {
 	if !config.Enabled {
 		if len(config.Namespaces) != 0 || len(config.NamespacePrefixes) != 0 || config.PollInterval != 0 || config.WorkLease != 0 ||

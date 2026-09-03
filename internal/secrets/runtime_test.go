@@ -29,7 +29,6 @@ func testRuntimeConfig() RuntimeConfig {
 	config.Enabled = true
 	config.Namespaces = []string{"runtime-test"}
 	config.FingerprintSecretRef = "runtime-secret-fingerprint"
-	config.SealingCertificateSecretRef = "sealed-secrets-key"
 	config.WorkLease = 30 * time.Second
 	config.HeartbeatInterval = 5 * time.Second
 	return config
@@ -67,8 +66,6 @@ func TestRuntimeConfigIdentityIsExactAndNamespaceAllowlisted(t *testing.T) {
 		func(value *RuntimeConfig) { value.FingerprintSecretRef = "other-hmac" },
 		func(value *RuntimeConfig) { value.FingerprintSecretKey = "other.key" },
 		func(value *RuntimeConfig) { value.FingerprintKeyID = "other-key" },
-		func(value *RuntimeConfig) { value.SealingCertificateSecretRef = "other-cert" },
-		func(value *RuntimeConfig) { value.SealingCertificateSecretKey = "other.crt" },
 		func(value *RuntimeConfig) { value.PollInterval++ },
 		func(value *RuntimeConfig) { value.WorkLease++ },
 		func(value *RuntimeConfig) { value.HeartbeatInterval++ },
@@ -144,7 +141,6 @@ func TestRuntimePolicyDigestIsCanonicalMetadataOnly(t *testing.T) {
 	for name, mutate := range map[string]func(*RuntimeConfig){
 		"namespace":       func(c *RuntimeConfig) { c.Namespaces = []string{"other-runtime"} },
 		"fingerprint key": func(c *RuntimeConfig) { c.FingerprintSecretKey = "other-key" },
-		"certificate key": func(c *RuntimeConfig) { c.SealingCertificateSecretKey = "other-cert" },
 		"poll interval":   func(c *RuntimeConfig) { c.PollInterval += time.Second },
 	} {
 		t.Run(name, func(t *testing.T) {

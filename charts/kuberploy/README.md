@@ -195,8 +195,8 @@ and ignores dormant settings. Enabling it requires runtime secrets and Git
 projection. It inherits the normalized `runtimeSecrets.namespaces` allowlist;
 there is no second namespace setting.
 The API and worker share an exact metadata-only observation identity, including
-all bounded timings, while the enclosing Git policy digest also binds the
-runtime-secret public sealing-certificate projection. The observer reads only
+all bounded timings, while the enclosing Git policy digest also binds the fixed
+managed Sealed Secrets certificate endpoint. The observer reads only
 the named `bitnami.com/v1alpha1` SealedSecret described by the immutable
 artifact receipt. It cannot list/watch resources, read Kubernetes Secrets, or
 mutate, proxy, exec, attach, or port-forward. A custom-certificate reference is

@@ -10,6 +10,8 @@ kp_delayed_postgres="kuberploy-prisma-delayed-pg-${kp_suffix}"
 kp_waiter="kuberploy-prisma-waiter-${kp_suffix}"
 kp_image="kuberploy-migration:test-${kp_suffix}"
 kp_baseline="${kp_root}/migrations/prisma/migrations/001_initial/migration.sql"
+kp_previous_initial_checksum="efc555eb9c9d8591e74899818b409202165a8978f9052204c6fe9e89cc70230d"
+kp_frozen_initial_checksum="1aa6590b46d37e6a71dfdc85df7a7d8b7376b41e18deb02cab6b16e52e4cad79"
 
 if grep -Fq '\\restrict ' "${kp_baseline}" ||
   grep -Fq '\\unrestrict ' "${kp_baseline}" ||
@@ -116,6 +118,72 @@ kp_second="$(docker run --rm --network "${kp_network}" \
   "${kp_image}" 2>&1)"
 grep -q 'No pending migrations to apply' <<<"${kp_second}"
 
+docker exec "${kp_postgres}" createdb --username postgres --template fresh published_rc431
+docker exec "${kp_postgres}" psql --username postgres --dbname published_rc431 \
+  --set ON_ERROR_STOP=1 --command "
+    DELETE FROM _prisma_migrations
+     WHERE migration_name='002_auto_deploy_policy_cleanup';
+    UPDATE _prisma_migrations
+       SET checksum='${kp_previous_initial_checksum}'
+     WHERE migration_name='001_initial';
+    DO \$migration\$
+    DECLARE definition text;
+    BEGIN
+      SELECT pg_get_functiondef('validate_auto_deploy_policy_revision()'::regprocedure)
+        INTO definition;
+      definition := replace(
+        definition,
+        'AND (NOT NEW.enabled OR sa.disabled_at IS NULL)',
+        'AND sa.disabled_at IS NULL'
+      );
+      IF definition = pg_get_functiondef('validate_auto_deploy_policy_revision()'::regprocedure) THEN
+        RAISE EXCEPTION 'failed to restore the published rc.431 function';
+      END IF;
+      EXECUTE definition;
+    END
+    \$migration\$;" >/dev/null
+kp_published_rc431_url="postgresql://postgres:kuberploy-test-only@${kp_postgres}:5432/published_rc431?schema=public"
+docker run --rm --network "${kp_network}" \
+  --env DATABASE_URL="${kp_published_rc431_url}" "${kp_image}" >/dev/null
+[[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname published_rc431 \
+  --tuples-only --no-align --command "
+    SELECT count(*)=2
+       AND count(*) FILTER (
+             WHERE migration_name='001_initial' AND checksum='${kp_frozen_initial_checksum}'
+           )=1
+       AND count(*) FILTER (
+             WHERE migration_name='002_auto_deploy_policy_cleanup'
+               AND finished_at IS NOT NULL AND rolled_back_at IS NULL
+               AND applied_steps_count=1
+           )=1
+      FROM _prisma_migrations;")" == "t" ]]
+[[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname published_rc431 \
+  --tuples-only --no-align --command "
+    SELECT pg_get_functiondef('validate_auto_deploy_policy_revision()'::regprocedure)
+           LIKE '%AND (NOT NEW.enabled OR sa.disabled_at IS NULL)%';")" == "t" ]]
+
+docker exec "${kp_postgres}" createdb --username postgres --template fresh tampered_initial
+docker exec "${kp_postgres}" psql --username postgres --dbname tampered_initial \
+  --set ON_ERROR_STOP=1 --command "
+    DELETE FROM _prisma_migrations
+     WHERE migration_name='002_auto_deploy_policy_cleanup';
+    UPDATE _prisma_migrations
+       SET checksum=repeat('0',64)
+     WHERE migration_name='001_initial';" >/dev/null
+kp_tampered_initial_url="postgresql://postgres:kuberploy-test-only@${kp_postgres}:5432/tampered_initial?schema=public"
+if kp_tampered_initial_output="$(docker run --rm --network "${kp_network}" \
+  --env DATABASE_URL="${kp_tampered_initial_url}" "${kp_image}" 2>&1)"; then
+  printf 'Migration image accepted an unknown 001_initial checksum\n' >&2
+  exit 1
+fi
+grep -q '001_initial checksum is not an approved published checksum' \
+  <<<"${kp_tampered_initial_output}"
+[[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname tampered_initial \
+  --tuples-only --no-align --command "
+    SELECT checksum=repeat('0',64)
+      FROM _prisma_migrations
+     WHERE migration_name='001_initial';")" == "t" ]]
+
 docker exec "${kp_postgres}" createdb --username postgres --template fresh old_rc_history
 docker exec "${kp_postgres}" psql --username postgres --dbname old_rc_history \
   --set ON_ERROR_STOP=1 --command "
@@ -131,9 +199,9 @@ if kp_old_rc_output="$(docker run --rm --network "${kp_network}" \
   printf 'Migration image accepted an older release-candidate history\n' >&2
   exit 1
 fi
-grep -q 'Database migration history has 2 row(s); release requires 1' <<<"${kp_old_rc_output}"
+grep -q 'Database migration history has 3 row(s); release requires 2' <<<"${kp_old_rc_output}"
 [[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname old_rc_history \
-  --tuples-only --no-align --command "SELECT count(*) FROM _prisma_migrations")" == "2" ]]
+  --tuples-only --no-align --command "SELECT count(*) FROM _prisma_migrations")" == "3" ]]
 
 kp_counts="$(docker exec "${kp_postgres}" psql --username postgres --dbname fresh --tuples-only --no-align --command "
   SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL;
@@ -144,7 +212,7 @@ kp_counts="$(docker exec "${kp_postgres}" psql --username postgres --dbname fres
   SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace WHERE n.nspname='public' AND c.condeferrable;
   SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid=i.indrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND i.indexprs IS NOT NULL;
 ")"
-kp_expected_counts=$'1\n97\n63\n68\n651\n9\n2'
+kp_expected_counts=$'2\n97\n63\n68\n651\n9\n2'
 if [[ "${kp_counts}" != "${kp_expected_counts}" ]]; then
   printf 'Unexpected fresh-schema authority counts:\n%s\n' "${kp_counts}" >&2
   exit 1
@@ -249,4 +317,4 @@ if docker run --rm --network "${kp_network}" --env DATABASE_URL="${kp_legacy_url
 fi
 [[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname legacy --tuples-only --no-align --command "SELECT to_regclass('public.users') IS NULL")" == "t" ]]
 
-printf 'Prisma migration image delayed database wait, final baseline apply, declarative drift, personal/team scope authority, idempotency, native authority, and legacy rejection passed\n'
+printf 'Prisma migration image delayed database wait, fresh apply, rc.431 upgrade, declarative drift, personal/team scope authority, idempotency, native authority, and legacy rejection passed\n'

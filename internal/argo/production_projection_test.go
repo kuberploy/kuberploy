@@ -6,10 +6,32 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/certissuers"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/gitops"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 )
+
+func TestDesiredStatePolicyMapsCertificateIssuerConflictToCandidateConflict(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  error
+		mapped error
+	}{
+		{name: "issuer conflict", input: certissuers.ErrConflict, mapped: ErrConflict},
+		{name: "issuer invalid", input: certissuers.ErrInvalid, mapped: ErrInvalid},
+		{name: "policy conflict", input: gitprojection.ErrConflict, mapped: ErrConflict},
+		{name: "policy invalid", input: gitprojection.ErrInvalid, mapped: ErrInvalid},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := classifyDesiredStatePolicyError(test.input)
+			if !errors.Is(err, test.mapped) || !errors.Is(err, test.input) {
+				t.Fatalf("policy error must remain a candidate error: %v", err)
+			}
+		})
+	}
+}
 
 func desiredStatePolicyDocumentFixture(t testing.TB) (gitprojection.Binding, gitprojection.Document) {
 	t.Helper()

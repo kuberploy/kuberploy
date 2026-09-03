@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kuberploy/kuberploy/internal/appconfig"
+	"github.com/kuberploy/kuberploy/internal/certissuers"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/imagepull"
@@ -170,13 +171,7 @@ func (g *PostgreSQLDesiredStateProjectionGate) approveActiveTx(ctx context.Conte
 	validation, err := g.policy.ValidateAppConfigsTx(ctx, tx, input, now.UTC())
 	if err != nil || validation.ValidateFor(input) != nil {
 		if err != nil {
-			if errors.Is(err, imagepull.ErrConflict) {
-				return DesiredStateProjectionApproval{}, ErrConflict
-			}
-			if errors.Is(err, imagepull.ErrInvalid) {
-				return DesiredStateProjectionApproval{}, ErrInvalid
-			}
-			return DesiredStateProjectionApproval{}, classifyPostgres(err)
+			return DesiredStateProjectionApproval{}, classifyDesiredStatePolicyError(err)
 		}
 		return DesiredStateProjectionApproval{}, ErrConflict
 	}
@@ -196,6 +191,28 @@ func (g *PostgreSQLDesiredStateProjectionGate) approveActiveTx(ctx context.Conte
 		PolicyDigest: g.policyDigest,
 		Applications: applications, Deployments: deployments, AppConfigsValid: true, DependenciesValid: true,
 		SecretReferencesResolved: true, RegistryReferencesResolved: false}, nil
+}
+
+func classifyDesiredStatePolicyError(err error) error {
+	switch {
+	case errors.Is(err, gitprojection.ErrConflict):
+		return errors.Join(ErrConflict, err)
+	case errors.Is(err, gitprojection.ErrInvalid):
+		return errors.Join(ErrInvalid, err)
+	case errors.Is(err, certissuers.ErrConflict):
+		// Managed issuer reference reconciliation shares this serializable
+		// transaction. Its conflict is a retryable candidate conflict, not a
+		// fatal Argo database failure that should terminate the worker.
+		return errors.Join(ErrConflict, err)
+	case errors.Is(err, certissuers.ErrInvalid):
+		return errors.Join(ErrInvalid, err)
+	case errors.Is(err, imagepull.ErrConflict):
+		return ErrConflict
+	case errors.Is(err, imagepull.ErrInvalid):
+		return ErrInvalid
+	default:
+		return classifyPostgres(err)
+	}
 }
 
 func desiredStatePolicyValidationReady(validation gitprojection.AppConfigPolicyValidation) error {

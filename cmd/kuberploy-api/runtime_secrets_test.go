@@ -41,7 +41,6 @@ func apiRuntimeSecretConfig(t *testing.T) secrets.RuntimeConfig {
 	config.Enabled = true
 	config.Namespaces = []string{"apps-production"}
 	config.FingerprintSecretRef = "kuberploy-runtime-secret-fingerprint"
-	config.SealingCertificateSecretRef = "sealed-secrets-key"
 	if err := config.Validate(); err != nil {
 		t.Fatal(err)
 	}

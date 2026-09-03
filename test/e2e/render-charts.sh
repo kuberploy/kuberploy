@@ -1201,7 +1201,6 @@ yq '.config.runtimeSecrets.enabled = true |
     .config.runtimeSecrets.namespaces = ["apps-production", "apps-staging"] |
     .config.runtimeSecrets.namespacePrefixes = ["kp-"] |
     .config.runtimeSecrets.fingerprintSecret.name = "kuberploy-runtime-secret-fingerprint" |
-    .config.runtimeSecrets.sealingCertificateSecret.name = "sealed-secrets-key" |
     .components.api.image.reference = "ghcr.io/kuberploy/kuberploy-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" |
     .components.worker.image.reference = "ghcr.io/kuberploy/kuberploy-worker@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" |
     .rbac.observedNamespaces = []' \
@@ -1214,15 +1213,15 @@ yq eval-all 'true' "${kp_tmp}/runtime-secrets.yaml" >/dev/null
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_RUNTIME_SECRET_NAMESPACES' "${kp_tmp}/runtime-secrets.yaml")" == "apps-production,apps-staging" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_RUNTIME_SECRET_NAMESPACE_PREFIXES' "${kp_tmp}/runtime-secrets.yaml")" == "kp-" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_SECRET_KEY' "${kp_tmp}/runtime-secrets.yaml")" == "runtime-secret-fingerprint.key" ]]
-[[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_RUNTIME_SECRET_SEALING_CERTIFICATE_SECRET_KEY' "${kp_tmp}/runtime-secrets.yaml")" == "tls.crt" ]]
-[[ "$(yq eval-all '[select(.kind == "Deployment" and (.metadata.labels."app.kubernetes.io/component" == "api" or .metadata.labels."app.kubernetes.io/component" == "worker")) | .spec.template.spec.containers[0].env[] | select(.name | test("^KUBERPLOY_RUNTIME_SECRET"))] | length' "${kp_tmp}/runtime-secrets.yaml" | tail -1)" == "28" ]]
+[[ "$(yq eval-all '[select(.kind == "ConfigMap") | .data | keys | .[] | select(test("SEALING_CERTIFICATE"))] | length' "${kp_tmp}/runtime-secrets.yaml" | tail -1)" == "0" ]]
+[[ "$(yq eval-all '[select(.kind == "Deployment" and (.metadata.labels."app.kubernetes.io/component" == "api" or .metadata.labels."app.kubernetes.io/component" == "worker")) | .spec.template.spec.containers[0].env[] | select(.name | test("^KUBERPLOY_RUNTIME_SECRET"))] | length' "${kp_tmp}/runtime-secrets.yaml" | tail -1)" == "24" ]]
 [[ "$(yq eval-all '[select(.kind == "Deployment" and (.metadata.labels."app.kubernetes.io/component" == "api" or .metadata.labels."app.kubernetes.io/component" == "worker")) | .spec.template.spec.containers[0].env[] | select(.name == "KUBERPLOY_RUNTIME_SECRET_NAMESPACE_PREFIXES" and .valueFrom.configMapKeyRef.key == "KUBERPLOY_RUNTIME_SECRET_NAMESPACE_PREFIXES")] | length' "${kp_tmp}/runtime-secrets.yaml" | tail -1)" == "2" ]]
 [[ "$(yq eval-all '[select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "web") | .spec.template.spec.containers[0].env[] | select(.name | test("^KUBERPLOY_RUNTIME_SECRET"))] | length' "${kp_tmp}/runtime-secrets.yaml" | tail -1)" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "api") | .spec.template.spec.containers[0].volumeMounts[] | select(.name == "runtime-secret-fingerprint" and .mountPath == "/var/run/secrets/kuberploy-system" and .readOnly == true)] | length' "${kp_tmp}/runtime-secrets.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all '[select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "worker") | .spec.template.spec.containers[0].volumeMounts[]? | select(.name == "runtime-secret-fingerprint")] | length' "${kp_tmp}/runtime-secrets.yaml" | tail -1)" == "0" ]]
-[[ "$(yq eval-all '[select(.kind == "Deployment" and (.metadata.labels."app.kubernetes.io/component" == "api" or .metadata.labels."app.kubernetes.io/component" == "worker")) | .spec.template.spec.containers[0].volumeMounts[] | select(.name == "runtime-secret-sealing-certificate" and .mountPath == "/var/run/secrets/kuberploy-system/sealed-secrets" and .readOnly == true)] | length' "${kp_tmp}/runtime-secrets.yaml" | tail -1)" == "2" ]]
+[[ "$(yq eval-all '[select(.kind == "Deployment" and (.metadata.labels."app.kubernetes.io/component" == "api" or .metadata.labels."app.kubernetes.io/component" == "worker")) | .spec.template.spec.containers[0].volumeMounts[]? | select(.name == "runtime-secret-sealing-certificate")] | length' "${kp_tmp}/runtime-secrets.yaml" | tail -1)" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "api") | .spec.template.spec.volumes[] | select(.name == "runtime-secret-fingerprint" and .secret.secretName == "kuberploy-runtime-secret-fingerprint" and .secret.defaultMode == 288 and (.secret.items | length) == 1 and .secret.items[0].key == "runtime-secret-fingerprint.key" and .secret.items[0].path == "runtime-secret-fingerprint.key")] | length' "${kp_tmp}/runtime-secrets.yaml" | tail -1)" == "1" ]]
-[[ "$(yq eval-all '[select(.kind == "Deployment" and (.metadata.labels."app.kubernetes.io/component" == "api" or .metadata.labels."app.kubernetes.io/component" == "worker")) | .spec.template.spec.volumes[] | select(.name == "runtime-secret-sealing-certificate" and .secret.secretName == "sealed-secrets-key" and .secret.defaultMode == 288 and (.secret.items | length) == 1 and .secret.items[0].key == "tls.crt" and .secret.items[0].path == "tls.crt")] | length' "${kp_tmp}/runtime-secrets.yaml" | tail -1)" == "2" ]]
+[[ "$(yq eval-all '[select(.kind == "Deployment" and (.metadata.labels."app.kubernetes.io/component" == "api" or .metadata.labels."app.kubernetes.io/component" == "worker")) | .spec.template.spec.volumes[]? | select(.name == "runtime-secret-sealing-certificate")] | length' "${kp_tmp}/runtime-secrets.yaml" | tail -1)" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "Role" and (.metadata.name | test("-runtime-secrets-(api|worker)$")))] | length' "${kp_tmp}/runtime-secrets.yaml" | tail -1)" == "4" ]]
 [[ "$(yq eval-all '[select(.kind == "RoleBinding" and (.metadata.name | test("-runtime-secrets-(api|worker)$")))] | length' "${kp_tmp}/runtime-secrets.yaml" | tail -1)" == "4" ]]
 for kp_runtime_namespace in apps-production apps-staging; do
@@ -1253,9 +1252,7 @@ kp_runtime_secret_changed_config_name="$(yq eval-all 'select(.kind == "ConfigMap
 for kp_runtime_secret_mutation in \
   '.config.runtimeSecrets.namespaces = []' \
   '.config.runtimeSecrets.fingerprintSecret.name = ""' \
-  '.config.runtimeSecrets.sealingCertificateSecret.name = ""' \
   '.config.runtimeSecrets.fingerprintSecret.key = "attacker-selected"' \
-  '.config.runtimeSecrets.sealingCertificateSecret.key = "attacker.crt"' \
   '.config.runtimeSecrets.fingerprintKeyID = "attacker-key"' \
   '.config.runtimeSecrets.workLeaseSeconds = 20 | .config.runtimeSecrets.heartbeatSeconds = 10' \
   '.config.runtimeSecrets.minimumBackoffSeconds = 10 | .config.runtimeSecrets.maximumBackoffSeconds = 9' \

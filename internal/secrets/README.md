@@ -106,18 +106,17 @@ dormant settings. Enabled API and worker processes parse the same contract:
   `KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_SECRET_KEY` plus
   `KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_KEY_ID` identify the operator-owned HMAC
   projection;
-- `KUBERPLOY_RUNTIME_SECRET_SEALING_CERTIFICATE_SECRET_REF` and
-  `KUBERPLOY_RUNTIME_SECRET_SEALING_CERTIFICATE_SECRET_KEY` identify the
-  public-certificate projection; and
+- the active public sealing certificate is fetched from the managed Sealed
+  Secrets controller service; and
 - optional canonical integer-second poll, lease, heartbeat, idle and backoff
   overrides use the `KUBERPLOY_RUNTIME_SECRET_*_SECONDS` constants in
   `runtime_config.go`.
 
-The key and certificate bytes are never environment variables. Their Secret
-references, fixed projection paths, namespace allowlist, timing values, key ID,
-public certificate fingerprint and worker contract all enter the readiness
-digest. Whitespace, noncanonical numbers, conflicting identities, and partial
-enabled configuration fail closed.
+Key and certificate bytes are never environment variables. The HMAC Secret
+reference and fixed projection path, managed certificate endpoint, namespace
+allowlist, timing values, key ID, public certificate fingerprint and worker
+contract all enter the readiness digest. Whitespace, noncanonical numbers,
+conflicting identities, and partial enabled configuration fail closed.
 
 ## Kubernetes provider adapters
 
@@ -195,9 +194,10 @@ audit, so the test database should be disposable rather than shared.
 ## Production boundary and remaining extensions
 
 The strict Sealed Secrets path is wired default-off through the API and worker.
-The API alone reads the fixed private HMAC projection; the worker reads only the
-fixed public sealing certificate and verifies the exact HMAC key metadata/key ID
-through the shared runtime digest. Per-namespace RBAC grants API
+The API alone reads the fixed private HMAC projection; both processes fetch only
+the active public certificate from the managed Sealed Secrets controller, and
+the worker verifies exact HMAC key metadata/key ID through the shared runtime
+digest. Per-namespace RBAC grants API
 `get/create/delete` and worker `get` on SealedSecrets only. A fail-closed
 ValidatingAdmissionPolicy restricts create/delete to the exact API
 ServiceAccount and exact immutable Kuberploy object identity. Neither process

@@ -10,13 +10,11 @@ import (
 
 func validRuntimeSecretEnvironment() map[string]string {
 	return map[string]string{
-		RuntimeSecretsEnabledEnv:                    "true",
-		RuntimeSecretNamespacesEnv:                  "payments-production,search-production",
-		RuntimeSecretFingerprintSecretRefEnv:        "runtime-secret-fingerprint",
-		RuntimeSecretFingerprintSecretKeyEnv:        DefaultFingerprintSecretKey,
-		RuntimeSecretFingerprintKeyIDEnv:            DefaultFingerprintKeyID,
-		RuntimeSecretSealingCertificateSecretRefEnv: "sealed-secrets-key",
-		RuntimeSecretSealingCertificateSecretKeyEnv: DefaultSealedSecretsCertificateKey,
+		RuntimeSecretsEnabledEnv:             "true",
+		RuntimeSecretNamespacesEnv:           "payments-production,search-production",
+		RuntimeSecretFingerprintSecretRefEnv: "runtime-secret-fingerprint",
+		RuntimeSecretFingerprintSecretKeyEnv: DefaultFingerprintSecretKey,
+		RuntimeSecretFingerprintKeyIDEnv:     DefaultFingerprintKeyID,
 	}
 }
 
@@ -67,7 +65,6 @@ func TestRuntimeSecretConfigParsesCanonicalAllowlistAndDefaults(t *testing.T) {
 		config.Namespaces[1] != "search-production" || !config.AllowsNamespace("payments-production") ||
 		config.AllowsNamespace("other") || config.FingerprintSecretRef != "runtime-secret-fingerprint" ||
 		config.FingerprintSecretKey != DefaultFingerprintSecretKey || config.FingerprintKeyID != DefaultFingerprintKeyID ||
-		config.SealingCertificateSecretRef != "sealed-secrets-key" || config.SealingCertificateSecretKey != DefaultSealedSecretsCertificateKey ||
 		config.PollInterval != RuntimeSecretPollInterval || config.WorkLease != RuntimeSecretWorkLease ||
 		config.HeartbeatInterval != RuntimeSecretHeartbeatInterval || config.IdleDelay != RuntimeSecretIdleDelay ||
 		config.MinimumBackoff != RuntimeSecretMinimumBackoff || config.MaximumBackoff != RuntimeSecretMaximumBackoff {
@@ -102,17 +99,15 @@ func TestRuntimeSecretConfigAcceptsManagedEnvironmentPrefix(t *testing.T) {
 
 func TestRuntimeSecretConfigRejectsAmbiguousOrUnsafeValues(t *testing.T) {
 	mutations := map[string]string{
-		RuntimeSecretFingerprintSecretRefEnv:        "other/secret",
-		RuntimeSecretFingerprintSecretKeyEnv:        "../key",
-		RuntimeSecretFingerprintKeyIDEnv:            " key-id ",
-		RuntimeSecretSealingCertificateSecretRefEnv: "../../secret",
-		RuntimeSecretSealingCertificateSecretKeyEnv: "../tls.crt",
-		RuntimeSecretPollSecondsEnv:                 "05",
-		RuntimeSecretWorkLeaseSecondsEnv:            "19",
-		RuntimeSecretHeartbeatSecondsEnv:            "23",
-		RuntimeSecretIdleSecondsEnv:                 "0",
-		RuntimeSecretMinimumBackoffSecondsEnv:       "-1",
-		RuntimeSecretMaximumBackoffSecondsEnv:       "3601",
+		RuntimeSecretFingerprintSecretRefEnv:  "other/secret",
+		RuntimeSecretFingerprintSecretKeyEnv:  "../key",
+		RuntimeSecretFingerprintKeyIDEnv:      " key-id ",
+		RuntimeSecretPollSecondsEnv:           "05",
+		RuntimeSecretWorkLeaseSecondsEnv:      "19",
+		RuntimeSecretHeartbeatSecondsEnv:      "23",
+		RuntimeSecretIdleSecondsEnv:           "0",
+		RuntimeSecretMinimumBackoffSecondsEnv: "-1",
+		RuntimeSecretMaximumBackoffSecondsEnv: "3601",
 	}
 	for name, mutation := range mutations {
 		values := validRuntimeSecretEnvironment()
@@ -150,8 +145,6 @@ func TestRuntimeSecretConfigRejectsAmbiguousOrUnsafeValues(t *testing.T) {
 		RuntimeSecretFingerprintSecretRefEnv,
 		RuntimeSecretFingerprintSecretKeyEnv,
 		RuntimeSecretFingerprintKeyIDEnv,
-		RuntimeSecretSealingCertificateSecretRefEnv,
-		RuntimeSecretSealingCertificateSecretKeyEnv,
 	} {
 		values := validRuntimeSecretEnvironment()
 		delete(values, missing)

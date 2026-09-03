@@ -191,7 +191,6 @@
       "namespacePrefixes" $runtimeSecrets.namespacePrefixes
       "fingerprintKeyID" $runtimeSecrets.fingerprintKeyID
       "fingerprintSecret" (dict "name" $runtimeSecrets.fingerprintSecretName "key" $runtimeSecrets.fingerprintSecretKey)
-      "sealingCertificateSecret" (dict "name" $runtimeSecrets.sealingCertificateSecretName "key" $runtimeSecrets.sealingCertificateSecretKey)
       "pollIntervalSeconds" 5
       "workLeaseSeconds" 45
       "heartbeatSeconds" 10

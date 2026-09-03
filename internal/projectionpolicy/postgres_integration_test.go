@@ -295,7 +295,7 @@ func TestPostgreSQLPolicyPlatformOwnedProjectNoRefsAndSemanticSecretDiagnostic(t
 	}
 	secretConfig := secrets.DefaultRuntimeConfig()
 	secretConfig.Enabled, secretConfig.Namespaces = true, []string{namespace}
-	secretConfig.FingerprintSecretRef, secretConfig.SealingCertificateSecretRef = "runtime-fingerprint", "sealed-secrets-key"
+	secretConfig.FingerprintSecretRef = "runtime-fingerprint"
 	if err = secretConfig.Validate(); err != nil {
 		t.Fatal(err)
 	}

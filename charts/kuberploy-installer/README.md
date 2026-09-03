@@ -70,15 +70,14 @@ Secrets and must never be committed to those files.
 Secret and custom-certificate materialization. Enabling it requires the
 GitOps control plane and Sealed Secrets component, exact non-platform
 Environment namespaces or the installer-owned `kp-` Environment namespace
-prefix, the fingerprint Secret/key, and the active public
-sealing-certificate Secret/key. The installer injects those fixed identities
-into the control-plane chart and adds only the exact namespaces and managed
+prefix and the fingerprint Secret/key. The control plane reads the active public
+certificate directly from the managed Sealed Secrets controller service. The
+installer injects the fixed policy into the control-plane chart and adds only
+the exact namespaces and managed
 Environment prefix to its Argo AppProject. API authorization still derives the
 destination namespace from the persisted Project and Environment; callers
 cannot submit an arbitrary namespace. A remote values file cannot expand this
-cross-namespace authority.
-Rotate the public certificate reference whenever the Sealed Secrets controller
-rotates its active key; no private sealing key enters installer values.
+cross-namespace authority. No private sealing key enters installer values.
 
 Enabling the control plane also requires explicit PostgreSQL authority and the
 installer-owned Valkey bootstrap. When Valkey is managed, the installer owns the control-plane

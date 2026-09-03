@@ -21,7 +21,6 @@ func observationRuntimeSecrets() secrets.RuntimeConfig {
 	config.Enabled = true
 	config.Namespaces = []string{"payments-production", "search-production"}
 	config.FingerprintSecretRef = "runtime-secret-fingerprint"
-	config.SealingCertificateSecretRef = "sealed-secrets-key"
 	return config
 }
 
@@ -78,9 +77,9 @@ func TestObservationConfigDerivesExactRuntimeSecretNamespaces(t *testing.T) {
 		t.Fatalf("unsorted runtime-secret allowlist accepted: %v", err)
 	}
 	runtimeSecrets = observationRuntimeSecrets()
-	runtimeSecrets.SealingCertificateSecretRef = ""
+	runtimeSecrets.FingerprintSecretRef = ""
 	if _, err = ObservationConfigFromLookup(observationLookup(map[string]string{CertificateObservationEnabledEnv: "true"}), runtimeSecrets); !errors.Is(err, ErrObservationUnavailable) {
-		t.Fatalf("missing fixed sealing-certificate projection accepted: %v", err)
+		t.Fatalf("invalid runtime-secret contract accepted: %v", err)
 	}
 }
 

@@ -31,8 +31,6 @@ func workerRuntimeSecretConfig(t *testing.T) secrets.RuntimeConfig {
 	config.FingerprintSecretRef = "kuberploy-runtime-secret-fingerprint"
 	config.FingerprintSecretKey = secrets.DefaultFingerprintSecretKey
 	config.FingerprintKeyID = secrets.DefaultFingerprintKeyID
-	config.SealingCertificateSecretRef = "sealed-secrets-key"
-	config.SealingCertificateSecretKey = secrets.DefaultSealedSecretsCertificateKey
 	if err := config.Validate(); err != nil {
 		t.Fatal(err)
 	}

@@ -289,8 +289,7 @@
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
               "then": {
                 "properties": {
-                  "fingerprintSecret": { "properties": { "name": { "minLength": 1 } } },
-                  "sealingCertificateSecret": { "properties": { "name": { "minLength": 1 } } }
+                  "fingerprintSecret": { "properties": { "name": { "minLength": 1 } } }
                 }
               }
             }

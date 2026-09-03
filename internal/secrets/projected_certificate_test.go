@@ -10,6 +10,8 @@ import (
 	"encoding/pem"
 	"errors"
 	"math/big"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -31,6 +33,54 @@ func projectedCertificatePEM(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+}
+
+func TestManagedSealingCertificateReadsActiveControllerCertificate(t *testing.T) {
+	encoded := projectedCertificatePEM(t)
+	defer clear(encoded)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/v1/cert.pem" || request.Header.Get("Accept") == "" {
+			http.Error(response, "invalid request", http.StatusBadRequest)
+			return
+		}
+		response.Header().Set("Content-Type", "application/x-pem-file")
+		_, _ = response.Write(encoded)
+	}))
+	defer server.Close()
+
+	source := managedSealingCertificate{endpoint: server.URL + "/v1/cert.pem", client: server.Client()}
+	key, err := source.ActivePublicKey(t.Context(), testTime)
+	if err != nil || key.key == nil || !digestRE.MatchString(key.fingerprint) {
+		t.Fatalf("key=%#v err=%v", key, err)
+	}
+}
+
+func TestManagedSealingCertificateFailsClosed(t *testing.T) {
+	for name, handler := range map[string]http.HandlerFunc{
+		"status": func(response http.ResponseWriter, _ *http.Request) {
+			http.Error(response, "unavailable", http.StatusServiceUnavailable)
+		},
+		"invalid": func(response http.ResponseWriter, _ *http.Request) {
+			_, _ = response.Write([]byte("not a certificate"))
+		},
+		"oversized": func(response http.ResponseWriter, _ *http.Request) {
+			_, _ = response.Write(bytes.Repeat([]byte{'x'}, maximumSealingCertificateBytes+1))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(handler)
+			defer server.Close()
+			source := managedSealingCertificate{endpoint: server.URL, client: server.Client()}
+			if _, err := source.ActivePublicKey(t.Context(), testTime); !errors.Is(err, ErrProviderOperation) {
+				t.Fatalf("error=%v", err)
+			}
+		})
+	}
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := (managedSealingCertificate{endpoint: "http://controller.invalid", client: http.DefaultClient}).ActivePublicKey(canceled, testTime); !errors.Is(err, ErrProviderOperation) {
+		t.Fatalf("canceled error=%v", err)
+	}
 }
 
 func TestProjectedSealingCertificateReadsPrivateAtomicProjection(t *testing.T) {

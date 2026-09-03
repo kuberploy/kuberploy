@@ -13,6 +13,8 @@ import (
 	"encoding/pem"
 	"errors"
 	"io"
+	"net"
+	"net/http"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -20,10 +22,10 @@ import (
 )
 
 const (
-	// DefaultSealedSecretsCertificatePath is an operator-controlled public
-	// certificate projection. It is never selected by an API request.
+	// DefaultSealedSecretsCertificatePath is retained for projection-reader tests.
 	DefaultSealedSecretsCertificateKey  = "tls.crt"
 	DefaultSealedSecretsCertificatePath = "/var/run/secrets/kuberploy-system/sealed-secrets/" + DefaultSealedSecretsCertificateKey
+	DefaultSealedSecretsCertificateURL  = "http://kuberploy-sealed-secrets.sealed-secrets.svc.cluster.local:8080/v1/cert.pem"
 	maximumSealingCertificateBytes      = 64 << 10
 )
 
@@ -43,6 +45,49 @@ func (p projectedSealingCertificate) ActivePublicKey(ctx context.Context, now ti
 		return sealingPublicKey{}, ErrProviderOperation
 	}
 	return readProjectedSealingCertificate(ctx, p.path, now)
+}
+
+type managedSealingCertificate struct {
+	endpoint string
+	client   *http.Client
+}
+
+func newManagedSealingCertificate(endpoint string) managedSealingCertificate {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	transport.DialContext = (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext
+	transport.ResponseHeaderTimeout = 5 * time.Second
+	return managedSealingCertificate{
+		endpoint: endpoint,
+		client: &http.Client{Transport: transport, Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		}},
+	}
+}
+
+func (s managedSealingCertificate) ActivePublicKey(ctx context.Context, now time.Time) (sealingPublicKey, error) {
+	if s.endpoint == "" || s.client == nil || now.IsZero() || ctx.Err() != nil {
+		return sealingPublicKey{}, ErrProviderOperation
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, s.endpoint, nil)
+	if err != nil {
+		return sealingPublicKey{}, ErrProviderOperation
+	}
+	request.Header.Set("Accept", "application/x-pem-file, text/plain")
+	response, err := s.client.Do(request)
+	if err != nil {
+		return sealingPublicKey{}, ErrProviderOperation
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK || response.ContentLength > maximumSealingCertificateBytes {
+		return sealingPublicKey{}, ErrProviderOperation
+	}
+	encoded, err := io.ReadAll(io.LimitReader(response.Body, maximumSealingCertificateBytes+1))
+	defer clear(encoded)
+	if err != nil || len(encoded) == 0 || len(encoded) > maximumSealingCertificateBytes || ctx.Err() != nil {
+		return sealingPublicKey{}, ErrProviderOperation
+	}
+	return parseSealingCertificate(encoded, now)
 }
 
 func readProjectedSealingCertificate(ctx context.Context, path string, now time.Time) (sealingPublicKey, error) {
@@ -99,14 +144,14 @@ type StrictSealedSecretsAdapter struct {
 }
 
 // NewInClusterStrictSealedSecretsProvider constructs the self-contained
-// production adapter. The controller certificate must be projected at the
-// fixed DefaultSealedSecretsCertificatePath.
+// production adapter. It reads the active public key from the managed
+// Sealed Secrets controller; private sealing keys never leave that controller.
 func NewInClusterStrictSealedSecretsProvider() (*StrictSealedSecretsAdapter, error) {
 	resources, err := newInClusterSecretResources()
 	if err != nil {
 		return nil, err
 	}
-	return newStrictSealedSecretsAdapter(resources, projectedSealingCertificate{path: DefaultSealedSecretsCertificatePath}, rand.Reader, nil)
+	return newStrictSealedSecretsAdapter(resources, newManagedSealingCertificate(DefaultSealedSecretsCertificateURL), rand.Reader, nil)
 }
 
 func newStrictSealedSecretsAdapter(resources secretKubernetesResources, keys sealingPublicKeySource, random io.Reader, now providerClock) (*StrictSealedSecretsAdapter, error) {

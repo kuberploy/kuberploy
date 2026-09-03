@@ -78,7 +78,7 @@ spec:
                   name: {{ include "kuberploy.configName" $ }}
                   key: KUBERPLOY_RUNTIME_SECRETS_ENABLED
             {{- if $.Values.config.runtimeSecrets.enabled }}
-            {{- range $name := list "KUBERPLOY_RUNTIME_SECRET_NAMESPACES" "KUBERPLOY_RUNTIME_SECRET_NAMESPACE_PREFIXES" "KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_SECRET_REF" "KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_SECRET_KEY" "KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_KEY_ID" "KUBERPLOY_RUNTIME_SECRET_SEALING_CERTIFICATE_SECRET_REF" "KUBERPLOY_RUNTIME_SECRET_SEALING_CERTIFICATE_SECRET_KEY" "KUBERPLOY_RUNTIME_SECRET_POLL_SECONDS" "KUBERPLOY_RUNTIME_SECRET_WORK_LEASE_SECONDS" "KUBERPLOY_RUNTIME_SECRET_HEARTBEAT_SECONDS" "KUBERPLOY_RUNTIME_SECRET_IDLE_SECONDS" "KUBERPLOY_RUNTIME_SECRET_MINIMUM_BACKOFF_SECONDS" "KUBERPLOY_RUNTIME_SECRET_MAXIMUM_BACKOFF_SECONDS" }}
+            {{- range $name := list "KUBERPLOY_RUNTIME_SECRET_NAMESPACES" "KUBERPLOY_RUNTIME_SECRET_NAMESPACE_PREFIXES" "KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_SECRET_REF" "KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_SECRET_KEY" "KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_KEY_ID" "KUBERPLOY_RUNTIME_SECRET_POLL_SECONDS" "KUBERPLOY_RUNTIME_SECRET_WORK_LEASE_SECONDS" "KUBERPLOY_RUNTIME_SECRET_HEARTBEAT_SECONDS" "KUBERPLOY_RUNTIME_SECRET_IDLE_SECONDS" "KUBERPLOY_RUNTIME_SECRET_MINIMUM_BACKOFF_SECONDS" "KUBERPLOY_RUNTIME_SECRET_MAXIMUM_BACKOFF_SECONDS" }}
             - name: {{ $name }}
               valueFrom:
                 configMapKeyRef:
@@ -591,11 +591,6 @@ spec:
               mountPath: /var/run/secrets/kuberploy-system
               readOnly: true
             {{- end }}
-            {{- if and (or (eq $component "api") (eq $component "worker")) $.Values.config.runtimeSecrets.enabled }}
-            - name: runtime-secret-sealing-certificate
-              mountPath: /var/run/secrets/kuberploy-system/sealed-secrets
-              readOnly: true
-            {{- end }}
             {{- if and (or (eq $component "api") (eq $component "worker")) $.Values.config.runtimeRegistryPulls.enabled }}
             - name: runtime-registry-pull-credentials
               mountPath: /var/run/secrets/kuberploy/registry-pulls
@@ -666,15 +661,6 @@ spec:
             items:
               - key: {{ $.Values.config.runtimeSecrets.fingerprintSecret.key }}
                 path: runtime-secret-fingerprint.key
-        {{- end }}
-        {{- if and (or (eq $component "api") (eq $component "worker")) $.Values.config.runtimeSecrets.enabled }}
-        - name: runtime-secret-sealing-certificate
-          secret:
-            secretName: {{ $.Values.config.runtimeSecrets.sealingCertificateSecret.name }}
-            defaultMode: 288
-            items:
-              - key: {{ $.Values.config.runtimeSecrets.sealingCertificateSecret.key }}
-                path: tls.crt
         {{- end }}
         {{- if and (or (eq $component "api") (eq $component "worker")) $.Values.config.runtimeRegistryPulls.enabled }}
         - name: runtime-registry-pull-credentials

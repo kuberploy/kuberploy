@@ -8,25 +8,24 @@ import (
 )
 
 const (
-	RuntimeSecretsEnabledEnv                    = "KUBERPLOY_RUNTIME_SECRETS_ENABLED"
-	RuntimeSecretNamespacesEnv                  = "KUBERPLOY_RUNTIME_SECRET_NAMESPACES"
-	RuntimeSecretNamespacePrefixesEnv           = "KUBERPLOY_RUNTIME_SECRET_NAMESPACE_PREFIXES"
-	RuntimeSecretFingerprintSecretRefEnv        = "KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_SECRET_REF"
-	RuntimeSecretFingerprintSecretKeyEnv        = "KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_SECRET_KEY"
-	RuntimeSecretFingerprintKeyIDEnv            = "KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_KEY_ID"
-	RuntimeSecretSealingCertificateSecretRefEnv = "KUBERPLOY_RUNTIME_SECRET_SEALING_CERTIFICATE_SECRET_REF"
-	RuntimeSecretSealingCertificateSecretKeyEnv = "KUBERPLOY_RUNTIME_SECRET_SEALING_CERTIFICATE_SECRET_KEY"
-	RuntimeSecretPollSecondsEnv                 = "KUBERPLOY_RUNTIME_SECRET_POLL_SECONDS"
-	RuntimeSecretWorkLeaseSecondsEnv            = "KUBERPLOY_RUNTIME_SECRET_WORK_LEASE_SECONDS"
-	RuntimeSecretHeartbeatSecondsEnv            = "KUBERPLOY_RUNTIME_SECRET_HEARTBEAT_SECONDS"
-	RuntimeSecretIdleSecondsEnv                 = "KUBERPLOY_RUNTIME_SECRET_IDLE_SECONDS"
-	RuntimeSecretMinimumBackoffSecondsEnv       = "KUBERPLOY_RUNTIME_SECRET_MINIMUM_BACKOFF_SECONDS"
-	RuntimeSecretMaximumBackoffSecondsEnv       = "KUBERPLOY_RUNTIME_SECRET_MAXIMUM_BACKOFF_SECONDS"
+	RuntimeSecretsEnabledEnv              = "KUBERPLOY_RUNTIME_SECRETS_ENABLED"
+	RuntimeSecretNamespacesEnv            = "KUBERPLOY_RUNTIME_SECRET_NAMESPACES"
+	RuntimeSecretNamespacePrefixesEnv     = "KUBERPLOY_RUNTIME_SECRET_NAMESPACE_PREFIXES"
+	RuntimeSecretFingerprintSecretRefEnv  = "KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_SECRET_REF"
+	RuntimeSecretFingerprintSecretKeyEnv  = "KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_SECRET_KEY"
+	RuntimeSecretFingerprintKeyIDEnv      = "KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_KEY_ID"
+	RuntimeSecretPollSecondsEnv           = "KUBERPLOY_RUNTIME_SECRET_POLL_SECONDS"
+	RuntimeSecretWorkLeaseSecondsEnv      = "KUBERPLOY_RUNTIME_SECRET_WORK_LEASE_SECONDS"
+	RuntimeSecretHeartbeatSecondsEnv      = "KUBERPLOY_RUNTIME_SECRET_HEARTBEAT_SECONDS"
+	RuntimeSecretIdleSecondsEnv           = "KUBERPLOY_RUNTIME_SECRET_IDLE_SECONDS"
+	RuntimeSecretMinimumBackoffSecondsEnv = "KUBERPLOY_RUNTIME_SECRET_MINIMUM_BACKOFF_SECONDS"
+	RuntimeSecretMaximumBackoffSecondsEnv = "KUBERPLOY_RUNTIME_SECRET_MAXIMUM_BACKOFF_SECONDS"
 )
 
 // RuntimeConfigFromEnvironment reads only operator-owned metadata. Projected
-// key and certificate bytes stay on their fixed filesystem paths and never
-// enter the process environment.
+// fingerprint key bytes stay on their fixed filesystem path and never enter
+// the process environment. The public sealing certificate comes from the
+// managed controller service.
 func RuntimeConfigFromEnvironment() (RuntimeConfig, error) {
 	return RuntimeConfigFromLookup(os.LookupEnv)
 }
@@ -68,15 +67,6 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool)) (RuntimeConfig,
 	if !ok {
 		return RuntimeConfig{}, ErrRuntimeUnavailable
 	}
-	certificateRef, ok := exactRuntimeSecretEnv(lookup, RuntimeSecretSealingCertificateSecretRefEnv, true)
-	if !ok {
-		return RuntimeConfig{}, ErrRuntimeUnavailable
-	}
-	certificateSecretKey, ok := exactRuntimeSecretEnv(lookup, RuntimeSecretSealingCertificateSecretKeyEnv, true)
-	if !ok {
-		return RuntimeConfig{}, ErrRuntimeUnavailable
-	}
-
 	config := DefaultRuntimeConfig()
 	config.Enabled = true
 	config.Namespaces = normalized
@@ -84,8 +74,6 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool)) (RuntimeConfig,
 	config.FingerprintSecretRef = fingerprintRef
 	config.FingerprintSecretKey = fingerprintSecretKey
 	config.FingerprintKeyID = fingerprintKeyID
-	config.SealingCertificateSecretRef = certificateRef
-	config.SealingCertificateSecretKey = certificateSecretKey
 	for name, destination := range map[string]*time.Duration{
 		RuntimeSecretPollSecondsEnv:           &config.PollInterval,
 		RuntimeSecretWorkLeaseSecondsEnv:      &config.WorkLease,

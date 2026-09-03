@@ -15,12 +15,12 @@ import (
 const (
 	// RuntimeSecretWorkerContract is bumped whenever the durable claim/apply
 	// state machine or the strict SealedSecret observer boundary changes.
-	RuntimeSecretWorkerContract = "runtime-secrets-v1"
+	RuntimeSecretWorkerContract = "runtime-secrets-v2"
 	// RuntimeSecretReferencePolicyContract binds Git projection readiness to
 	// the exact metadata-only runtime-secret policy configuration. It excludes
 	// key and certificate bytes, which are independently proven by the strict
 	// runtime worker readiness identity.
-	RuntimeSecretReferencePolicyContract = "runtime-secret-reference-policy-v1"
+	RuntimeSecretReferencePolicyContract = "runtime-secret-reference-policy-v2"
 
 	RuntimeSecretHeartbeatInterval = 10 * time.Second
 	RuntimeSecretHeartbeatMaxAge   = 35 * time.Second
@@ -44,20 +44,18 @@ var (
 // must be sorted and unique, making the allowlist byte-for-byte stable in the
 // digest used by both the API and worker readiness probe.
 type RuntimeConfig struct {
-	Enabled                     bool
-	Namespaces                  []string
-	NamespacePrefixes           []string
-	FingerprintSecretRef        string
-	FingerprintSecretKey        string
-	FingerprintKeyID            string
-	SealingCertificateSecretRef string
-	SealingCertificateSecretKey string
-	PollInterval                time.Duration
-	WorkLease                   time.Duration
-	HeartbeatInterval           time.Duration
-	IdleDelay                   time.Duration
-	MinimumBackoff              time.Duration
-	MaximumBackoff              time.Duration
+	Enabled              bool
+	Namespaces           []string
+	NamespacePrefixes    []string
+	FingerprintSecretRef string
+	FingerprintSecretKey string
+	FingerprintKeyID     string
+	PollInterval         time.Duration
+	WorkLease            time.Duration
+	HeartbeatInterval    time.Duration
+	IdleDelay            time.Duration
+	MinimumBackoff       time.Duration
+	MaximumBackoff       time.Duration
 }
 
 func DefaultRuntimeConfig() RuntimeConfig {
@@ -66,7 +64,6 @@ func DefaultRuntimeConfig() RuntimeConfig {
 		HeartbeatInterval: RuntimeSecretHeartbeatInterval, IdleDelay: RuntimeSecretIdleDelay,
 		MinimumBackoff: RuntimeSecretMinimumBackoff, MaximumBackoff: RuntimeSecretMaximumBackoff,
 		FingerprintSecretKey: DefaultFingerprintSecretKey, FingerprintKeyID: DefaultFingerprintKeyID,
-		SealingCertificateSecretKey: DefaultSealedSecretsCertificateKey,
 	}
 }
 
@@ -107,8 +104,7 @@ func (c RuntimeConfig) Validate() error {
 		len(namespaces)+len(prefixes) > maximumRuntimeSecretNamespaces || !c.Enabled ||
 		!slices.Equal(namespaces, c.Namespaces) || !slices.Equal(prefixes, c.NamespacePrefixes) ||
 		!kubeNameRE.MatchString(c.FingerprintSecretRef) || !keyIDRE.MatchString(c.FingerprintKeyID) ||
-		!secretKeyRE.MatchString(c.FingerprintSecretKey) || !kubeNameRE.MatchString(c.SealingCertificateSecretRef) ||
-		!secretKeyRE.MatchString(c.SealingCertificateSecretKey) ||
+		!secretKeyRE.MatchString(c.FingerprintSecretKey) ||
 		c.PollInterval < time.Second || c.PollInterval > 10*time.Minute ||
 		c.WorkLease < 20*time.Second || c.WorkLease > time.Hour ||
 		c.HeartbeatInterval < time.Second || c.HeartbeatInterval >= c.WorkLease/2 || c.HeartbeatInterval >= RuntimeSecretReadinessLease/2 ||
@@ -141,7 +137,7 @@ func (c RuntimeConfig) AllowsNamespace(namespace string) bool {
 func RuntimePolicyDigest(config RuntimeConfig) (string, error) {
 	if !config.Enabled {
 		if len(config.Namespaces) != 0 || len(config.NamespacePrefixes) != 0 || config.FingerprintSecretRef != "" || config.FingerprintSecretKey != "" ||
-			config.FingerprintKeyID != "" || config.SealingCertificateSecretRef != "" || config.SealingCertificateSecretKey != "" ||
+			config.FingerprintKeyID != "" ||
 			config.PollInterval != 0 || config.WorkLease != 0 || config.HeartbeatInterval != 0 || config.IdleDelay != 0 ||
 			config.MinimumBackoff != 0 || config.MaximumBackoff != 0 {
 			return "", ErrRuntimeUnavailable
@@ -166,9 +162,7 @@ func RuntimePolicyDigest(config RuntimeConfig) (string, error) {
 		FingerprintSecretKey      string       `json:"fingerprintSecretKey"`
 		FingerprintKeyID          string       `json:"fingerprintKeyId"`
 		FingerprintProjectionPath string       `json:"fingerprintProjectionPath"`
-		CertificateSecretRef      string       `json:"certificateSecretRef"`
-		CertificateSecretKey      string       `json:"certificateSecretKey"`
-		CertificateProjectionPath string       `json:"certificateProjectionPath"`
+		CertificateEndpoint       string       `json:"certificateEndpoint"`
 		PollIntervalNanos         int64        `json:"pollIntervalNanos"`
 		WorkLeaseNanos            int64        `json:"workLeaseNanos"`
 		HeartbeatIntervalNanos    int64        `json:"heartbeatIntervalNanos"`
@@ -180,8 +174,7 @@ func RuntimePolicyDigest(config RuntimeConfig) (string, error) {
 		Namespaces: append([]string(nil), config.Namespaces...), NamespacePrefixes: append([]string(nil), config.NamespacePrefixes...), Provider: ProviderSealedSecrets,
 		FingerprintSecretRef: config.FingerprintSecretRef, FingerprintSecretKey: config.FingerprintSecretKey,
 		FingerprintKeyID: config.FingerprintKeyID, FingerprintProjectionPath: DefaultFingerprintKeyPath,
-		CertificateSecretRef: config.SealingCertificateSecretRef, CertificateSecretKey: config.SealingCertificateSecretKey,
-		CertificateProjectionPath: DefaultSealedSecretsCertificatePath, PollIntervalNanos: int64(config.PollInterval),
+		CertificateEndpoint: DefaultSealedSecretsCertificateURL, PollIntervalNanos: int64(config.PollInterval),
 		WorkLeaseNanos: int64(config.WorkLease), HeartbeatIntervalNanos: int64(config.HeartbeatInterval),
 		IdleDelayNanos: int64(config.IdleDelay), MinimumBackoffNanos: int64(config.MinimumBackoff),
 		MaximumBackoffNanos: int64(config.MaximumBackoff),
@@ -215,9 +208,7 @@ func RuntimeIdentityForConfig(config RuntimeConfig, sealingKeyFingerprint string
 		FingerprintSecretKey      string   `json:"fingerprintSecretKey"`
 		FingerprintKeyID          string   `json:"fingerprintKeyId"`
 		FingerprintProjectionPath string   `json:"fingerprintProjectionPath"`
-		CertificateSecretRef      string   `json:"certificateSecretRef"`
-		CertificateSecretKey      string   `json:"certificateSecretKey"`
-		CertificateProjectionPath string   `json:"certificateProjectionPath"`
+		CertificateEndpoint       string   `json:"certificateEndpoint"`
 		SealingKeyFingerprint     string   `json:"sealingKeyFingerprint"`
 		PollIntervalNanos         int64    `json:"pollIntervalNanos"`
 		WorkLeaseNanos            int64    `json:"workLeaseNanos"`
@@ -230,9 +221,7 @@ func RuntimeIdentityForConfig(config RuntimeConfig, sealingKeyFingerprint string
 		FingerprintSecretRef: config.FingerprintSecretRef, FingerprintSecretKey: config.FingerprintSecretKey,
 		FingerprintKeyID:          config.FingerprintKeyID,
 		FingerprintProjectionPath: DefaultFingerprintKeyPath,
-		CertificateSecretRef:      config.SealingCertificateSecretRef,
-		CertificateSecretKey:      config.SealingCertificateSecretKey,
-		CertificateProjectionPath: DefaultSealedSecretsCertificatePath,
+		CertificateEndpoint:       DefaultSealedSecretsCertificateURL,
 		SealingKeyFingerprint:     sealingKeyFingerprint, PollIntervalNanos: int64(config.PollInterval),
 		WorkLeaseNanos: int64(config.WorkLease), HeartbeatIntervalNanos: int64(config.HeartbeatInterval),
 		IdleDelayNanos: int64(config.IdleDelay), MinimumBackoffNanos: int64(config.MinimumBackoff),
@@ -272,7 +261,7 @@ func DefaultRuntimeIdentity(ctx context.Context, config RuntimeConfig, now time.
 	if key.ID != config.FingerprintKeyID {
 		return RuntimeIdentity{}, ErrRuntimeUnavailable
 	}
-	return runtimeIdentityFromSealingCertificate(ctx, config, now, projectedSealingCertificate{path: DefaultSealedSecretsCertificatePath})
+	return runtimeIdentityFromSealingCertificate(ctx, config, now, newManagedSealingCertificate(DefaultSealedSecretsCertificateURL))
 }
 
 // WorkerRuntimeIdentity proves the public sealing certificate and the exact
@@ -280,7 +269,7 @@ func DefaultRuntimeIdentity(ctx context.Context, config RuntimeConfig, now time.
 // The worker observes SealedSecrets but never ingests plaintext or computes
 // content fingerprints, so mounting that key would violate least privilege.
 func WorkerRuntimeIdentity(ctx context.Context, config RuntimeConfig, now time.Time) (RuntimeIdentity, error) {
-	return runtimeIdentityFromSealingCertificate(ctx, config, now, projectedSealingCertificate{path: DefaultSealedSecretsCertificatePath})
+	return runtimeIdentityFromSealingCertificate(ctx, config, now, newManagedSealingCertificate(DefaultSealedSecretsCertificateURL))
 }
 
 func runtimeIdentityFromSealingCertificate(ctx context.Context, config RuntimeConfig, now time.Time, source sealingPublicKeySource) (RuntimeIdentity, error) {

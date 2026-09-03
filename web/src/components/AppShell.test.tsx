@@ -470,4 +470,16 @@ describe("navigation hierarchy", () => {
     expect(screen.getByText("Add App")).toBeInTheDocument();
     expect(screen.queryByText("new")).toBeNull();
   });
+
+  it("labels the environment variables route by its page purpose", () => {
+    renderShell(
+      {},
+      "viewer",
+      "session",
+      "/environments/environment-1/variables",
+    );
+
+    expect(screen.getByText("Environment variables")).toBeInTheDocument();
+    expect(screen.queryByText("environment-1")).toBeNull();
+  });
 });

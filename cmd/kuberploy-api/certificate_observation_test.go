@@ -19,7 +19,6 @@ func apiCertificateRuntimeSecrets() secrets.RuntimeConfig {
 	config.Enabled = true
 	config.Namespaces = []string{"payments-production"}
 	config.FingerprintSecretRef = "runtime-secret-fingerprint"
-	config.SealingCertificateSecretRef = "sealed-secrets-key"
 	return config
 }
 
@@ -45,9 +44,9 @@ func TestCertificateAPIIsDefaultOffAndValidatesCouplingBeforePostgreSQL(t *testi
 		t.Fatalf("namespace drift error=%v", err)
 	}
 	observation = apiCertificateObservation()
-	runtimeSecrets.SealingCertificateSecretRef = ""
+	runtimeSecrets.FingerprintSecretRef = ""
 	if _, err = newCertificateAPI(t.Context(), "not-a-database-url", runtimeSecrets, observation); !errors.Is(err, certificates.ErrObservationUnavailable) {
-		t.Fatalf("missing fixed projection error=%v", err)
+		t.Fatalf("invalid runtime-secret contract error=%v", err)
 	}
 }
 

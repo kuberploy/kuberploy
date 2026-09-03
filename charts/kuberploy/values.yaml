@@ -96,6 +96,8 @@ config:
     fingerprintSecret:
       name: ""
       key: runtime-secret-fingerprint.key
+    # Deprecated compatibility input. The control plane reads the active public
+    # certificate directly from the managed Sealed Secrets controller service.
     sealingCertificateSecret:
       name: ""
       key: tls.crt

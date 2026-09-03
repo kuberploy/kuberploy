@@ -63,11 +63,8 @@
   {{- if and (empty .Values.config.runtimeSecrets.namespaces) (empty .Values.config.runtimeSecrets.namespacePrefixes) -}}
   {{- fail "runtime secrets require an exact namespace or managed Environment namespace prefix" -}}
   {{- end -}}
-  {{- if or (not .Values.config.runtimeSecrets.fingerprintSecret.name) (not .Values.config.runtimeSecrets.sealingCertificateSecret.name) -}}
-  {{- fail "runtime secrets require existing HMAC and Sealed Secrets certificate Secret names" -}}
-  {{- end -}}
-  {{- if and (eq .Values.config.runtimeSecrets.fingerprintSecret.name .Values.config.runtimeSecrets.sealingCertificateSecret.name) (eq .Values.config.runtimeSecrets.fingerprintSecret.key .Values.config.runtimeSecrets.sealingCertificateSecret.key) -}}
-  {{- fail "runtime-secret HMAC and certificate projections must not select the same Secret data key" -}}
+  {{- if not .Values.config.runtimeSecrets.fingerprintSecret.name -}}
+  {{- fail "runtime secrets require an existing HMAC Secret name" -}}
   {{- end -}}
   {{- if ge (mul (int64 .Values.config.runtimeSecrets.heartbeatSeconds) 2) (int64 .Values.config.runtimeSecrets.workLeaseSeconds) -}}
   {{- fail "runtime-secret heartbeat must be less than half the work lease" -}}
@@ -510,8 +507,6 @@ data:
   KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_SECRET_REF: {{ .Values.config.runtimeSecrets.fingerprintSecret.name | quote }}
   KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_SECRET_KEY: {{ .Values.config.runtimeSecrets.fingerprintSecret.key | quote }}
   KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_KEY_ID: {{ .Values.config.runtimeSecrets.fingerprintKeyID | quote }}
-  KUBERPLOY_RUNTIME_SECRET_SEALING_CERTIFICATE_SECRET_REF: {{ .Values.config.runtimeSecrets.sealingCertificateSecret.name | quote }}
-  KUBERPLOY_RUNTIME_SECRET_SEALING_CERTIFICATE_SECRET_KEY: {{ .Values.config.runtimeSecrets.sealingCertificateSecret.key | quote }}
   KUBERPLOY_RUNTIME_SECRET_POLL_SECONDS: {{ .Values.config.runtimeSecrets.pollIntervalSeconds | quote }}
   KUBERPLOY_RUNTIME_SECRET_WORK_LEASE_SECONDS: {{ .Values.config.runtimeSecrets.workLeaseSeconds | quote }}
   KUBERPLOY_RUNTIME_SECRET_HEARTBEAT_SECONDS: {{ .Values.config.runtimeSecrets.heartbeatSeconds | quote }}
