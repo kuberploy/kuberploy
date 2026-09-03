@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Control-plane runtimes recover from transient GitOps lease changes while reusable middleware profiles remain available.",
+  "summary": "Builder images use the available Alpine SSH package while retaining Git SSH source support.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.430"
+  "version": "0.1.0-rc.431"
 }
