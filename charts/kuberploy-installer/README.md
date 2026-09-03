@@ -91,7 +91,7 @@ Install the released chart only with the fixed identity and explicit version:
 ```sh
 helm upgrade --install kuberploy-installer \
   oci://ghcr.io/kuberploy/charts/kuberploy-installer \
-  --version 0.1.0-rc.434 \
+  --version 0.1.0-rc.435 \
   --namespace kuberploy-system --create-namespace \
   -f installer-values.yaml \
   --reset-values \

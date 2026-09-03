@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Background runtimes recover without API downtime while completed builds, registry maintenance, and disabled automation remain operable.",
+  "summary": "Upgrades preserve published migration history, runtime secrets use the active managed sealing certificate, and provider conflicts no longer restart the worker.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.434"
+  "version": "0.1.0-rc.435"
 }
