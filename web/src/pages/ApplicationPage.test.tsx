@@ -10,7 +10,7 @@ import userEvent from "@testing-library/user-event";
 import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api/client";
-import type { Capabilities, ConfigBundle } from "../api/types";
+import type { Capabilities, Capability, ConfigBundle } from "../api/types";
 import { ApplicationPage } from "./ApplicationPage";
 
 const navigate = vi.hoisted(() => vi.fn());
@@ -607,6 +607,42 @@ describe("application registry navigation", () => {
       "application-payments",
       50,
     );
+  });
+});
+
+describe("application Helm navigation", () => {
+  const helmCapability: Capability = {
+    role: "project-admin",
+    scopeType: "environment",
+    scopeId: "environment-production",
+    actions: ["helm.read"],
+  };
+
+  it("hides Helm controls for a non-Helm App", async () => {
+    renderApplication({
+      features: { helmDeployments: true },
+      capabilities: [helmCapability],
+    });
+
+    await waitFor(() => expect(api.environments).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("button", { name: "Helm" })).toBeNull();
+  });
+
+  it("shows Helm controls for a Helm App", async () => {
+    vi.mocked(api.application).mockResolvedValue({
+      id: "application-payments",
+      projectId: "project-payments",
+      name: "Payments chart",
+      sourceKind: "helm",
+    });
+    renderApplication({
+      features: { helmDeployments: true },
+      capabilities: [helmCapability],
+    });
+
+    expect(
+      await screen.findByRole("button", { name: "Helm" }),
+    ).toBeVisible();
   });
 });
 

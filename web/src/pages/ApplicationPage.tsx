@@ -250,6 +250,7 @@ export function ApplicationPage() {
   const showHelmTab = Boolean(
     helmFeatureEnabled &&
     application.data &&
+    application.data.sourceKind === "helm" &&
     helmEnvironment &&
     hasHelmCapability(
       effectiveCapabilities,
