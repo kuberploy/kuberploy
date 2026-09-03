@@ -595,6 +595,37 @@ func TestKubernetesAdapterCollectsBoundedResultAndConfirmsAgentCachePromotion(t 
 	}
 }
 
+func TestKubernetesAdapterCollectsAgentResultBeforeDelayedJobCompletion(t *testing.T) {
+	attempt, workload := kubernetesWorkloadFixture(t)
+	resources := newFakeBuildResources()
+	adapter := newTestKubernetesAdapter(t, resources)
+	if _, err := adapter.ensure(context.Background(), workload, sourceTokenOne()); err != nil {
+		t.Fatal(err)
+	}
+	imageDigest := "sha256:" + strings.Repeat("c", 64)
+	cacheDigest := "sha256:" + strings.Repeat("d", 64)
+	result := builder.BuildResult{
+		APIVersion: builder.ProtocolVersion, OperationID: attempt.ID, Generation: attempt.Generation, Status: "Succeeded",
+		Image:      builder.Image{Reference: attempt.PlanRequest.Build.Destination.Repository + "@" + imageDigest, Digest: imageDigest, Platforms: attempt.PlanRequest.Build.Platforms},
+		Cache:      &builder.Cache{Reference: cacheReference(attempt), Digest: cacheDigest},
+		CacheReuse: builder.CacheReuseHit,
+		Warnings:   []builder.Warning{}, StartedAt: testNow, CompletedAt: testNow.Add(time.Minute),
+	}
+	encoded, _ := json.Marshal(result)
+	jobKey := resources.key(resourceJobs, attempt.JobNamespace, attempt.JobName)
+	resources.objects[jobKey]["status"] = map[string]any{"active": int64(1)}
+	resources.pods = []map[string]any{buildPodFixture(resources, attempt, "Running", true, encoded)}
+
+	observation, err := adapter.ensure(context.Background(), workload, sourceTokenTwo())
+	if err != nil || observation.State != WorkloadSucceeded || string(observation.Result) != string(encoded) {
+		t.Fatalf("observation=%#v err=%v", observation, err)
+	}
+	promoted, err := adapter.PromoteCache(context.Background(), attempt, cacheReference(attempt))
+	if err != nil || !promoted {
+		t.Fatalf("promoted=%v err=%v", promoted, err)
+	}
+}
+
 func TestKubernetesAdapterNeverAcceptsTruncatedOrMalformedTerminationSuccess(t *testing.T) {
 	for _, message := range [][]byte{[]byte(`{"status":`), []byte(strings.Repeat("x", builder.MaxTerminationResultBytes))} {
 		attempt, workload := kubernetesWorkloadFixture(t)
