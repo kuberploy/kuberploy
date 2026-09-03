@@ -1,10 +1,38 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/kuberploy/kuberploy/internal/builds"
 )
+
+func TestBackgroundRuntimeRestartsWithoutStoppingAPI(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	var calls atomic.Int32
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		superviseBackgroundRuntime(ctx, "auto-deploy", time.Millisecond, func(context.Context) error {
+			if calls.Add(1) == 1 {
+				return errors.New("auto-deploy lease was lost")
+			}
+			cancel()
+			return context.Canceled
+		})
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("background runtime was not restarted")
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("runtime calls=%d, want 2", calls.Load())
+	}
+}
 
 func TestRunRejectsNoncanonicalProviderCIDRBeforeDependencies(t *testing.T) {
 	t.Setenv("KUBERPLOY_EXTERNAL_EGRESS_CIDRS", "192.0.2.1/24")

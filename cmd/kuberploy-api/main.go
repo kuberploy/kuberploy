@@ -428,20 +428,14 @@ func run() error {
 		AutoDeployPolicies:  db,
 		AutoDeployReadiness: autoDeployReadiness,
 		HighRiskLimiter:     highRiskLimiter})
-	var autoDeployRuntimeDone <-chan error
 	if autoDeployConfig.Enabled {
-		runtimeDone := make(chan error, 1)
-		autoDeployRuntimeDone = runtimeDone
 		runtime := &autoDeployRuntime{readiness: autoDeployStore, identity: autoDeployConfig.Identity, workerID: "api-auto-deploy-" + id.New(),
 			controller: &autodeploy.Controller{Store: autoDeployStore, Releases: db, Authorization: db, Deployments: handler,
 				Owner: "api-auto-deploy-" + id.New(), LeaseDuration: autodeploy.RuntimeRunLease}}
-		go func() { runtimeDone <- runtime.Run(ctx) }()
+		go superviseBackgroundRuntime(ctx, "auto-deploy", backgroundRuntimeRestartDelay, runtime.Run)
 	}
-	var helmRuntimeDone <-chan error
 	if helmApplications != nil {
-		runtimeDone := make(chan error, 1)
-		helmRuntimeDone = runtimeDone
-		go func() { runtimeDone <- helmApplications.Run(ctx) }()
+		go superviseBackgroundRuntime(ctx, "helm-applications", backgroundRuntimeRestartDelay, helmApplications.Run)
 	}
 	srv := &http.Server{Addr: config.Get("KUBERPLOY_LISTEN_ADDR", ":8080"), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
 	done := make(chan error, 1)
@@ -452,22 +446,6 @@ func run() error {
 	select {
 	case err = <-done:
 		if errors.Is(err, http.ErrServerClosed) {
-			return nil
-		}
-		return err
-	case err = <-autoDeployRuntimeDone:
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(shutdownCtx)
-		if errors.Is(err, context.Canceled) && ctx.Err() != nil {
-			return nil
-		}
-		return err
-	case err = <-helmRuntimeDone:
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(shutdownCtx)
-		if errors.Is(err, context.Canceled) && ctx.Err() != nil {
 			return nil
 		}
 		return err
