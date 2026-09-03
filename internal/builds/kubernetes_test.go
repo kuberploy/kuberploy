@@ -614,9 +614,17 @@ func TestKubernetesAdapterCollectsAgentResultBeforeDelayedJobCompletion(t *testi
 	encoded, _ := json.Marshal(result)
 	jobKey := resources.key(resourceJobs, attempt.JobNamespace, attempt.JobName)
 	resources.objects[jobKey]["status"] = map[string]any{"active": int64(1)}
-	resources.pods = []map[string]any{buildPodFixture(resources, attempt, "Running", true, encoded)}
-
+	pod := buildPodFixture(resources, attempt, "Running", true, encoded)
+	resources.pods = []map[string]any{pod}
 	observation, err := adapter.ensure(context.Background(), workload, sourceTokenTwo())
+	if err != nil || observation.State != WorkloadRunning {
+		t.Fatalf("agent-only observation=%#v err=%v", observation, err)
+	}
+	podStatus := pod["status"].(map[string]any)
+	podStatus["initContainerStatuses"] = append(podStatus["initContainerStatuses"].([]any),
+		map[string]any{"name": "dind", "state": map[string]any{"terminated": map[string]any{"exitCode": int64(0)}}})
+
+	observation, err = adapter.ensure(context.Background(), workload, sourceTokenTwo())
 	if err != nil || observation.State != WorkloadSucceeded || string(observation.Result) != string(encoded) {
 		t.Fatalf("observation=%#v err=%v", observation, err)
 	}

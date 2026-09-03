@@ -503,6 +503,9 @@ func (a *KubernetesAdapter) PromoteCache(ctx context.Context, attempt BuildAttem
 	if err != nil || len(pods) != 1 {
 		return false, ErrInfrastructure
 	}
+	if !jobSucceeded(liveJob) && !nativeBuildSidecarTerminated(pods[0]) {
+		return false, ErrInfrastructure
+	}
 	encoded, ok := terminationResult(pods[0])
 	if !ok {
 		return false, ErrInfrastructure
@@ -1266,11 +1269,12 @@ func validateBuildPod(pod, job map[string]any) error {
 }
 
 func observeBuild(attempt BuildAttempt, job map[string]any, pods []map[string]any) WorkloadObservation {
-	// The verified agent termination result is the build completion authority.
-	// Kubernetes can delay the Job Complete condition after both the agent and
-	// its native sidecar have exited, so waiting only on Job status can hold the
-	// build lease and block the queue despite a finished build.
-	if len(pods) == 1 {
+	// The verified agent termination result is the build completion authority
+	// once the privileged native sidecar has also stopped. Kubernetes can delay
+	// the Job Complete condition after both containers have exited, so waiting
+	// only on Job status can hold the build lease and block the queue despite a
+	// finished build.
+	if len(pods) == 1 && nativeBuildSidecarTerminated(pods[0]) {
 		if result, ok := terminationResult(pods[0]); ok {
 			return WorkloadObservation{State: WorkloadSucceeded, Result: result, LogReference: buildLogReference(attempt.JobNamespace, objectName(pods[0]))}
 		}
@@ -1317,6 +1321,27 @@ func terminationResult(pod map[string]any) ([]byte, bool) {
 		return result, true
 	}
 	return nil, false
+}
+
+func nativeBuildSidecarTerminated(pod map[string]any) bool {
+	status, _ := pod["status"].(map[string]any)
+	containers, _ := status["initContainerStatuses"].([]any)
+	seen := false
+	for _, raw := range containers {
+		container, _ := raw.(map[string]any)
+		if container["name"] != "dind" {
+			continue
+		}
+		if seen {
+			return false
+		}
+		seen = true
+		state, _ := container["state"].(map[string]any)
+		if _, terminated := state["terminated"].(map[string]any); !terminated {
+			return false
+		}
+	}
+	return seen
 }
 
 func shouldDeleteSourceSecret(job map[string]any, pods []map[string]any) bool {
