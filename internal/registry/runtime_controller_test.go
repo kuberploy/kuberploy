@@ -3,6 +3,9 @@ package registry
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -15,6 +18,27 @@ type runtimeStoreStub struct {
 	store.RegistryRuntimeStore
 	planID    string
 	nextCalls int
+}
+
+type observationRuntimeStoreStub struct {
+	store.RegistryRuntimeStore
+	work        store.RegistryObservationWork
+	claimAt     time.Time
+	publication store.RegistryObservationPublication
+}
+
+func (s *observationRuntimeStoreStub) ClaimRegistryObservation(_ context.Context, _ string, _ string, now time.Time, _ time.Duration) (store.RegistryObservationWork, error) {
+	s.claimAt = now
+	return s.work, nil
+}
+
+func (s *observationRuntimeStoreStub) RegistryObservationRoots(context.Context, string) (map[string][]string, error) {
+	return map[string][]string{}, nil
+}
+
+func (s *observationRuntimeStoreStub) PublishRegistryObservation(_ context.Context, _ store.RegistryObservationLease, publication store.RegistryObservationPublication) error {
+	s.publication = publication
+	return nil
 }
 
 func (s *runtimeStoreStub) NextAcceptedRegistryCleanup(context.Context, string, time.Time) (string, error) {
@@ -80,6 +104,50 @@ func TestRuntimeControllerSerializesObservationAgainstCleanup(t *testing.T) {
 	case <-locked:
 	case <-time.After(time.Second):
 		t.Fatal("observation lock remained blocked after cleanup")
+	}
+}
+
+func TestRuntimeControllerSchedulesNextObservationAfterScanCompletion(t *testing.T) {
+	config := testManagedRuntimeConfig(t)
+	target, err := config.ManagedTarget()
+	if err != nil {
+		t.Fatal(err)
+	}
+	startedAt := time.Now().UTC().Truncate(time.Second)
+	observedAt := startedAt.Add(time.Minute)
+	completedAt := startedAt.Add(4 * time.Minute)
+	storeStub := &observationRuntimeStoreStub{work: store.RegistryObservationWork{
+		Target: target,
+		Lease: store.RegistryObservationLease{TargetID: target.ID, Owner: "worker-managed-registry-test-observe", Epoch: 1,
+			Revision: 7, Until: startedAt.Add(time.Hour)},
+	}}
+	times := []time.Time{startedAt, observedAt, completedAt}
+	timeIndex := 0
+	controller := &RuntimeController{
+		Store: storeStub, Targets: targetReaderStub{target: target},
+		Credentials: distributionCredentialSourceFunc(func(context.Context, string) (DistributionAuthorization, error) {
+			return NewDistributionBearerAuthorization([]byte("test-provider-credential"))
+		}),
+		Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header),
+				Body: io.NopCloser(strings.NewReader(`{"repositories":[]}`))}, nil
+		}),
+		Cleanup: &cleanupExecutorStub{}, Config: config, Owner: "worker-managed-registry-test",
+		LeaseDuration: time.Minute, HeartbeatInterval: 10 * time.Second, IdleDelay: time.Second,
+		MinimumBackoff: time.Second, MaximumBackoff: time.Minute,
+		Now: func() time.Time {
+			value := times[timeIndex]
+			timeIndex++
+			return value
+		},
+	}
+	didWork, err := controller.ReconcileObservation(t.Context())
+	if err != nil || !didWork {
+		t.Fatalf("didWork=%v err=%v", didWork, err)
+	}
+	if !storeStub.claimAt.Equal(startedAt) || !storeStub.publication.ObservedAt.Equal(observedAt) ||
+		!storeStub.publication.NextAt.Equal(completedAt.Add(config.ObservationInterval)) {
+		t.Fatalf("claim=%v observed=%v next=%v", storeStub.claimAt, storeStub.publication.ObservedAt, storeStub.publication.NextAt)
 	}
 }
 

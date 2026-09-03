@@ -158,7 +158,11 @@ func (c *RuntimeController) ReconcileObservation(ctx context.Context) (bool, err
 	if err != nil {
 		return fail(registryRuntimeObservationFailureCode(err), err)
 	}
-	publication := store.RegistryObservationPublication{Inventory: inventory, Catalogs: catalogs, ObservedAt: observedAt, NextAt: observedAt.Add(c.Config.ObservationInterval)}
+	completedAt := c.now()
+	if completedAt.Before(observedAt) {
+		completedAt = observedAt
+	}
+	publication := store.RegistryObservationPublication{Inventory: inventory, Catalogs: catalogs, ObservedAt: observedAt, NextAt: completedAt.Add(c.Config.ObservationInterval)}
 	if err = c.Store.PublishRegistryObservation(ctx, lease, publication); err != nil {
 		return true, err
 	}
