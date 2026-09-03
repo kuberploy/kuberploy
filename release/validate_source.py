@@ -35,7 +35,7 @@ RELEASE_COMPONENT_CHARTS = (
 
 
 def validate_builder_agent_runtime(dockerfile: str) -> None:
-    if "openssh-client-default=10.3_p1-r0" not in dockerfile:
+    if "openssh-client-default=10.3_p1-r1" not in dockerfile:
         raise SystemExit("builder-agent runtime must install the pinned SSH client used by Git SSH sources")
     if "adduser -S -D -H -u 65532 -G kuberploy kuberploy" not in dockerfile:
         raise SystemExit("builder-agent runtime must define the fixed UID used by the SSH client")

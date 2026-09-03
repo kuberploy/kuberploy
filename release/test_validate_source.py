@@ -36,7 +36,7 @@ def main() -> None:
     validate_builder_agent_runtime(builder_dockerfile)
     try:
         validate_builder_agent_runtime(
-            builder_dockerfile.replace("openssh-client-default=10.3_p1-r0", "missing-ssh-client", 1)
+            builder_dockerfile.replace("openssh-client-default=10.3_p1-r1", "missing-ssh-client", 1)
         )
     except SystemExit as error:
         if "pinned SSH client" not in str(error):
