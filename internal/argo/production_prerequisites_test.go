@@ -134,6 +134,10 @@ func (s staticRootApplicationSource) ObservePlatformRootApplication(_ context.Co
 	return observation, nil
 }
 
+func (s staticRootApplicationSource) ObservePlatformRootApplicationForCascade(ctx context.Context, expectation PlatformRootApplicationExpectation, now time.Time) (PlatformRootApplicationObservation, error) {
+	return s.ObservePlatformRootApplication(ctx, expectation, now)
+}
+
 type recoveringRootApplication struct {
 	staleRevision string
 	refreshes     int
@@ -147,6 +151,10 @@ func (s *recoveringRootApplication) ObservePlatformRootApplication(_ context.Con
 	return PlatformRootApplicationObservation{Namespace: expectation.Namespace, Name: expectation.Name,
 		UID: "77111111-1111-4111-8111-111111111111", ResourceVersion: "12", SpecDigest: expectation.SpecDigest,
 		ObservedRevision: revision, SyncStatus: "Synced", HealthStatus: "Healthy", ObservedAt: now}, nil
+}
+
+func (s *recoveringRootApplication) ObservePlatformRootApplicationForCascade(ctx context.Context, expectation PlatformRootApplicationExpectation, now time.Time) (PlatformRootApplicationObservation, error) {
+	return s.ObservePlatformRootApplication(ctx, expectation, now)
 }
 
 func (s *recoveringRootApplication) RefreshPlatformRootApplication(_ context.Context, expectation PlatformRootApplicationExpectation, now time.Time) error {
@@ -279,6 +287,15 @@ func TestProductionPrerequisitesRequireExactProviderHeadCredentialSetAndRootSpec
 		t.Fatalf("proof=%#v err=%v", proof, err)
 	}
 
+	prerequisites.RootApplications = staticRootApplicationSource{mutate: func(value *PlatformRootApplicationObservation) {
+		value.HealthStatus = "Degraded"
+	}}
+	proof, err = prerequisites.ObserveProductionPrerequisites(t.Context(), now)
+	if err != nil || proof.PlatformHead != head.Commit || proof.RootUID == "" {
+		t.Fatalf("synced root with degraded child blocked unrelated desired state: proof=%#v err=%v", proof, err)
+	}
+	prerequisites.RootApplications = staticRootApplicationSource{}
+
 	staleAuthorities := []RepositoryBindingAuthority{{Binding: platform, CatalogObservedAt: now.Add(-2 * time.Minute)},
 		{Binding: environment, CatalogObservedAt: now.Add(-2 * time.Minute)}}
 	environmentHead := gitprojection.VerifiedHead{BindingID: environment.ID, Repository: environment.Repository,
@@ -329,6 +346,12 @@ func TestProductionPrerequisitesRequireExactProviderHeadCredentialSetAndRootSpec
 	if _, err = prerequisites.ObserveProductionPrerequisites(t.Context(), now); !errors.Is(err, ErrPlatformRootNotReady) {
 		t.Fatalf("root spec mismatch accepted: %v", err)
 	}
+	prerequisites.RootApplications = staticRootApplicationSource{mutate: func(value *PlatformRootApplicationObservation) {
+		value.SyncStatus = "OutOfSync"
+	}}
+	if _, err = prerequisites.ObserveProductionPrerequisites(t.Context(), now); !errors.Is(err, ErrPlatformRootNotReady) {
+		t.Fatalf("out-of-sync root accepted: %v", err)
+	}
 }
 
 func TestProductionPrerequisitesHardRefreshesExactStaleRootBeforeReadiness(t *testing.T) {
@@ -375,6 +398,7 @@ func TestInClusterProductionClientUsesClosedSecretAndRootApplicationRequests(t *
 		t.Fatal(err)
 	}
 	requests, deleteRequests, refreshRequests, rootReads := 0, 0, 0, 0
+	degraded := false
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		requests++
 		if request.Header.Get("Authorization") != "Bearer service-account-token" {
@@ -430,6 +454,10 @@ func TestInClusterProductionClientUsesClosedSecretAndRootApplicationRequests(t *
 				revision = strings.Repeat("f", 40)
 			}
 			writer.Header().Set("Content-Type", "application/json")
+			health := "Healthy"
+			if degraded {
+				health = "Degraded"
+			}
 			_ = json.NewEncoder(writer).Encode(map[string]any{
 				"metadata": map[string]any{"name": expectation.Name, "namespace": expectation.Namespace,
 					"uid": "79111111-1111-4111-8111-111111111111", "resourceVersion": "21",
@@ -437,7 +465,7 @@ func TestInClusterProductionClientUsesClosedSecretAndRootApplicationRequests(t *
 					"annotations": map[string]string{"kuberploy.io/repository-secret": expectation.RepositoryCredentialName}},
 				"spec": platformRootApplicationSpec(expectation),
 				"status": map[string]any{"sync": map[string]string{"status": "Synced", "revision": revision},
-					"health": map[string]string{"status": "Healthy"}},
+					"health": map[string]string{"status": health}},
 			})
 		case http.MethodDelete:
 			if request.URL.Path != "/api/v1/namespaces/argocd/secrets/"+apply.Name {
@@ -465,8 +493,9 @@ func TestInClusterProductionClientUsesClosedSecretAndRootApplicationRequests(t *
 	if err != nil || root.ObservedRevision != expectation.ExpectedGitRevision || root.SpecDigest != expectation.SpecDigest {
 		t.Fatalf("root=%#v err=%v", root, err)
 	}
+	degraded = true
 	if err = client.RefreshPlatformRootApplication(t.Context(), expectation, now); err != nil {
-		t.Fatalf("refresh root through transient stale read: %v", err)
+		t.Fatalf("refresh root through transient stale read with degraded child: %v", err)
 	}
 	revocation, err := client.DeleteRepositoryCredential(t.Context(), "argocd", apply.Name, platform.ID, now)
 	if err != nil || revocation.Absent {

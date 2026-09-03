@@ -502,14 +502,16 @@ type FoundationReadinessProbe interface {
 // ProductionPrerequisites is the fail-closed composition used before every
 // durable readiness heartbeat. It proves the exact central platform binding,
 // reconciles/revokes the closed repository credential set, provider-verifies
-// the platform ref, and observes the exact healthy root Application spec/UID.
+// the platform ref, and observes the exact synced root Application spec/UID.
+// Child App health is independent and cannot block unrelated desired-state
+// publication through the shared app-of-apps root.
 type ProductionPrerequisites struct {
 	Identity          DesiredStateRuntimeIdentity
 	Catalog           RuntimeBindingCatalog
 	Credentials       *RepositoryCredentialController
 	Provider          gitprojection.HeadVerifier
 	Protection        PlatformRepositoryProtectionVerifier
-	RootApplications  PlatformRootApplicationSource
+	RootApplications  PlatformRootCascadeSource
 	RootRefresher     PlatformRootRefresher
 	Foundation        FoundationReadinessProbe
 	MaximumCatalogAge time.Duration
@@ -605,7 +607,8 @@ func (p *ProductionPrerequisites) ObserveProductionPrerequisites(ctx context.Con
 		// necessarily refreshed its cached target revision. Recover that exact
 		// handoff with the same closed metadata-only hard refresh used by the
 		// durable writer. Readiness remains fenced until the subsequent exact
-		// observation proves the new provider head Synced and Healthy.
+		// observation proves the new provider head Synced. Child App health is
+		// not a root publication prerequisite.
 		if refreshErr := p.RootRefresher.RefreshPlatformRootApplication(ctx, expectation, now.UTC()); refreshErr != nil {
 			return ProductionPrerequisiteProof{}, errors.Join(ErrArgoRuntimePrerequisiteNotReady, refreshErr)
 		}
@@ -624,11 +627,11 @@ func (p *ProductionPrerequisites) ObserveProductionPrerequisites(ctx context.Con
 }
 
 func (p *ProductionPrerequisites) observePlatformRoot(ctx context.Context, expectation PlatformRootApplicationExpectation, now time.Time) (PlatformRootApplicationObservation, error) {
-	root, err := p.RootApplications.ObservePlatformRootApplication(ctx, expectation, now)
+	root, err := p.RootApplications.ObservePlatformRootApplicationForCascade(ctx, expectation, now)
 	if err != nil {
 		return PlatformRootApplicationObservation{}, err
 	}
-	if err = root.validateFor(expectation, now); err != nil {
+	if err = root.validateForCascade(expectation, now); err != nil {
 		return PlatformRootApplicationObservation{}, err
 	}
 	return root, nil

@@ -106,18 +106,30 @@ export function AppShell({ user }: { user: Principal }) {
     applyThemePreference(themePreference);
   }, [themePreference]);
 
-  const pageName = pathname.match(/^\/projects\/[^/]+$/)
-    ? "Project"
-    : pathname.match(/^\/applications\/[^/]+\/deployments\/[^/]+$/)
+  const pageName = pathname.match(
+    /^\/projects\/[^/]+\/environments\/[^/]+\/apps\/new$/,
+  )
+    ? "Add App"
+    : pathname.match(/^\/projects\/[^/]+\/environments\/[^/]+\/apps\/[^/]+$/)
       ? "App"
-      : pathname.match(/^\/applications\/[^/]+$/)
-        ? "App"
-        : pathname === "/deploy"
-          ? "Add App"
-          : pathname === "/"
-            ? "Dashboard"
-            : (pathname.split("/").filter(Boolean).at(-1)?.replace(/-/g, " ") ??
-              "Dashboard");
+      : pathname.match(/^\/projects\/[^/]+\/environments\/[^/]+$/) ||
+          pathname.match(/^\/environments\/[^/]+\/variables$/)
+        ? "Environment"
+        : pathname.match(/^\/projects\/[^/]+$/)
+          ? "Project"
+          : pathname.match(/^\/applications\/[^/]+\/deployments\/[^/]+$/)
+            ? "App"
+            : pathname.match(/^\/applications\/[^/]+$/)
+              ? "App"
+              : pathname === "/deploy"
+                ? "Add App"
+                : pathname === "/"
+                  ? "Dashboard"
+                  : (pathname
+                      .split("/")
+                      .filter(Boolean)
+                      .at(-1)
+                      ?.replace(/-/g, " ") ?? "Dashboard");
 
   const registryNavigationVisible =
     capabilities.data?.features?.registry === true &&

@@ -439,4 +439,35 @@ describe("navigation hierarchy", () => {
     expect(screen.queryByText("Deployment")).toBeNull();
     expect(screen.queryByText("Service")).toBeNull();
   });
+
+  it("uses entity labels instead of route IDs for environment App routes", () => {
+    renderShell(
+      {},
+      "viewer",
+      "session",
+      "/projects/project-1/environments/environment-1",
+    );
+    expect(screen.getByText("Environment")).toBeInTheDocument();
+    expect(screen.queryByText("environment-1")).toBeNull();
+
+    cleanup();
+    renderShell(
+      {},
+      "viewer",
+      "session",
+      "/projects/project-1/environments/environment-1/apps/app-1",
+    );
+    expect(screen.getByText("App")).toBeInTheDocument();
+    expect(screen.queryByText("app-1")).toBeNull();
+
+    cleanup();
+    renderShell(
+      {},
+      "viewer",
+      "session",
+      "/projects/project-1/environments/environment-1/apps/new",
+    );
+    expect(screen.getByText("Add App")).toBeInTheDocument();
+    expect(screen.queryByText("new")).toBeNull();
+  });
 });

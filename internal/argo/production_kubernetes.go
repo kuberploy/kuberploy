@@ -258,8 +258,9 @@ type protectedApplicationEnvelopeWire struct {
 
 // RefreshPlatformRootApplication performs one closed metadata-only patch and
 // then waits for the exact root acknowledgement. Acceptance requires the
-// immutable root spec, the verified provider revision, and Synced/Healthy
-// status. It cannot select another Application and does not invoke Argo's sync
+// immutable root spec, the verified provider revision, and Synced status.
+// Child App health is independent from root revision acknowledgement. It
+// cannot select another Application and does not invoke Argo's sync
 // API; the installer-owned automated policy remains the sole reconciliation
 // executor. The expected transient stale reads after the patch stay inside the
 // active lease-fenced command instead of forcing a failure and reclaim.
@@ -295,7 +296,7 @@ func (c *InClusterProductionClient) RefreshPlatformRootApplication(ctx context.C
 		if observedAt.Before(now) {
 			observedAt = now.UTC()
 		}
-		if _, err = c.ObservePlatformRootApplication(ctx, expectation, observedAt); err == nil {
+		if _, err = c.ObservePlatformRootApplicationForCascade(ctx, expectation, observedAt); err == nil {
 			return nil
 		} else if !errors.Is(err, ErrPlatformRootNotReady) {
 			return err
