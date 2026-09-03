@@ -47,7 +47,7 @@ const tokenRecord: ServiceAccountToken = {
   name: "production deploy",
   prefix: "kp_sa_abcdefgh",
   scopes: ["app.read", "app.edit"],
-  expiresAt: "2026-09-01T00:00:00Z",
+  expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1_000).toISOString(),
   createdBy: "user-admin",
   createdAt: "2026-08-09T00:01:00Z",
 };

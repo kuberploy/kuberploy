@@ -2,6 +2,7 @@ package httpapi_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -29,6 +30,10 @@ func (b middlewareSecretBackend) Binding(_ context.Context, id string) (secrets.
 }
 
 func newMiddlewareProfileAPI(t *testing.T, backend *middlewareSecretBackend) *apiFixture {
+	return newMiddlewareProfileAPIWithReadiness(t, backend, nil)
+}
+
+func newMiddlewareProfileAPIWithReadiness(t *testing.T, backend *middlewareSecretBackend, readinessErr error) *apiFixture {
 	t.Helper()
 	central := memory.New()
 	server := httptest.NewServer(httpapi.New(httpapi.Options{
@@ -36,9 +41,9 @@ func newMiddlewareProfileAPI(t *testing.T, backend *middlewareSecretBackend) *ap
 		MiddlewareProfiles:     middlewareprofiles.NewMemoryStore(),
 		RuntimeSecrets:         backend,
 		GitProjection:          &projectionHTTPBackend{},
-		GitProjectionReadiness: &projectionHTTPReadiness{},
-		ArgoReadiness:          &projectionHTTPReadiness{},
-		EdgeReadiness:          &edgeHTTPReadiness{},
+		GitProjectionReadiness: &projectionHTTPReadiness{err: readinessErr},
+		ArgoReadiness:          &projectionHTTPReadiness{err: readinessErr},
+		EdgeReadiness:          &edgeHTTPReadiness{err: readinessErr},
 		EdgeFeatures:           httpapi.EdgeRuntimeFeatures{Traefik: true},
 		HighRiskLimiter:        ratelimit.NewMemoryLimiter(10_000),
 	}))
@@ -46,6 +51,22 @@ func newMiddlewareProfileAPI(t *testing.T, backend *middlewareSecretBackend) *ap
 	fixture := &apiFixture{t: t, server: server, client: &http.Client{Jar: jar}, store: central}
 	t.Cleanup(server.Close)
 	return fixture
+}
+
+func TestMiddlewareProfilesRemainUsableWhileDeliveryRuntimesConverge(t *testing.T) {
+	f := newMiddlewareProfileAPIWithReadiness(t, nil, errors.New("delivery runtime converging"))
+	f.bootstrap()
+
+	response := f.request(http.MethodPost, "/v1/middlewares/validate", "", map[string]any{
+		"name": "security-headers",
+		"spec": map[string]any{"headers": map[string]any{"frameDeny": true}},
+	})
+	result := decode[struct {
+		Valid bool `json:"valid"`
+	}](t, response)
+	if response.StatusCode != http.StatusOK || !result.Valid {
+		t.Fatalf("middleware validation during delivery convergence: status=%d result=%#v", response.StatusCode, result)
+	}
 }
 
 func TestBasicAuthProfileNeverCrossesItsExactEnvironment(t *testing.T) {

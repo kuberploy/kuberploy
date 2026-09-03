@@ -125,12 +125,13 @@ func (r *ProductionDesiredStateRuntime) Run(ctx context.Context) error {
 	}
 	for {
 		err := r.runReadyCycle(ctx)
-		if !errors.Is(err, ErrArgoRuntimePrerequisiteNotReady) {
+		if !errors.Is(err, ErrArgoRuntimePrerequisiteNotReady) && !errors.Is(err, ErrLeaseLost) {
 			return err
 		}
 		// A protected Git write can make the root Application transiently
-		// OutOfSync. Let the readiness lease age/fence immediately, then wait
-		// for a new exact composite proof instead of killing the whole worker.
+		// OutOfSync or supersede a fenced command/readiness lease. Let the old
+		// lease age/fence immediately, then acquire a fresh composite proof
+		// instead of killing every runtime in the worker process.
 		timer := time.NewTimer(r.prerequisiteWait(err, pollDuration))
 		select {
 		case <-ctx.Done():

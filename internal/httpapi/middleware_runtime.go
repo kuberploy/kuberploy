@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"time"
 
 	"github.com/kuberploy/kuberploy/internal/appconfig"
 	"github.com/kuberploy/kuberploy/internal/domain"
@@ -14,12 +13,10 @@ import (
 )
 
 func (s *Server) middlewareRuntimeReady(ctx context.Context) bool {
-	if s.middleware == nil || !s.edgeFeatures.Traefik || s.edgeReadiness == nil || s.gitProjection == nil || s.gitReadiness == nil || s.argoReadiness == nil {
-		return false
-	}
-	probeContext, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	return s.edgeReadiness.Probe(probeContext) == nil && s.gitReadiness.Probe(probeContext) == nil && s.argoReadiness.Probe(probeContext) == nil
+	// Profile validation and storage are local control-plane operations. A
+	// transient Git, Argo, or edge reconciliation gap must not disable the
+	// profile library; App publication retains its own readiness gates.
+	return ctx != nil && s.middleware != nil && s.edgeFeatures.Traefik
 }
 
 func (s *Server) materializeMiddlewareCandidate(ctx context.Context, actor string, deployment domain.Deployment, current []byte, candidate appconfig.Candidate) appconfig.Candidate {
