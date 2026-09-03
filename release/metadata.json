@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Environment deletion prunes both protected Git manifests and repairs cleanup completed by earlier release candidates.",
+  "summary": "Control-plane runtimes recover from transient GitOps lease changes while reusable middleware profiles remain available.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.429"
+  "version": "0.1.0-rc.430"
 }
