@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Builder images use the available Alpine SSH package while retaining Git SSH source support.",
+  "summary": "Background runtimes recover without API downtime while completed builds, registry maintenance, and disabled automation remain operable.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.431"
+  "version": "0.1.0-rc.432"
 }
