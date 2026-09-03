@@ -122,9 +122,15 @@ func TestAutoDeployPolicyStoreAuthorizesBeforeSideEffectsAndReplaysBeforeMutable
 		t.Fatal("denied policy mutation wrote policy, command, or audit state")
 	}
 
-	next := revision
-	next.Revision, next.CreatedAt = 2, now.Add(2*time.Second)
-	if _, _, _, err = store.RevisePolicy(ctx, policy, next, "disabled-revise-01", "sha256:"+strings.Repeat("f", 64), "disabled"); !errors.Is(err, base.ErrNotFound) {
-		t.Fatalf("disabled selected service account err=%v", err)
+	disabled := revision
+	disabled.Revision, disabled.Enabled, disabled.CreatedAt = 2, false, now.Add(2*time.Second)
+	updated, _, _, err := store.RevisePolicy(ctx, policy, disabled, "disable-policy-01", "sha256:"+strings.Repeat("f", 64), "disable")
+	if err != nil || updated.CurrentRevision != 2 {
+		t.Fatalf("policy could not be disabled after service account disable: updated=%#v err=%v", updated, err)
+	}
+	next := disabled
+	next.Revision, next.Enabled, next.CreatedAt = 3, true, now.Add(3*time.Second)
+	if _, _, _, err = store.RevisePolicy(ctx, updated, next, "disabled-revise-01", "sha256:"+strings.Repeat("0", 64), "enable"); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("disabled selected service account enabled policy err=%v", err)
 	}
 }

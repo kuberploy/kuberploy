@@ -48,7 +48,7 @@ func (s *Store) CreatePolicy(ctx context.Context, policy autodeploy.Policy, revi
 	if replayPolicy, replayRevision, found, replayErr := autoDeployPolicyReplay(ctx, tx, policy.CreatedBy, key, "create", requestDigest); replayErr != nil || found {
 		return replayPolicy, replayRevision, found, replayErr
 	}
-	if err = authorizeAutoDeployPolicyMutation(ctx, tx, policy.CreatedBy, policy.ProjectID, policy.EnvironmentID, policy.ApplicationID, revision.ServiceActorID); err != nil {
+	if err = authorizeAutoDeployPolicyMutation(ctx, tx, policy.CreatedBy, policy.ProjectID, policy.EnvironmentID, policy.ApplicationID, revision.ServiceActorID, true); err != nil {
 		return autodeploy.Policy{}, autodeploy.Revision{}, false, err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO auto_deploy_policies(id,project_id,application_id,environment_id,current_revision,created_by,created_at)
@@ -101,7 +101,7 @@ func (s *Store) RevisePolicy(ctx context.Context, prior autodeploy.Policy, revis
 	if current != prior || currentRevision.Revision != prior.CurrentRevision {
 		return autodeploy.Policy{}, autodeploy.Revision{}, false, base.ErrConflict
 	}
-	if err = authorizeAutoDeployPolicyMutation(ctx, tx, revision.CreatedBy, prior.ProjectID, prior.EnvironmentID, prior.ApplicationID, revision.ServiceActorID); err != nil {
+	if err = authorizeAutoDeployPolicyMutation(ctx, tx, revision.CreatedBy, prior.ProjectID, prior.EnvironmentID, prior.ApplicationID, revision.ServiceActorID, revision.Enabled); err != nil {
 		return autodeploy.Policy{}, autodeploy.Revision{}, false, err
 	}
 	if err = insertAutoDeployRevision(ctx, tx, revision); err == nil {
@@ -237,7 +237,7 @@ func (s *Store) AuthorizeAutoDeploy(ctx context.Context, actorID string, scope d
 	return nil
 }
 
-func authorizeAutoDeployPolicyMutation(ctx context.Context, q accessQuerier, actorID, projectID, environmentID, applicationID, serviceActorID string) error {
+func authorizeAutoDeployPolicyMutation(ctx context.Context, q accessQuerier, actorID, projectID, environmentID, applicationID, serviceActorID string, requireActiveServiceActor bool) error {
 	if err := authorizeWith(ctx, q, actorID, domain.PermissionBuildsManage, domain.AccessTarget{Type: "application", ID: applicationID}); err != nil {
 		return err
 	}
@@ -261,7 +261,7 @@ func authorizeAutoDeployPolicyMutation(ctx context.Context, q accessQuerier, act
 	if err != nil {
 		return err
 	}
-	if account.ProjectID != projectID || account.DisabledAt != nil {
+	if account.ProjectID != projectID || requireActiveServiceActor && account.DisabledAt != nil {
 		return base.ErrNotFound
 	}
 	projectTarget, err := resolveAccessTarget(ctx, q, domain.AccessTarget{Type: "project", ID: projectID})

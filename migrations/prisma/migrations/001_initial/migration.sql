@@ -1710,9 +1710,10 @@ BEGIN
         JOIN environments e ON e.id=policy_row.environment_id AND e.project_id=a.project_id
         JOIN deployments d ON d.id=NEW.source_deployment_id
              AND d.application_id=a.id AND d.environment_id=e.id AND d.generation=NEW.source_deployment_generation
-        JOIN service_accounts sa ON sa.id=NEW.service_actor_id AND sa.project_id=a.project_id AND sa.disabled_at IS NULL
+        JOIN service_accounts sa ON sa.id=NEW.service_actor_id AND sa.project_id=a.project_id
         WHERE a.id=policy_row.application_id AND a.project_id=policy_row.project_id
           AND a.build_source_id IS NOT NULL
+          AND (NOT NEW.enabled OR sa.disabled_at IS NULL)
     ) THEN
         RAISE EXCEPTION 'auto-deploy policy resource binding mismatch' USING ERRCODE='23503';
     END IF;

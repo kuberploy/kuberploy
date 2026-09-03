@@ -51,7 +51,7 @@ func (s *Store) CreatePolicy(_ context.Context, policy autodeploy.Policy, revisi
 	if policy.Validate() != nil || revision.ValidateFor(policy) != nil || policy.CurrentRevision != 1 || revision.Revision != 1 || key == "" || digest == "" || requestID == "" {
 		return autodeploy.Policy{}, autodeploy.Revision{}, false, autodeploy.ErrInvalid
 	}
-	if err := s.authorizeAutoDeployPolicyMutationLocked(policy.CreatedBy, policy.ProjectID, policy.EnvironmentID, policy.ApplicationID, revision.ServiceActorID); err != nil {
+	if err := s.authorizeAutoDeployPolicyMutationLocked(policy.CreatedBy, policy.ProjectID, policy.EnvironmentID, policy.ApplicationID, revision.ServiceActorID, true); err != nil {
 		return autodeploy.Policy{}, autodeploy.Revision{}, false, err
 	}
 	if _, exists := s.autoDeployPolicies[policy.ID]; exists {
@@ -84,7 +84,7 @@ func (s *Store) RevisePolicy(_ context.Context, prior autodeploy.Policy, revisio
 	if current != prior || revision.Revision != prior.CurrentRevision+1 || revision.ValidateFor(next) != nil || key == "" || digest == "" || requestID == "" {
 		return autodeploy.Policy{}, autodeploy.Revision{}, false, base.ErrConflict
 	}
-	if err := s.authorizeAutoDeployPolicyMutationLocked(revision.CreatedBy, prior.ProjectID, prior.EnvironmentID, prior.ApplicationID, revision.ServiceActorID); err != nil {
+	if err := s.authorizeAutoDeployPolicyMutationLocked(revision.CreatedBy, prior.ProjectID, prior.EnvironmentID, prior.ApplicationID, revision.ServiceActorID, revision.Enabled); err != nil {
 		return autodeploy.Policy{}, autodeploy.Revision{}, false, err
 	}
 	s.autoDeployPolicies[prior.ID] = next
@@ -94,7 +94,7 @@ func (s *Store) RevisePolicy(_ context.Context, prior autodeploy.Policy, revisio
 	return next, revision, false, nil
 }
 
-func (s *Store) authorizeAutoDeployPolicyMutationLocked(actorID, projectID, environmentID, applicationID, serviceActorID string) error {
+func (s *Store) authorizeAutoDeployPolicyMutationLocked(actorID, projectID, environmentID, applicationID, serviceActorID string, requireActiveServiceActor bool) error {
 	if err := s.authorizeLocked(actorID, domain.PermissionBuildsManage, domain.AccessTarget{Type: "application", ID: applicationID}); err != nil {
 		return err
 	}
@@ -111,7 +111,7 @@ func (s *Store) authorizeAutoDeployPolicyMutationLocked(actorID, projectID, envi
 		return base.ErrForbidden
 	}
 	account, ok := s.serviceAccounts[serviceActorID]
-	if !ok || account.ProjectID != projectID || account.DisabledAt != nil {
+	if !ok || account.ProjectID != projectID || requireActiveServiceActor && account.DisabledAt != nil {
 		return base.ErrNotFound
 	}
 	projectTarget := domain.AccessTarget{Type: "project", ID: projectID, ProjectID: projectID, TeamID: project.TeamID}

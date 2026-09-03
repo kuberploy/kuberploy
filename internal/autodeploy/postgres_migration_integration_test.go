@@ -190,12 +190,12 @@ func TestAutoDeployMigrationRejectsDirectAuthoritySubstitution(t *testing.T) {
 	revision := autodeploy.Revision{PolicyID: policy, Revision: 2, Enabled: false,
 		Template:       autodeploy.Template{SourceDeploymentID: deployment, SourceDeploymentGeneration: 1, SourceConfigETag: etag, ConfigIntent: intent},
 		TemplateDigest: templateDigest, ServiceActorID: actor, CreatedBy: creator, CreatedAt: now.Add(time.Minute)}
+	if _, err = pool.Exec(ctx, `UPDATE service_accounts SET disabled_at=$2 WHERE id=$1`, actor, now.Add(2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
 	updated, storedRevision, replay, err := management.RevisePolicy(ctx, status.Policy, revision, "disable-policy", "sha256:"+strings.Repeat("9", 64), "request-disable-policy")
 	if err != nil || replay || updated.CurrentRevision != 2 || storedRevision.Enabled {
 		t.Fatalf("revise policy=%#v revision=%#v replay=%v err=%v", updated, storedRevision, replay, err)
-	}
-	if _, err = pool.Exec(ctx, `UPDATE service_accounts SET disabled_at=$2 WHERE id=$1`, actor, now.Add(2*time.Minute)); err != nil {
-		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `UPDATE deployments SET config_raw=$2,config_etag=$3,config_version=config_version+1,generation=generation+1,updated_at=$4 WHERE id=$1`,
 		deployment, []byte(`{"apiVersion":"changed"}`), `"sha256:`+strings.Repeat("7", 64)+`"`, now.Add(2*time.Minute)); err != nil {
