@@ -17,7 +17,7 @@ import type {
   LogSource,
   Workload,
 } from "../api/types";
-import { LogsPanel } from "./RuntimePanels";
+import { LogsPanel, retryTransientRuntimeView } from "./RuntimePanels";
 
 afterEach(() => {
   cleanup();
@@ -256,5 +256,16 @@ describe("deployment runtime panel", () => {
     expect(screen.getByText("FailedScheduling")).toBeInTheDocument();
     expect(logs).toHaveBeenCalledTimes(2);
     expect(events).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps retrying while a Git-backed App takes longer than 30 seconds to appear", () => {
+    const transientNotFound = new ApiError(404);
+
+    expect(
+      retryTransientRuntimeView(60, transientNotFound, "git-committed"),
+    ).toBe(true);
+    expect(
+      retryTransientRuntimeView(180, transientNotFound, "git-committed"),
+    ).toBe(false);
   });
 });

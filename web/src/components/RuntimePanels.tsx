@@ -25,10 +25,10 @@ import type {
 
 const boundedLogOptions = { tailLines: 200, limitBytes: 1_048_576 } as const;
 const boundedEventOptions = { limit: 50 } as const;
-const runtimeViewRetryDelay = 500;
-const runtimeViewRetryLimit = 60;
+const runtimeViewRetryDelay = 1_000;
+const runtimeViewRetryLimit = 180;
 
-function retryTransientRuntimeView(
+export function retryTransientRuntimeView(
   failureCount: number,
   error: Error,
   workloadState: string | undefined,
