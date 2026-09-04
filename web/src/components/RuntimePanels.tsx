@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { api, type WorkloadLogOptions } from "../api/client";
+import { api, ApiError, type WorkloadLogOptions } from "../api/client";
 import { formatDate } from "../lib/format";
 import {
   Select,
@@ -25,6 +25,22 @@ import type {
 
 const boundedLogOptions = { tailLines: 200, limitBytes: 1_048_576 } as const;
 const boundedEventOptions = { limit: 50 } as const;
+const runtimeViewRetryDelay = 500;
+const runtimeViewRetryLimit = 60;
+
+function retryTransientRuntimeView(
+  failureCount: number,
+  error: Error,
+  workloadState: string | undefined,
+) {
+  return (
+    error instanceof ApiError &&
+    error.status === 404 &&
+    workloadState !== "stopped" &&
+    workloadState !== "failed" &&
+    failureCount < runtimeViewRetryLimit
+  );
+}
 
 type LogFilters = {
   pod: string;
@@ -206,7 +222,9 @@ export function LogsPanel({
     queryKey: ["workload-logs", workload?.id, boundedLogOptions],
     queryFn: () => api.workloadLogs(workload!.id, boundedLogOptions),
     enabled: Boolean(workload),
-    retry: false,
+    retry: (failureCount, error) =>
+      retryTransientRuntimeView(failureCount, error, workload?.state),
+    retryDelay: runtimeViewRetryDelay,
   });
   const filters = requestedFilters;
   const filteredLogOptions: WorkloadLogOptions = {
@@ -222,14 +240,18 @@ export function LogsPanel({
     queryKey: ["workload-logs", workload?.id, filteredLogOptions],
     queryFn: () => api.workloadLogs(workload!.id, filteredLogOptions),
     enabled: Boolean(workload) && hasLogFilter,
-    retry: false,
+    retry: (failureCount, error) =>
+      retryTransientRuntimeView(failureCount, error, workload?.state),
+    retryDelay: runtimeViewRetryDelay,
   });
   const logs = hasLogFilter ? filteredLogs : mergedLogs;
   const events = useQuery({
     queryKey: ["workload-events", workload?.id, boundedEventOptions],
     queryFn: () => api.workloadEvents(workload!.id, boundedEventOptions),
     enabled: Boolean(workload),
-    retry: false,
+    retry: (failureCount, error) =>
+      retryTransientRuntimeView(failureCount, error, workload?.state),
+    retryDelay: runtimeViewRetryDelay,
   });
   const lines = logs.data?.lines ?? [];
   const runtimeInventoryMissing =

@@ -10,7 +10,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { PropsWithChildren } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
 import type {
   EventSnapshot,
   LogSnapshot,
@@ -233,5 +233,28 @@ describe("deployment runtime panel", () => {
     expect(
       screen.getByText("Kubernetes events unavailable"),
     ).toBeInTheDocument();
+  });
+
+  it("recovers when the runtime target appears after App start", async () => {
+    vi.spyOn(api, "workloads").mockResolvedValue({
+      items: [{ ...targetWorkload, state: "git-committed" }],
+    });
+    const logs = vi
+      .spyOn(api, "workloadLogs")
+      .mockRejectedValueOnce(new ApiError(404))
+      .mockResolvedValue(logSnapshot);
+    const events = vi
+      .spyOn(api, "workloadEvents")
+      .mockRejectedValueOnce(new ApiError(404))
+      .mockResolvedValue(eventSnapshot);
+
+    render(panel(), { wrapper: wrapper() });
+
+    expect(
+      await screen.findByText("server is ready", {}, { timeout: 2_000 }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("FailedScheduling")).toBeInTheDocument();
+    expect(logs).toHaveBeenCalledTimes(2);
+    expect(events).toHaveBeenCalledTimes(2);
   });
 });
