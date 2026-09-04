@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "App logs and events keep recovering through normal Git and Argo reconciliation time after an App starts.",
+  "summary": "Auto-deploy policies can be disabled after a successful deployment changes the live App generation.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.437"
+  "version": "0.1.0-rc.438"
 }
