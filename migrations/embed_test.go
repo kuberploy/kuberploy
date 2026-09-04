@@ -9,8 +9,8 @@ func TestPublishedInitialMigrationChecksumIsFrozen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(history) < 2 {
-		t.Fatalf("migration count = %d, want at least 2", len(history))
+	if len(history) < 3 {
+		t.Fatalf("migration count = %d, want at least 3", len(history))
 	}
 	if history[0].Name != "001_initial" {
 		t.Fatalf("first migration = %q, want 001_initial", history[0].Name)
@@ -21,5 +21,8 @@ func TestPublishedInitialMigrationChecksumIsFrozen(t *testing.T) {
 	}
 	if history[1].Name != "002_auto_deploy_policy_cleanup" {
 		t.Fatalf("second migration = %q, want 002_auto_deploy_policy_cleanup", history[1].Name)
+	}
+	if history[2].Name != "003_auto_deploy_disable_after_drift" {
+		t.Fatalf("third migration = %q, want 003_auto_deploy_disable_after_drift", history[2].Name)
 	}
 }

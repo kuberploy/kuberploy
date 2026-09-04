@@ -18,7 +18,7 @@ var FS embed.FS
 
 // CurrentSchema is bumped with every ordered migration and is published in the
 // immutable release manifest for Helm-driven install and upgrade qualification.
-const CurrentSchema = "002_auto_deploy_policy_cleanup"
+const CurrentSchema = "003_auto_deploy_disable_after_drift"
 
 var namePattern = regexp.MustCompile(`^[0-9]{3}_[a-z0-9]+(?:_[a-z0-9]+)*$`)
 

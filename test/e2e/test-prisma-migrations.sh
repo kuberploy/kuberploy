@@ -122,7 +122,7 @@ docker exec "${kp_postgres}" createdb --username postgres --template fresh publi
 docker exec "${kp_postgres}" psql --username postgres --dbname published_rc431 \
   --set ON_ERROR_STOP=1 --command "
     DELETE FROM _prisma_migrations
-     WHERE migration_name='002_auto_deploy_policy_cleanup';
+     WHERE migration_name IN ('002_auto_deploy_policy_cleanup','003_auto_deploy_disable_after_drift');
     UPDATE _prisma_migrations
        SET checksum='${kp_previous_initial_checksum}'
      WHERE migration_name='001_initial';
@@ -147,7 +147,7 @@ docker run --rm --network "${kp_network}" \
   --env DATABASE_URL="${kp_published_rc431_url}" "${kp_image}" >/dev/null
 [[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname published_rc431 \
   --tuples-only --no-align --command "
-    SELECT count(*)=2
+    SELECT count(*)=3
        AND count(*) FILTER (
              WHERE migration_name='001_initial' AND checksum='${kp_frozen_initial_checksum}'
            )=1
@@ -156,11 +156,60 @@ docker run --rm --network "${kp_network}" \
                AND finished_at IS NOT NULL AND rolled_back_at IS NULL
                AND applied_steps_count=1
            )=1
+       AND count(*) FILTER (
+             WHERE migration_name='003_auto_deploy_disable_after_drift'
+               AND finished_at IS NOT NULL AND rolled_back_at IS NULL
+               AND applied_steps_count=1
+           )=1
       FROM _prisma_migrations;")" == "t" ]]
 [[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname published_rc431 \
   --tuples-only --no-align --command "
     SELECT pg_get_functiondef('validate_auto_deploy_policy_revision()'::regprocedure)
+           LIKE '%AND (NOT NEW.enabled OR d.generation=NEW.source_deployment_generation)%'
+       AND pg_get_functiondef('validate_auto_deploy_policy_revision()'::regprocedure)
+           LIKE '%AND (NOT NEW.enabled OR a.build_source_id IS NOT NULL)%'
+       AND pg_get_functiondef('validate_auto_deploy_policy_revision()'::regprocedure)
            LIKE '%AND (NOT NEW.enabled OR sa.disabled_at IS NULL)%';")" == "t" ]]
+
+docker exec "${kp_postgres}" createdb --username postgres --template fresh published_rc437
+docker exec "${kp_postgres}" psql --username postgres --dbname published_rc437 \
+  --set ON_ERROR_STOP=1 --command "
+    DELETE FROM _prisma_migrations
+     WHERE migration_name='003_auto_deploy_disable_after_drift';
+    CREATE OR REPLACE FUNCTION public.validate_auto_deploy_policy_revision() RETURNS trigger
+      LANGUAGE plpgsql AS \$function\$
+    DECLARE policy_row auto_deploy_policies%ROWTYPE;
+    BEGIN
+      SELECT * INTO STRICT policy_row FROM auto_deploy_policies WHERE id=NEW.policy_id;
+      IF NOT EXISTS (
+        SELECT 1 FROM applications a
+        JOIN environments e ON e.id=policy_row.environment_id AND e.project_id=a.project_id
+        JOIN deployments d ON d.id=NEW.source_deployment_id
+             AND d.application_id=a.id AND d.environment_id=e.id AND d.generation=NEW.source_deployment_generation
+        JOIN service_accounts sa ON sa.id=NEW.service_actor_id AND sa.project_id=a.project_id
+        WHERE a.id=policy_row.application_id AND a.project_id=policy_row.project_id
+          AND a.build_source_id IS NOT NULL
+          AND (NOT NEW.enabled OR sa.disabled_at IS NULL)
+      ) THEN
+        RAISE EXCEPTION 'auto-deploy policy resource binding mismatch' USING ERRCODE='23503';
+      END IF;
+      IF NEW.created_at<policy_row.created_at THEN
+        RAISE EXCEPTION 'auto-deploy revision predates policy' USING ERRCODE='23514';
+      END IF;
+      RETURN NEW;
+    END; \$function\$;" >/dev/null
+kp_published_rc437_url="postgresql://postgres:kuberploy-test-only@${kp_postgres}:5432/published_rc437?schema=public"
+docker run --rm --network "${kp_network}" \
+  --env DATABASE_URL="${kp_published_rc437_url}" "${kp_image}" >/dev/null
+[[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname published_rc437 \
+  --tuples-only --no-align --command "
+    SELECT count(*)=3
+       AND count(*) FILTER (
+             WHERE migration_name='003_auto_deploy_disable_after_drift'
+               AND finished_at IS NOT NULL AND rolled_back_at IS NULL
+               AND applied_steps_count=1
+           )=1
+      FROM _prisma_migrations;")" == "t" ]]
 
 docker exec "${kp_postgres}" createdb --username postgres --template fresh tampered_initial
 docker exec "${kp_postgres}" psql --username postgres --dbname tampered_initial \
@@ -199,9 +248,9 @@ if kp_old_rc_output="$(docker run --rm --network "${kp_network}" \
   printf 'Migration image accepted an older release-candidate history\n' >&2
   exit 1
 fi
-grep -q 'Database migration history has 3 row(s); release requires 2' <<<"${kp_old_rc_output}"
+grep -q 'Database migration history has 4 row(s); release requires 3' <<<"${kp_old_rc_output}"
 [[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname old_rc_history \
-  --tuples-only --no-align --command "SELECT count(*) FROM _prisma_migrations")" == "3" ]]
+  --tuples-only --no-align --command "SELECT count(*) FROM _prisma_migrations")" == "4" ]]
 
 kp_counts="$(docker exec "${kp_postgres}" psql --username postgres --dbname fresh --tuples-only --no-align --command "
   SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL;
@@ -212,7 +261,7 @@ kp_counts="$(docker exec "${kp_postgres}" psql --username postgres --dbname fres
   SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace WHERE n.nspname='public' AND c.condeferrable;
   SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid=i.indrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND i.indexprs IS NOT NULL;
 ")"
-kp_expected_counts=$'2\n97\n63\n68\n651\n9\n2'
+kp_expected_counts=$'3\n97\n63\n68\n651\n9\n2'
 if [[ "${kp_counts}" != "${kp_expected_counts}" ]]; then
   printf 'Unexpected fresh-schema authority counts:\n%s\n' "${kp_counts}" >&2
   exit 1
