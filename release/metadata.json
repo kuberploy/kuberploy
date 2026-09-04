@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Upgrades preserve published migration history, runtime secrets use the active managed sealing certificate, and provider conflicts no longer restart the worker.",
+  "summary": "App logs and events recover automatically when a newly started workload appears after its desired state is published.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.435"
+  "version": "0.1.0-rc.436"
 }
