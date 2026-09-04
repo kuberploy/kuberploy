@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "App logs and events recover automatically when a newly started workload appears after its desired state is published.",
+  "summary": "App logs and events keep recovering through normal Git and Argo reconciliation time after an App starts.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.436"
+  "version": "0.1.0-rc.437"
 }
