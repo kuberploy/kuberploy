@@ -183,10 +183,9 @@ describe("project service account management", () => {
       await screen.findByRole("button", { name: "Credentials" }),
     );
     await screen.findByText("No token records for this account.");
-    await user.type(
-      screen.getByRole("textbox", { name: "Token name" }),
-      "production deploy",
-    );
+    const tokenName = screen.getByRole("textbox", { name: "Token name" });
+    expect(tokenName.closest("fieldset")).toHaveClass("grid", "gap-4");
+    await user.type(tokenName, "production deploy");
     await user.click(screen.getByRole("checkbox", { name: /app\.edit/i }));
     await user.click(
       screen.getByRole("button", { name: "Issue one-time token" }),

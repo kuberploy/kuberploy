@@ -614,10 +614,10 @@ function AccountTokens({
 
       {canManage ? (
         <form
-          className="grid gap-4 p-4 border border-line rounded-[10px] bg-surface"
+          className="p-4 border border-line rounded-[10px] bg-surface"
           onSubmit={form.handleSubmit((value) => void submitToken(value))}
         >
-          <fieldset disabled={issuePending}>
+          <fieldset className="grid gap-4" disabled={issuePending}>
             <div className="grid grid-cols-[1fr_1fr] gap-3 to-680:grid-cols-[1fr]">
               <Field
                 label="Token name"
