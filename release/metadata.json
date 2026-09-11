@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Source disconnect waits for active deployment work and then removes completed build history without breaking durable idempotency.",
+  "summary": "Managed registry cleanup deletes OCI parent manifests before their children so interrupted cleanup cannot leave dangling image indexes.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.445"
+  "version": "0.1.0-rc.446"
 }
