@@ -485,25 +485,15 @@ func validateDefinitionSpec(projectID, serviceID string, spec DefinitionSpec) er
 	return nil
 }
 
-func definitionDigest(spec DefinitionSpec) (string, error) {
-	encoded, err := json.Marshal(spec)
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(encoded)
-	return "sha256:" + hex.EncodeToString(sum[:]), nil
-}
-
 func definitionDigestForDefinition(definition BuildDefinition) (string, error) {
-	if definition.SourceKind == SourceGitHub {
-		return definitionDigest(definition.Spec)
-	}
 	encoded, err := json.Marshal(struct {
-		SourceKind SourceKind     `json:"sourceKind"`
-		GitSSH     *GitSSHSource  `json:"gitSSH"`
-		TriggerRef string         `json:"triggerRef"`
-		Spec       DefinitionSpec `json:"spec"`
-	}{definition.SourceKind, definition.GitSSH, definition.TriggerRef, definition.Spec})
+		SourceKind     SourceKind     `json:"sourceKind"`
+		InstallationID string         `json:"installationId,omitempty"`
+		RepositoryID   string         `json:"repositoryId,omitempty"`
+		GitSSH         *GitSSHSource  `json:"gitSSH,omitempty"`
+		TriggerRef     string         `json:"triggerRef"`
+		Spec           DefinitionSpec `json:"spec"`
+	}{definition.SourceKind, definition.InstallationID, definition.RepositoryID, definition.GitSSH, definition.TriggerRef, definition.Spec})
 	if err != nil {
 		return "", err
 	}

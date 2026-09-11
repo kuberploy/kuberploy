@@ -328,14 +328,10 @@ describe("application registry panel", () => {
     expect(
       screen.getByText("The confirmation does not match this plan."),
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Execute managed cleanup" }),
-    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Execute now" })).toBeDisabled();
     await user.clear(confirmation);
     await user.type(confirmation, "plan-exact");
-    await user.click(
-      screen.getByRole("button", { name: "Execute managed cleanup" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Execute now" }));
 
     await waitFor(() =>
       expect(api.executeRegistryCleanup).toHaveBeenCalledWith(

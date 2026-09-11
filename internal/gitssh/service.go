@@ -14,6 +14,7 @@ import (
 type Service struct {
 	repository repository
 	encryption KeyEncryption
+	remoteRefs remoteRefExecutor
 }
 
 type repository interface {

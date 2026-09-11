@@ -22,11 +22,16 @@ var (
 	ErrNotFound    = errors.New("Helm App was not found")
 	ErrConflict    = errors.New("Helm App conflicts with current state")
 	ErrUnavailable = errors.New("Helm App reconciliation is unavailable")
+	ErrPending     = errors.New("Helm App is waiting for Argo CD")
 	uuidRE         = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 	dnsLabelRE     = regexp.MustCompile(`^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$`)
 	revisionRE     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/+*-]{0,199}$`)
 	chartRE        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$`)
 )
+
+type ReconcileFailure struct{ Code string }
+
+func (e ReconcileFailure) Error() string { return e.Code }
 
 type SourceKind string
 

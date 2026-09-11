@@ -275,9 +275,11 @@ func (s *Store) NextAcceptedRegistryCleanup(ctx context.Context, targetID string
 	var planID string
 	err := s.pool.QueryRow(ctx, `SELECT p.id::text FROM registry_cleanup_plans p
 		JOIN registry_targets t ON t.id=p.registry_target_id AND t.mode='managed'
-		JOIN mutation_receipts i ON i.receipt_kind='resource' AND i.resource_type='registry-cleanup-plan' AND i.resource_id=p.id
-			AND i.namespace='registry-cleanup.execute:'||p.id::text AND i.scope_key='global'
-		WHERE p.registry_target_id=$1 AND p.created_at<=$2 AND (
+		WHERE p.registry_target_id=$1 AND p.created_at<=$2
+		AND (p.automatic OR EXISTS(SELECT 1 FROM mutation_receipts i
+			WHERE i.receipt_kind='resource' AND i.resource_type='registry-cleanup-plan'
+			AND i.resource_id=p.id AND i.namespace='registry-cleanup.execute:'||p.id::text
+			AND i.scope_key='global')) AND (
 			p.state IN ('preview','executing') OR
 			p.state='failed' AND p.failure<>''
 			AND EXISTS(SELECT 1 FROM registry_cleanup_items pending
@@ -299,6 +301,34 @@ func (s *Store) NextAcceptedRegistryCleanup(ctx context.Context, targetID string
 		ORDER BY CASE p.state WHEN 'executing' THEN 0 WHEN 'failed' THEN 1 ELSE 2 END,p.created_at,p.id LIMIT 1`,
 		targetID, databaseTime(now), databaseTime(now.Add(-base.MinimumRegistryGarbageCollectionInterval))).Scan(&planID)
 	return planID, classify(err)
+}
+
+func (s *Store) RegistryCleanupCandidates(ctx context.Context, targetID string, plannedBefore time.Time, limit int) ([]string, error) {
+	if targetID == "" || plannedBefore.IsZero() || limit < 1 || limit > 100 {
+		return nil, base.ErrRegistryPolicyInvalid
+	}
+	rows, err := s.pool.Query(ctx, `SELECT policy.service_id::text
+		FROM service_registry_policies policy
+		JOIN registry_targets target ON target.id=policy.registry_target_id AND target.mode='managed'
+		WHERE policy.registry_target_id=$1
+		AND NOT EXISTS (
+			SELECT 1 FROM registry_cleanup_plans plan
+			WHERE plan.registry_target_id=policy.registry_target_id
+			AND plan.service_id=policy.service_id AND plan.created_at>$2)
+		ORDER BY policy.updated_at,policy.service_id LIMIT $3`, targetID, databaseTime(plannedBefore), limit)
+	if err != nil {
+		return nil, classify(err)
+	}
+	defer rows.Close()
+	result := make([]string, 0)
+	for rows.Next() {
+		var serviceID string
+		if err = rows.Scan(&serviceID); err != nil {
+			return nil, err
+		}
+		result = append(result, serviceID)
+	}
+	return result, rows.Err()
 }
 
 func validRegistryMaintenanceLease(lease base.RegistryMaintenanceLease) bool {

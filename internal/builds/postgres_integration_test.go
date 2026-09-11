@@ -347,6 +347,17 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 		!promotable.CompletedAt.Equal(result.CompletedAt) || !promotable.ProjectionCompletedAt.Equal(projectionRetryAt.Add(time.Second)) {
 		t.Fatalf("PostgreSQL promotion projection=%#v err=%v", promotable, err)
 	}
+	if _, err = pool.Exec(ctx, `INSERT INTO registry_cache_generations(
+		id,registry_target_id,service_id,repository,platform_set,trust_lane,cache_schema,
+		build_definition_hash,generation,root_digest,size_bytes,state,active_imports,
+		active_exports,created_at,completed_at,last_used_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,0,'succeeded',0,0,$11,$12,$12)`,
+		attempt.ID, registryID, serviceID, "kuberploy/cache/"+serviceID,
+		strings.Join(result.Image.Platforms, ","), attempt.PlanRequest.Build.Cache.TrustLane,
+		attempt.PlanRequest.Build.Cache.Schema, attempt.DefinitionDigest, attempt.Generation,
+		result.Cache.Digest, attempt.CreatedAt, projectionRetryAt); err != nil {
+		t.Fatal(err)
+	}
 	var durableAttempts int
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM build_attempts WHERE id=$1 AND trigger_key=$2`, attempt.ID, claimKey).Scan(&durableAttempts); err != nil || durableAttempts != 1 {
 		t.Fatalf("durable attempts=%d err=%v", durableAttempts, err)
@@ -374,6 +385,13 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	retryAttempts, err := store.EnqueuePushBuilds(ctx, EnqueuePush{ClaimKey: retryClaim.ClaimKey, CommitSHA: strings.Repeat("c", 40), GitRef: event.Ref, ResolvedAt: retryNow}, "postgres-contract", storedAttemptDefinitions(retryAuthorized.Definitions), retryNow)
 	if err != nil || len(retryAttempts) != 1 {
 		t.Fatalf("retry attempts=%#v err=%v", retryAttempts, err)
+	}
+	if imports := retryAttempts[0].PlanRequest.Build.Cache.Imports; len(imports) != 1 || imports[0] != result.Cache.Reference {
+		t.Fatalf("latest cache imports=%v want=%q", imports, result.Cache.Reference)
+	}
+	var cacheLastUsed time.Time
+	if err = pool.QueryRow(ctx, `SELECT last_used_at FROM registry_cache_generations WHERE id=$1`, attempt.ID).Scan(&cacheLastUsed); err != nil || !cacheLastUsed.Equal(retryNow) {
+		t.Fatalf("cache last used=%v want=%v err=%v", cacheLastUsed, retryNow, err)
 	}
 	retryAttempt, err := store.ClaimNextAttempt(ctx, "postgres-retry", retryNow, time.Minute, 1)
 	if err != nil || retryAttempt.ID != retryAttempts[0].ID || retryAttempt.ExecutionAttempts != 1 {
@@ -593,5 +611,54 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	}
 	if !activeIDs[definitionID] || activeIDs[replacementID] {
 		t.Fatalf("replacement active IDs=%v", activeIDs)
+	}
+
+	// One source deployment command persists its receipt, build, and durable
+	// one-shot intent in the same transaction.
+	environmentID, deploymentID, operationID := id.New(), id.New(), id.New()
+	if _, err = pool.Exec(ctx, `INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at)
+		VALUES($1,$2,'Production',$3,$3,$3,$4)`, environmentID, projectID, "prod-"+suffix, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO operations(id,kind,status,target_type,target_id,request_id,created_at,updated_at)
+		VALUES($1,'deploy','succeeded','deployment',$2,'source-deploy-setup',$3,$3)`, operationID, deploymentID, now); err != nil {
+		t.Fatal(err)
+	}
+	command := sourceCommand(t, active, SourceDeploymentDeploy, "", now.Add(3*time.Hour))
+	command.ActorID, command.ProjectID, command.ApplicationID = userID, projectID, serviceID
+	command.EnvironmentID, command.DeploymentID = environmentID, deploymentID
+	if _, err = pool.Exec(ctx, `INSERT INTO deployments(id,environment_id,application_id,image,replicas,port,state,operation_id,runtime,
+		config_raw,config_etag,config_version,created_at,updated_at) VALUES($1,$2,$3,$4,1,8080,'active',$5,'{}',$6,$7,1,$8,$8)`,
+		deploymentID, environmentID, serviceID, "registry.test/app@sha256:"+strings.Repeat("1", 64), operationID,
+		command.ConfigIntent, command.SourceConfigETag, now); err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := store.AcceptSourceDeployment(ctx, command)
+	if err != nil || accepted.Replay || accepted.Intent.Sequence != 1 {
+		t.Fatalf("source deployment acceptance=%+v err=%v", accepted, err)
+	}
+	replayed, err := store.AcceptSourceDeployment(ctx, command)
+	if err != nil || !replayed.Replay || replayed.Attempt.ID != accepted.Attempt.ID {
+		t.Fatalf("source deployment replay=%+v err=%v", replayed, err)
+	}
+	var receiptRows, attemptRows, intentRows int
+	if err = pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM mutation_receipts WHERE namespace='deployment.source-build' AND resource_id=$1),
+		(SELECT count(*) FROM build_attempts WHERE id=$1),
+		(SELECT count(*) FROM source_deployment_intents WHERE attempt_id=$1)`, accepted.Attempt.ID).Scan(&receiptRows, &attemptRows, &intentRows); err != nil {
+		t.Fatal(err)
+	}
+	if receiptRows != 1 || attemptRows != 1 || intentRows != 1 {
+		t.Fatalf("atomic rows receipt=%d attempt=%d intent=%d", receiptRows, attemptRows, intentRows)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE deployments SET state='stopped',config_raw=NULL,config_etag='',config_version=0 WHERE id=$1`, deploymentID); err != nil {
+		t.Fatal(err)
+	}
+	startDraft := command
+	startDraft.StartDraft, startDraft.SourceConfigETag, startDraft.ConfigIntent, startDraft.TemplateDigest = true, "", []byte{}, ""
+	startDraft.IdempotencyKey, startDraft.Fingerprint, startDraft.AcceptedAt = "source-deploy-draft-0001", "sha256:"+strings.Repeat("7", 64), command.AcceptedAt.Add(time.Second)
+	started, err := store.AcceptSourceDeployment(ctx, startDraft)
+	if err != nil || !started.Intent.StartDraft || started.Intent.Sequence != 2 {
+		t.Fatalf("source draft acceptance=%+v err=%v", started, err)
 	}
 }

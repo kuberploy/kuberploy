@@ -135,10 +135,11 @@ func (c *BuildController) ReconcileNext(ctx context.Context) (ReconcileResult, e
 		}
 		return c.deferInfrastructure(ctx, attempt, "builder-capacity-check-failed", capacityErr)
 	}
-	definition, err := c.Store.Definition(ctx, attempt.DefinitionID)
-	if err != nil || !definition.Enabled || definition.DefinitionDigest != attempt.DefinitionDigest {
-		_ = c.Store.FailAttempt(ctx, attempt.ID, c.Owner, "source-authorization-revoked", c.now())
-		return result, ErrUnauthorized
+	definition := attempt.SourceSnapshot
+	if !definition.Enabled || definition.validate() != nil || definition.ID != attempt.DefinitionID || definition.ProjectID != attempt.ProjectID ||
+		definition.ServiceID != attempt.ServiceID || definition.DefinitionDigest != attempt.DefinitionDigest {
+		_ = c.Store.FailAttempt(ctx, attempt.ID, c.Owner, "source-snapshot-invalid", c.now())
+		return result, ErrInvalid
 	}
 	if err = c.Store.HeartbeatAttempt(ctx, attempt.ID, c.Owner, c.now(), c.LeaseDuration); err != nil {
 		return result, err

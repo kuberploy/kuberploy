@@ -1709,10 +1709,11 @@ BEGIN
         SELECT 1 FROM applications a
         JOIN environments e ON e.id=policy_row.environment_id AND e.project_id=a.project_id
         JOIN deployments d ON d.id=NEW.source_deployment_id
-             AND d.application_id=a.id AND d.environment_id=e.id AND d.generation=NEW.source_deployment_generation
+             AND d.application_id=a.id AND d.environment_id=e.id
+             AND (NOT NEW.enabled OR d.generation=NEW.source_deployment_generation)
         JOIN service_accounts sa ON sa.id=NEW.service_actor_id AND sa.project_id=a.project_id
         WHERE a.id=policy_row.application_id AND a.project_id=policy_row.project_id
-          AND a.build_source_id IS NOT NULL
+          AND (NOT NEW.enabled OR a.build_source_id IS NOT NULL)
           AND (NOT NEW.enabled OR sa.disabled_at IS NULL)
     ) THEN
         RAISE EXCEPTION 'auto-deploy policy resource binding mismatch' USING ERRCODE='23503';
@@ -1978,7 +1979,7 @@ BEGIN
         RAISE EXCEPTION 'mutation receipt identifier is invalid' USING ERRCODE='23514';
     END IF;
     IF NEW.receipt_kind='build-api' AND
-       (NEW.namespace NOT IN ('definition.create','definition.delete','definition.build','attempt.cancel','attempt.retry') OR
+       (NEW.namespace NOT IN ('definition.create','definition.delete','definition.build','attempt.cancel','attempt.retry','deployment.source-build') OR
         length(NEW.idempotency_key) NOT BETWEEN 16 AND 128) THEN
         RAISE EXCEPTION 'build API mutation receipt is invalid' USING ERRCODE='23514';
     END IF;
@@ -2937,6 +2938,58 @@ CREATE TABLE public.build_release_projections (
     CONSTRAINT build_release_projections_lease_epoch_check CHECK ((lease_epoch >= 0)),
     CONSTRAINT build_release_projections_state_check CHECK ((state = ANY (ARRAY['pending'::text, 'processing'::text, 'succeeded'::text, 'failed'::text])))
 );
+
+CREATE TABLE public.source_deployment_intents (
+    id uuid PRIMARY KEY,
+    attempt_id uuid NOT NULL UNIQUE,
+    actor_id uuid NOT NULL,
+    project_id uuid NOT NULL,
+    application_id uuid NOT NULL,
+    environment_id uuid NOT NULL,
+    deployment_id uuid NOT NULL,
+    mode text NOT NULL,
+    source_attempt_id uuid,
+    sequence bigint NOT NULL,
+    definition_id uuid NOT NULL,
+    definition_digest text NOT NULL,
+    source_deployment_generation bigint NOT NULL,
+    source_config_etag text NOT NULL,
+    config_intent bytea NOT NULL,
+    template_digest text NOT NULL,
+    request_id text NOT NULL,
+    start_draft boolean DEFAULT false NOT NULL,
+    state text DEFAULT 'pending' NOT NULL,
+    attempts integer DEFAULT 0 NOT NULL,
+    available_at timestamptz DEFAULT now() NOT NULL,
+    lease_owner text,
+    lease_until timestamptz,
+    lease_epoch bigint DEFAULT 0 NOT NULL,
+    operation_id uuid,
+    failure_code text DEFAULT '' NOT NULL,
+    created_at timestamptz DEFAULT now() NOT NULL,
+    updated_at timestamptz DEFAULT now() NOT NULL,
+    completed_at timestamptz,
+    UNIQUE (deployment_id, sequence),
+    CHECK (mode IN ('deploy','rebuild')),
+    CHECK ((mode='deploy') = (source_attempt_id IS NULL)),
+    CHECK (sequence > 0 AND source_deployment_generation > 0),
+    CHECK (definition_digest ~ '^sha256:[0-9a-f]{64}$'),
+    CHECK ((source_config_etag ~ '^"(sha256:|cfg-sha256-)[0-9a-f]{64}"$' AND template_digest ~ '^sha256:[0-9a-f]{64}$' AND octet_length(config_intent) BETWEEN 1 AND 262144) OR
+           (start_draft AND source_config_etag='' AND template_digest='' AND octet_length(config_intent)=0)),
+    CHECK (length(request_id) BETWEEN 1 AND 256),
+    CHECK (state IN ('pending','processing','submitted','failed','superseded')),
+    CHECK (attempts BETWEEN 0 AND 20),
+    CHECK ((lease_owner IS NULL) = (lease_until IS NULL)),
+    CHECK ((state='processing') = (lease_owner IS NOT NULL)),
+    CHECK ((state IN ('submitted','failed','superseded')) = (completed_at IS NOT NULL)),
+    CHECK ((state='submitted') = (operation_id IS NOT NULL)),
+    CHECK (state<>'submitted' OR failure_code=''),
+    CHECK (state NOT IN ('failed','superseded') OR failure_code<>''),
+    CHECK (lease_epoch >= 0 AND updated_at >= created_at)
+);
+
+CREATE INDEX source_deployment_intents_work_idx ON public.source_deployment_intents
+    (available_at,created_at,id) WHERE state IN ('pending','processing');
 
 
 --
@@ -4290,6 +4343,7 @@ CREATE TABLE public.registry_cleanup_plans (
     id uuid NOT NULL,
     registry_target_id uuid NOT NULL,
     service_id text NOT NULL,
+    automatic boolean DEFAULT false NOT NULL,
     snapshot_token text NOT NULL,
     authority_token text NOT NULL,
     plan_digest text NOT NULL,
@@ -7837,6 +7891,21 @@ ALTER TABLE ONLY public.build_attempts
 
 ALTER TABLE ONLY public.build_release_projections
     ADD CONSTRAINT build_release_projections_attempt_id_fkey FOREIGN KEY (attempt_id) REFERENCES public.build_attempts(id) ON DELETE RESTRICT;
+
+ALTER TABLE ONLY public.source_deployment_intents
+    ADD CONSTRAINT source_deployment_intents_attempt_id_fkey FOREIGN KEY (attempt_id) REFERENCES public.build_attempts(id) ON DELETE RESTRICT;
+ALTER TABLE ONLY public.source_deployment_intents
+    ADD CONSTRAINT source_deployment_intents_source_attempt_id_fkey FOREIGN KEY (source_attempt_id) REFERENCES public.build_attempts(id) ON DELETE RESTRICT;
+ALTER TABLE ONLY public.source_deployment_intents
+    ADD CONSTRAINT source_deployment_intents_actor_id_fkey FOREIGN KEY (actor_id) REFERENCES public.users(id) ON DELETE RESTRICT;
+ALTER TABLE ONLY public.source_deployment_intents
+    ADD CONSTRAINT source_deployment_intents_application_fkey FOREIGN KEY (application_id,project_id) REFERENCES public.applications(id,project_id) ON DELETE RESTRICT;
+ALTER TABLE ONLY public.source_deployment_intents
+    ADD CONSTRAINT source_deployment_intents_environment_fkey FOREIGN KEY (environment_id,project_id) REFERENCES public.environments(id,project_id) ON DELETE RESTRICT;
+ALTER TABLE ONLY public.source_deployment_intents
+    ADD CONSTRAINT source_deployment_intents_deployment_fkey FOREIGN KEY (deployment_id,application_id,environment_id) REFERENCES public.deployments(id,application_id,environment_id) ON DELETE RESTRICT;
+ALTER TABLE ONLY public.source_deployment_intents
+    ADD CONSTRAINT source_deployment_intents_operation_id_fkey FOREIGN KEY (operation_id) REFERENCES public.operations(id) ON DELETE RESTRICT;
 
 
 --

@@ -8,7 +8,7 @@ import (
 )
 
 func TestSourceBuildAPIDefaultsOffWithoutOpeningDependencies(t *testing.T) {
-	runtime, err := newSourceBuildAPI(context.Background(), "not-a-database-url", "http://local.invalid", "", builds.WorkerRuntimeConfig{}, nil)
+	runtime, err := newSourceBuildAPI(context.Background(), "not-a-database-url", "http://local.invalid", "", builds.WorkerRuntimeConfig{}, nil, nil)
 	if err != nil || runtime != nil {
 		t.Fatalf("runtime=%#v err=%v", runtime, err)
 	}

@@ -794,7 +794,7 @@ export function GuidedConfigForm({
           <div>
             <h3>Runtime environment values</h3>
             <p>
-              Used only by the deployed service. Visible in Git and rendered as
+              Used only by the deployed App. Visible in Git and rendered as
               explicit ConfigMap references; never passed to image builds.
             </p>
           </div>
@@ -956,10 +956,10 @@ export function GuidedConfigForm({
             <Icon name="layers" />
           </span>
           <div>
-            <h3>Scheduling for this service</h3>
+            <h3>Scheduling for this App</h3>
             <p>
               Choose how this app is placed on Karpenter or fixed node pools.
-              Other services keep their own independent selection.
+              Other Apps keep their own independent selection.
             </p>
           </div>
         </div>

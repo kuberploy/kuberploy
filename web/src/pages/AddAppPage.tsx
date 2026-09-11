@@ -277,7 +277,7 @@ export function AddAppPage() {
             </div>
           </FormCardHeading>
           <form
-            className="grid grid-cols-[1fr_1fr_auto] items-end gap-3 to-580:grid-cols-[1fr]"
+            className="grid grid-cols-[minmax(0,_1fr)_auto] items-end gap-3 to-580:grid-cols-[1fr]"
             onSubmit={form.handleSubmit(submit)}
           >
             <Field

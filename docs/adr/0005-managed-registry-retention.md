@@ -82,16 +82,17 @@ equivalent to the `cache-from`/`cache-to` options commonly used with
 directly.
 
 Cache identity is scoped by stable service ID, platform set, builder/cache
-schema, App source digest and trust lane. Protected-branch and untrusted
-pull-request writes never share a lane. Cache credentials cannot push release
-images and runtime pull credentials cannot read cache repositories. Because
+schema, App source digest and trust lane. Kuberploy imports only the latest
+successful cache for each runtime lane and refreshes its last-use time on
+reuse. Cache credentials cannot push release images and runtime pull
+credentials cannot read cache repositories. Because
 `mode=max` may contain intermediate source-derived layers, cache repositories
 are treated as private build data.
 
 An export uses a unique build candidate before a short leased alias update. In
 managed mode, the starting lifecycle protects the latest successful generation
 per service/platform/trust lane across App source edits, expires unused older generations after seven days and
-applies an administrator byte quota. Active cache imports and exports are
+applies an administrator byte quota. The newest successful cache is always
 protected. Cache manifests and their unreachable blobs are garbage-collected
 independently from the service's last-`N` release window. External mode uses the
 configured cache references but leaves every cleanup decision to the operator.
@@ -123,14 +124,13 @@ registry:
 6. Record reclaimed manifests/bytes, skipped protection reasons, provider
    responses and failures in the audit timeline.
 
-Cleanup runs on a schedule and after successful builds when storage crosses a
-soft watermark. Expensive target-wide offline blob garbage collection starts no
-more than once per hour; accepted work waits until that interval has elapsed.
+Cleanup planning runs automatically every two hours for each managed App.
+Expensive target-wide offline blob garbage collection starts no more than once
+per hour; accepted work waits until that interval has elapsed.
 An interrupted sweep resumes immediately instead of waiting behind the
-throttle. A hard storage watermark rejects new builds with an actionable error;
-it never deletes protected rollback/current images to make room. An
-administrator can preview cleanup and pin/unpin releases from the UI, but cannot
-force-delete a currently selected or in-flight digest through the normal API.
+throttle. An administrator can inspect or execute a cleanup plan from the UI,
+but cannot force-delete a currently selected or in-flight digest through the
+normal API.
 
 ### Rollback contract
 

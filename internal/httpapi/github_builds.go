@@ -111,6 +111,10 @@ type GitHubBuildRefProvider interface {
 	ResolveRemoteRef(context.Context, githubapp.InstallationToken, githubapp.RepositoryIdentity, string) (githubapp.ResolvedRef, error)
 }
 
+type GitSSHBuildRefProvider interface {
+	ResolveRemoteRef(context.Context, gitssh.RemoteRefRequest) (gitssh.RemoteRefResolution, error)
+}
+
 func (b *buildBackend) DeleteDefinition(ctx context.Context, actorID, applicationID, definitionID, key, fingerprint, requestID string) (bool, error) {
 	return b.store.DeleteDefinition(ctx, actorID, applicationID, definitionID, key, fingerprint, requestID, b.clock())
 }
@@ -132,29 +136,34 @@ type buildBackend struct {
 	store    builds.APIStore
 	resolver BuildDefinitionResolver
 	provider GitHubBuildRefProvider
+	gitSSH   GitSSHBuildRefProvider
 	now      func() time.Time
 }
 
 func NewBuildBackend(store builds.APIStore, resolver BuildDefinitionResolver) (BuildBackend, error) {
-	return newBuildBackend(store, resolver, nil, nil)
+	return newBuildBackend(store, resolver, nil, nil, nil)
 }
 
 func NewBuildBackendWithProvider(store builds.APIStore, resolver BuildDefinitionResolver, provider GitHubBuildRefProvider) (BuildBackend, error) {
-	return newBuildBackend(store, resolver, provider, nil)
+	return newBuildBackend(store, resolver, provider, nil, nil)
 }
 
-func newBuildBackend(store builds.APIStore, resolver BuildDefinitionResolver, provider GitHubBuildRefProvider, now func() time.Time) (BuildBackend, error) {
+func NewBuildBackendWithProviders(store builds.APIStore, resolver BuildDefinitionResolver, provider GitHubBuildRefProvider, gitSSH GitSSHBuildRefProvider) (BuildBackend, error) {
+	return newBuildBackend(store, resolver, provider, gitSSH, nil)
+}
+
+func newBuildBackend(store builds.APIStore, resolver BuildDefinitionResolver, provider GitHubBuildRefProvider, gitSSH GitSSHBuildRefProvider, now func() time.Time) (BuildBackend, error) {
 	if store == nil || resolver == nil {
 		return nil, builds.ErrInvalid
 	}
-	return &buildBackend{store: store, resolver: resolver, provider: provider, now: now}, nil
+	return &buildBackend{store: store, resolver: resolver, provider: provider, gitSSH: gitSSH, now: now}, nil
 }
 
 func NewBuildBackendWithClock(store builds.APIStore, resolver BuildDefinitionResolver, now func() time.Time) (BuildBackend, error) {
 	if now == nil {
 		return nil, builds.ErrInvalid
 	}
-	return newBuildBackend(store, resolver, nil, now)
+	return newBuildBackend(store, resolver, nil, nil, now)
 }
 
 func (b *buildBackend) ResolveGitBindingRepository(ctx context.Context, installationID, repositoryID string) (GitBindingRepositoryResolution, error) {
@@ -195,26 +204,6 @@ func (b *buildBackend) CreateDefinition(ctx context.Context, input BuildDefiniti
 	resourceID := id.New()
 	if len(current) == 1 {
 		resourceID = current[0].ID
-	}
-	resourceID, replay, err := b.store.ClaimAPICommand(ctx, input.ActorID, builds.APICommandDefinitionCreate, input.ApplicationID,
-		input.IdempotencyKey, input.Fingerprint, resourceID, now)
-	if err != nil {
-		return builds.BuildDefinition{}, false, err
-	}
-	if replay {
-		definition, getErr := b.store.Definition(ctx, resourceID)
-		if getErr == nil {
-			if definition.ServiceID != input.ApplicationID || definition.ProjectID != input.ProjectID {
-				return builds.BuildDefinition{}, false, builds.ErrConflict
-			}
-			return definition, true, nil
-		}
-		if !errors.Is(getErr, builds.ErrNotFound) {
-			return builds.BuildDefinition{}, false, getErr
-		}
-		// App source is editable and keeps only its current revision. Replaying an
-		// older save after a later edit must not roll the App back implicitly.
-		return builds.BuildDefinition{}, false, builds.ErrConflict
 	}
 	resolution, err := b.resolver.ResolveBuildDefinition(ctx, input.ActorID, input.ProjectID, input.ApplicationID, input.RegistryTargetID)
 	if err != nil {
@@ -303,6 +292,29 @@ func (b *buildBackend) CreateDefinition(ctx context.Context, input BuildDefiniti
 	if err != nil {
 		return builds.BuildDefinition{}, false, err
 	}
+	claimedResourceID, replay, err := b.store.ClaimAPICommand(ctx, input.ActorID, builds.APICommandDefinitionCreate, input.ApplicationID,
+		input.IdempotencyKey, input.Fingerprint, resourceID, now)
+	if err != nil {
+		return builds.BuildDefinition{}, false, err
+	}
+	if replay {
+		stored, getErr := b.store.Definition(ctx, claimedResourceID)
+		if getErr == nil {
+			if stored.ServiceID != input.ApplicationID || stored.ProjectID != input.ProjectID {
+				return builds.BuildDefinition{}, false, builds.ErrConflict
+			}
+			return stored, true, nil
+		}
+		if !errors.Is(getErr, builds.ErrNotFound) {
+			return builds.BuildDefinition{}, false, getErr
+		}
+		// App source is editable and keeps only its current revision. Replaying an
+		// older save after a later edit must not roll the App back implicitly.
+		return builds.BuildDefinition{}, false, builds.ErrConflict
+	}
+	if claimedResourceID != resourceID {
+		return builds.BuildDefinition{}, false, builds.ErrConflict
+	}
 	if err = b.store.PutDefinition(ctx, definition); err != nil {
 		return builds.BuildDefinition{}, false, err
 	}
@@ -375,9 +387,10 @@ func (b *buildBackend) Retry(ctx context.Context, actorID, sourceAttemptID, key,
 			return builds.BuildAttempt{}, false, getErr
 		}
 	}
-	definition, err := b.store.Definition(ctx, source.DefinitionID)
-	if err != nil {
-		return builds.BuildAttempt{}, false, err
+	definition := source.SourceSnapshot
+	if !definition.Enabled || definition.ID != source.DefinitionID || definition.ProjectID != source.ProjectID ||
+		definition.ServiceID != source.ServiceID || definition.DefinitionDigest != source.DefinitionDigest {
+		return builds.BuildAttempt{}, false, builds.ErrUnauthorized
 	}
 	resolution, err := b.resolver.ResolveBuildDefinition(ctx, actorID, definition.ProjectID, definition.ServiceID, definition.Spec.Registry.TargetID)
 	if err != nil {
@@ -427,8 +440,7 @@ func (b *buildBackend) Build(ctx context.Context, actorID, definitionID, commitS
 	}
 	if commandReplay {
 		if existing, getErr := b.store.Attempt(ctx, attemptID); getErr == nil {
-			if existing.TriggerKind != "manual" || existing.TriggerKey != claimKey || existing.DefinitionID != definitionID ||
-				(definition.SourceKind == builds.SourceGitSSH && existing.CommitSHA != commitSHA) {
+			if existing.TriggerKind != "manual" || existing.TriggerKey != claimKey || existing.DefinitionID != definitionID {
 				return builds.BuildAttempt{}, false, builds.ErrConflict
 			}
 			return existing, true, nil
@@ -495,9 +507,24 @@ func (b *buildBackend) Build(ctx context.Context, actorID, definitionID, commitS
 		}
 		commitSHA = resolved.CommitSHA
 	} else {
-		if !manualBuildCommitRE.MatchString(commitSHA) {
+		if commitSHA != "" || definition.GitSSH == nil {
 			return builds.BuildAttempt{}, false, builds.ErrInvalid
 		}
+		if b.gitSSH == nil {
+			return builds.BuildAttempt{}, false, builds.ErrInfrastructure
+		}
+		resolved, resolveErr := b.gitSSH.ResolveRemoteRef(ctx, gitssh.RemoteRefRequest{
+			Scope: gitssh.Scope(definition.GitSSH.KeyScope), OwnerID: definition.GitSSH.KeyOwnerID,
+			KeyRevision: definition.GitSSH.KeyRevision, RepositoryURL: definition.GitSSH.RepositoryURL,
+			Ref: definition.TriggerRef, KnownHosts: []byte(definition.GitSSH.KnownHosts),
+		})
+		if resolveErr != nil {
+			return builds.BuildAttempt{}, false, resolveErr
+		}
+		if resolved.Ref != definition.TriggerRef || !manualBuildCommitRE.MatchString(resolved.CommitSHA) || resolved.ObservedAt.IsZero() {
+			return builds.BuildAttempt{}, false, builds.ErrUnauthorized
+		}
+		commitSHA = resolved.CommitSHA
 		resolution.Execution, err = executionForGitSSHSource(resolution.Execution, definition.GitSSH)
 		if err != nil {
 			return builds.BuildAttempt{}, false, err
@@ -887,6 +914,7 @@ type buildDefinitionView struct {
 	RepositoryURL        string                  `json:"repositoryUrl,omitempty"`
 	GitSSHKeyScope       string                  `json:"gitSSHKeyScope,omitempty"`
 	GitSSHKeyRevision    uint64                  `json:"gitSSHKeyRevision,omitempty"`
+	GitSSHKnownHosts     string                  `json:"gitSSHKnownHosts,omitempty"`
 	TriggerRef           string                  `json:"triggerRef"`
 	ContextPath          string                  `json:"contextPath"`
 	DockerfilePath       string                  `json:"dockerfilePath"`
@@ -1183,12 +1211,8 @@ func (s *Server) buildDefinitionBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.CommitSHA = strings.TrimSpace(input.CommitSHA)
-	if definition.SourceKind == builds.SourceGitSSH && !manualBuildCommitRE.MatchString(input.CommitSHA) {
-		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "commitSha must be an exact lowercase 40-hex Git commit ID.")
-		return
-	}
-	if definition.SourceKind == builds.SourceGitHub && input.CommitSHA != "" {
-		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "GitHub Deploy resolves the configured branch head; omit commitSha.")
+	if input.CommitSHA != "" {
+		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "Deploy resolves the configured branch or tag head; omit commitSha.")
 		return
 	}
 	attempt, replay, err := s.builds.Build(r.Context(), currentUser(r.Context()).ID, definition.ID, input.CommitSHA, key, "sha256:"+fingerprint(input))
@@ -1341,7 +1365,7 @@ func (s *Server) actorCanAccessGitHubInstallation(ctx context.Context, actorID, 
 func safeBuildDefinition(definition builds.BuildDefinition) buildDefinitionView {
 	return buildDefinitionView{ID: definition.ID, ProjectID: definition.ProjectID, ApplicationID: definition.ServiceID,
 		SourceKind: definition.SourceKind, InstallationID: definition.InstallationID, RepositoryID: definition.RepositoryID,
-		RepositoryURL: gitSSHRepositoryURL(definition), GitSSHKeyScope: gitSSHKeyScope(definition), GitSSHKeyRevision: gitSSHKeyRevision(definition), TriggerRef: definition.TriggerRef,
+		RepositoryURL: gitSSHRepositoryURL(definition), GitSSHKeyScope: gitSSHKeyScope(definition), GitSSHKeyRevision: gitSSHKeyRevision(definition), GitSSHKnownHosts: gitSSHKnownHosts(definition), TriggerRef: definition.TriggerRef,
 		ContextPath: definition.Spec.ContextPath, DockerfilePath: definition.Spec.DockerfilePath,
 		Platforms: append([]string{}, definition.Spec.Platforms...), Registry: safeRegistryBindingView{TargetID: definition.Spec.Registry.TargetID,
 			Mode: definition.Spec.Registry.Mode, Server: definition.Spec.Registry.Server, RepositoryPrefix: definition.Spec.Registry.RepositoryPrefix},
@@ -1362,6 +1386,13 @@ func gitSSHRepositoryURL(definition builds.BuildDefinition) string {
 func gitSSHKeyScope(definition builds.BuildDefinition) string {
 	if definition.GitSSH != nil {
 		return definition.GitSSH.KeyScope
+	}
+	return ""
+}
+
+func gitSSHKnownHosts(definition builds.BuildDefinition) string {
+	if definition.GitSSH != nil {
+		return definition.GitSSH.KnownHosts
 	}
 	return ""
 }
@@ -1534,6 +1565,12 @@ func mappedGitHubBuildError(w http.ResponseWriter, r *http.Request, err error) {
 		writeProblem(w, r, http.StatusForbidden, "GitHubOwnershipMismatch", "GitHub authorization rejected", "The authenticated GitHub user, installation, repository, or requested scope does not match.")
 	case errors.Is(err, builds.ErrGitSSHKeyInactive):
 		writeProblem(w, r, http.StatusConflict, "GitSSHKeyInactive", "Git SSH key is inactive", "This Git SSH source references an inactive key. Reconnect it with the active key before building.")
+	case errors.Is(err, gitssh.ErrKeyRevisionInactive), errors.Is(err, gitssh.ErrActiveKeyNotFound):
+		writeProblem(w, r, http.StatusConflict, "GitSSHKeyInactive", "Git SSH key is inactive", "This Git SSH source references an inactive key. Reconnect it with the active key before building.")
+	case errors.Is(err, gitssh.ErrRemoteRefNotFound):
+		writeProblem(w, r, http.StatusUnprocessableEntity, "GitSSHRefNotFound", "Git SSH ref not found", "The configured branch or tag does not exist in the repository.")
+	case errors.Is(err, gitssh.ErrInvalidRemoteRef):
+		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "The configured Git SSH repository or branch/tag is invalid.")
 	case errors.Is(err, builds.ErrNotFound):
 		mappedError(w, r, store.ErrNotFound)
 	case errors.Is(err, builds.ErrConflict), errors.Is(err, builds.ErrTerminal):

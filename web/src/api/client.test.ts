@@ -10,7 +10,55 @@ import type { OperationWire } from "./types";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("typed API client", () => {
-  it("omits commitSha for GitHub Deploy and sends it for Git SSH Deploy", async () => {
+  it("starts a durable source Deploy or Rebuild for one App instance", async () => {
+    const build = {
+      id: "attempt-1",
+      sourceId: "source-1",
+      projectId: "project-1",
+      applicationId: "application-1",
+      commitSha: "a".repeat(40),
+      gitRef: "refs/heads/main",
+      generation: 1,
+      state: "queued",
+      executionAttempts: 0,
+      maxAttempts: 3,
+      createdAt: "2026-08-29T00:00:00Z",
+      updatedAt: "2026-08-29T00:00:00Z",
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ build, intentId: "intent-1", sequence: 1 }),
+          { status: 202, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.deploySourceBuild(
+      "deployment/id",
+      "rebuild",
+      "attempt/id",
+      "source-deploy-key",
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/v1/deployments/deployment%2Fid/source-build",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          mode: "rebuild",
+          sourceAttemptId: "attempt/id",
+        }),
+      }),
+    );
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(new Headers(init.headers).get("Idempotency-Key")).toBe(
+      "source-deploy-key",
+    );
+  });
+
+  it("lets the server resolve the configured source ref for Deploy", async () => {
     const attempt = {
       id: "attempt-1",
       sourceId: "source-1",
@@ -35,20 +83,13 @@ describe("typed API client", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await api.createManualBuildAttempt("source-1", undefined, "github-key");
-    await api.createManualBuildAttempt(
-      "source-1",
-      "b".repeat(40),
-      "git-ssh-key",
-    );
+    await api.createManualBuildAttempt("source-1", "deploy-key");
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       "/v1/app-sources/source-1/builds",
     );
     expect((fetchMock.mock.calls[0]?.[1] as RequestInit).body).toBe("{}");
-    expect((fetchMock.mock.calls[1]?.[1] as RequestInit).body).toBe(
-      JSON.stringify({ commitSha: "b".repeat(40) }),
-    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("accepts a caller-stable idempotency key when reserving an application", async () => {

@@ -3,7 +3,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
   name: kuberploy-helm-apps
-  namespace: {{ .Values.config.argoDesiredState.namespace }}
+  namespace: {{ .Values.rbac.argoNamespace }}
   labels:
     {{- include "kuberploy.componentLabels" (dict "root" . "component" "helm-applications") | nindent 4 }}
 spec:

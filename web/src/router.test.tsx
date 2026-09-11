@@ -8,7 +8,12 @@ import userEvent from "@testing-library/user-event";
 import type { PropsWithChildren } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, api } from "./api/client";
-import { RootComponent, router } from "./router";
+import {
+  postAuthenticationDestination,
+  requireScopedDeploySearch,
+  RootComponent,
+  router,
+} from "./router";
 
 vi.mock("./components/AppShell", () => ({
   AppShell: ({ user }: { user: { authentication: { kind: string } } }) => (
@@ -330,7 +335,7 @@ describe("app-centric routes", () => {
     ).toBeUndefined();
   });
 
-  it("keeps legacy creation, application, and deep settings routes compatible", () => {
+  it("keeps scoped creation, application, and deep settings routes compatible", () => {
     const routes = [
       ["/deploy", "/deploy"],
       [`/applications/${applicationId}`, "/applications/$applicationId"],
@@ -351,6 +356,13 @@ describe("app-centric routes", () => {
     }
   });
 
+  it("redirects the OCI compatibility route unless Add App supplied exact scope", () => {
+    expect(() => requireScopedDeploySearch({})).toThrow();
+    expect(() =>
+      requireScopedDeploySearch({ projectId, environmentId, applicationId }),
+    ).not.toThrow();
+  });
+
   it("preserves scoped App search on the OCI compatibility route", () => {
     const match = router
       .matchRoutes("/deploy", { projectId, environmentId, applicationId })
@@ -358,5 +370,23 @@ describe("app-centric routes", () => {
 
     expect(match?.routeId).toBe("/deploy");
     expect(match?.search).toEqual({ projectId, environmentId, applicationId });
+  });
+});
+
+describe("post-authentication routing", () => {
+  it("preserves valid deep links and provider callbacks", () => {
+    expect(
+      postAuthenticationDestination(
+        "/projects/project-payments/environments/environment-production/apps/application-api",
+      ),
+    ).toBeNull();
+    expect(postAuthenticationDestination("/github/setup/complete")).toBeNull();
+  });
+
+  it("lands stale builds and unknown routes safely", () => {
+    expect(postAuthenticationDestination("/builds")).toBe("/git");
+    expect(postAuthenticationDestination("/route-that-does-not-exist")).toBe(
+      "/",
+    );
   });
 });

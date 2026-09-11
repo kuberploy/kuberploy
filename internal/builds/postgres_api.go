@@ -244,7 +244,7 @@ func (s *PostgreSQLStore) RetryAttempt(ctx context.Context, sourceAttemptID, ret
 	if err != nil {
 		return BuildAttempt{}, false, classifyPostgres(err)
 	}
-	imports, err := cacheImportsQuery(ctx, tx, definition, generation)
+	imports, err := cacheImportsQuery(ctx, tx, definition, generation, now)
 	if err != nil {
 		return BuildAttempt{}, false, err
 	}
@@ -335,7 +335,7 @@ func (s *PostgreSQLStore) EnqueueManualAttempt(ctx context.Context, definitionID
 		definition.ProjectID, definition.ServiceID).Scan(&generation); err != nil {
 		return BuildAttempt{}, false, classifyPostgres(err)
 	}
-	imports, err := cacheImportsQuery(ctx, tx, definition, generation)
+	imports, err := cacheImportsQuery(ctx, tx, definition, generation, now)
 	if err != nil {
 		return BuildAttempt{}, false, err
 	}

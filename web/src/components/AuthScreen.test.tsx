@@ -284,7 +284,10 @@ describe("installation bootstrap", () => {
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     );
     const user = userEvent.setup();
-    render(<AuthScreen />, { wrapper: Wrapper });
+    const onAuthenticated = vi.fn();
+    render(<AuthScreen onAuthenticated={onAuthenticated} />, {
+      wrapper: Wrapper,
+    });
 
     await screen.findByRole("heading", { name: "Claim this installation" });
     await user.type(
@@ -312,5 +315,6 @@ describe("installation bootstrap", () => {
         authentication: { kind: "session" },
       }),
     );
+    expect(onAuthenticated).toHaveBeenCalledOnce();
   });
 });

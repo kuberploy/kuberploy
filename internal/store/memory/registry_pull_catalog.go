@@ -127,7 +127,7 @@ func (s *Store) ApplicationRegistryPullSelectionForActor(_ context.Context, acto
 	}
 	selection, ok := s.applicationRegistryPullSelections[applicationID]
 	if !ok {
-		return domain.ApplicationRegistryPullSelection{ApplicationID: applicationID, Mode: domain.ApplicationRegistryPullPublic}, nil
+		return domain.ApplicationRegistryPullSelection{ApplicationID: applicationID, Mode: domain.ApplicationRegistryPullAutomatic}, nil
 	}
 	return selection, nil
 }
@@ -149,7 +149,7 @@ func (s *Store) PutApplicationRegistryPullSelectionForActor(_ context.Context, a
 	if replay {
 		current, ok := s.applicationRegistryPullSelections[selection.ApplicationID]
 		if !ok {
-			return base.Result[domain.ApplicationRegistryPullSelection]{}, base.ErrNotFound
+			current = domain.ApplicationRegistryPullSelection{ApplicationID: selection.ApplicationID, Mode: domain.ApplicationRegistryPullAutomatic}
 		}
 		return base.Result[domain.ApplicationRegistryPullSelection]{Value: current, Replay: true}, nil
 	}
@@ -167,7 +167,11 @@ func (s *Store) PutApplicationRegistryPullSelectionForActor(_ context.Context, a
 		s.applicationRegistryPullSelections = map[string]domain.ApplicationRegistryPullSelection{}
 	}
 	selection.UpdatedAt = time.Now().UTC()
-	s.applicationRegistryPullSelections[selection.ApplicationID] = selection
+	if selection.Mode == domain.ApplicationRegistryPullAutomatic {
+		delete(s.applicationRegistryPullSelections, selection.ApplicationID)
+	} else {
+		s.applicationRegistryPullSelections[selection.ApplicationID] = selection
+	}
 	s.idempotency[identity] = idemRecord{fingerprint: fingerprint, typ: "application-registry-pull-selection", resourceID: selection.ApplicationID}
 	s.audits++
 	return base.Result[domain.ApplicationRegistryPullSelection]{Value: selection}, nil

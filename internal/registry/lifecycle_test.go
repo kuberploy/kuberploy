@@ -16,8 +16,13 @@ import (
 
 type protectionServiceStore struct {
 	store.RegistryStore
-	snapshot domain.RegistryLifecycleSnapshot
-	plan     domain.RegistryCleanupPlan
+	snapshot   domain.RegistryLifecycleSnapshot
+	plan       domain.RegistryCleanupPlan
+	candidates []string
+}
+
+func (s *protectionServiceStore) RegistryCleanupCandidates(context.Context, string, time.Time, int) ([]string, error) {
+	return append([]string(nil), s.candidates...), nil
 }
 
 func (s *protectionServiceStore) RegistryLifecycleSnapshot(context.Context, string, string, time.Time) (domain.RegistryLifecycleSnapshot, error) {
@@ -39,6 +44,33 @@ func (s *protectionServiceStore) ClaimRegistryCleanupPlan(context.Context, strin
 
 func (s *protectionServiceStore) AuthorizeRegistryCleanupItem(context.Context, string, int, string, time.Time) (domain.RegistryCleanupItem, error) {
 	return s.plan.Items[0], nil
+}
+
+func TestPlanAutomaticCleanupCreatesDuePlan(t *testing.T) {
+	now := time.Date(2026, 8, 9, 4, 0, 0, 0, time.UTC)
+	snapshot := fixtureSnapshot(now)
+	repository := &protectionServiceStore{snapshot: snapshot, candidates: []string{snapshot.Policy.ServiceID}}
+	service := NewService(repository, WithClock(func() time.Time { return now }), WithIDGenerator(func() string {
+		return "22222222-2222-4222-8222-222222222222"
+	}))
+	planID, err := service.PlanAutomaticCleanup(t.Context(), snapshot.Target.ID)
+	if err != nil || planID != "22222222-2222-4222-8222-222222222222" || repository.plan.State != "preview" || !repository.plan.Automatic {
+		t.Fatalf("planID=%q state=%q automatic=%v err=%v", planID, repository.plan.State, repository.plan.Automatic, err)
+	}
+}
+
+func TestRegistryCleanupPlanDigestSeparatesManualAndAutomaticAuthority(t *testing.T) {
+	now := time.Date(2026, 8, 9, 4, 0, 0, 0, time.UTC)
+	manual, err := BuildCleanupPlan(fixtureSnapshot(now), now, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	automatic := manual
+	automatic.Automatic = true
+	automatic.PlanDigest = store.RegistryCleanupPlanDigest(automatic)
+	if automatic.PlanDigest == manual.PlanDigest {
+		t.Fatal("manual and automatic plans shared a digest")
+	}
 }
 
 type protectionRefreshCall struct {
@@ -101,9 +133,9 @@ func fixtureSnapshot(now time.Time) domain.RegistryLifecycleSnapshot {
 			{RegistryTargetID: targetID, ServiceID: serviceID, Repository: releaseRepo, Digest: digest("a"), Kind: domain.RegistryReferencePin, ReferenceKey: "pin/prod", ObservedAt: now},
 		},
 		Releases: []domain.RegistryRelease{
-			{ID: "release-a", RegistryTargetID: targetID, ServiceID: serviceID, Repository: releaseRepo, RootDigest: digest("a"), CreatedAt: old, SucceededAt: succeeded(1), Availability: domain.RegistryArtifactPresent},
-			{ID: "release-c", RegistryTargetID: targetID, ServiceID: serviceID, Repository: releaseRepo, RootDigest: digest("c"), CreatedAt: old, SucceededAt: succeeded(2), Availability: domain.RegistryArtifactPresent},
-			{ID: "release-d", RegistryTargetID: targetID, ServiceID: serviceID, Repository: releaseRepo, RootDigest: digest("d"), CreatedAt: old, SucceededAt: succeeded(3), Availability: domain.RegistryArtifactPresent},
+			{ID: "release-a", RegistryTargetID: targetID, ServiceID: serviceID, Repository: releaseRepo, RootDigest: digest("a"), CreatedAt: now.Add(-25 * time.Hour), SucceededAt: succeeded(1), Availability: domain.RegistryArtifactPresent},
+			{ID: "release-c", RegistryTargetID: targetID, ServiceID: serviceID, Repository: releaseRepo, RootDigest: digest("c"), CreatedAt: now.Add(-49 * time.Hour), SucceededAt: succeeded(2), Availability: domain.RegistryArtifactPresent},
+			{ID: "release-d", RegistryTargetID: targetID, ServiceID: serviceID, Repository: releaseRepo, RootDigest: digest("d"), CreatedAt: now.Add(-73 * time.Hour), SucceededAt: succeeded(3), Availability: domain.RegistryArtifactPresent},
 		},
 		CacheGenerations: []domain.RegistryCacheGeneration{
 			{ID: "cache-3", RegistryTargetID: targetID, ServiceID: serviceID, Repository: cacheRepo, PlatformSet: "linux/amd64", TrustLane: "protected", CacheSchema: "v1", BuildDefinitionHash: "definition", Generation: 3, RootDigest: digest("f"), SizeBytes: 100, State: "succeeded", CreatedAt: old, CompletedAt: &completed, LastUsedAt: now.Add(-24 * time.Hour)},
@@ -181,6 +213,44 @@ func TestBuildCleanupPlanProtectsEveryAuthorityAndOCIReachability(t *testing.T) 
 	}
 	if !plan.Summary.CacheQuotaSatisfied || plan.Summary.CacheBytesBefore != 300 || plan.Summary.CacheBytesAfter != 100 {
 		t.Fatalf("summary=%#v", plan.Summary)
+	}
+}
+
+func TestBuildCleanupPlanUsesObservedGraphForCacheBytes(t *testing.T) {
+	now := time.Date(2026, 8, 9, 4, 0, 0, 0, time.UTC)
+	snapshot := fixtureSnapshot(now)
+	for index := range snapshot.CacheGenerations {
+		snapshot.CacheGenerations[index].SizeBytes = 0
+	}
+	plan, err := BuildCleanupPlan(snapshot, now, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Summary.CacheBytesBefore != 330 || plan.Summary.CacheBytesAfter != 110 {
+		t.Fatalf("cache bytes before=%d after=%d", plan.Summary.CacheBytesBefore, plan.Summary.CacheBytesAfter)
+	}
+}
+
+func TestReleaseRetentionUsesBuildCreationOrder(t *testing.T) {
+	now := time.Date(2026, 8, 9, 4, 0, 0, 0, time.UTC)
+	snapshot := fixtureSnapshot(now)
+	snapshot.Policy.KeepLastSuccessful = 1
+	snapshot.Releases[0].SucceededAt = nil
+	newerCreated := now.Add(-5 * 24 * time.Hour)
+	olderCreated := now.Add(-6 * 24 * time.Hour)
+	newerCompletion := now.Add(-time.Hour)
+	olderCompletion := now.Add(-2 * time.Hour)
+	snapshot.Releases[1].CreatedAt, snapshot.Releases[1].SucceededAt = newerCreated, &olderCompletion
+	snapshot.Releases[2].CreatedAt, snapshot.Releases[2].SucceededAt = olderCreated, &newerCompletion
+	plan, err := BuildCleanupPlan(snapshot, now, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item := findItem(t, plan, "owned/service", digest("c")); item.Disposition != domain.RegistryCleanupProtect {
+		t.Fatalf("newer-created release not retained: %#v", item)
+	}
+	if item := findItem(t, plan, "owned/service", digest("d")); item.Disposition != domain.RegistryCleanupDelete {
+		t.Fatalf("older-created release retained by completion order: %#v", item)
 	}
 }
 

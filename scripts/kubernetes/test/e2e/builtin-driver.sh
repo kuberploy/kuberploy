@@ -910,7 +910,8 @@ kp_run_helm_workflow() {
     ' "${kp_dir}/workflow-helm-status.json" >/dev/null; then break; fi
     sleep 5
   done
-  kp_argo_name="kp-h-${kp_application//-/}"
+  kp_argo_name="kp-h-${kp_environment//-/}"
+  kp_argo_name="${kp_argo_name:0:21}-${kp_application//-/}"
   for _ in {1..120}; do
     if "${KUBERPLOY_E2E_KUBECTL}" get application "${kp_argo_name}" --namespace argocd -o json \
         >"${kp_dir}/workflow-helm-argo-application.json" 2>/dev/null &&

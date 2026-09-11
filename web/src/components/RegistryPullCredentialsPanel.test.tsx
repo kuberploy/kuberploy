@@ -71,6 +71,11 @@ describe("RegistryPullCredentialsPanel", () => {
       </QueryClientProvider>,
     );
     const select = await screen.findByLabelText("Pull strategy");
+    expect(
+      screen.getByText(
+        /matching configured registry credentials; otherwise it uses a public pull without credentials/i,
+      ),
+    ).toBeVisible();
 
     await selectOption(select, "credential-backup");
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));

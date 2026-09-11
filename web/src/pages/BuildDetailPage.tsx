@@ -249,7 +249,7 @@ export function BuildDetailPage() {
               </dd>
             </div>
             <div>
-              <dt>Definition</dt>
+              <dt>Source snapshot</dt>
               <dd>
                 <code>{currentAttempt.sourceId}</code>
               </dd>

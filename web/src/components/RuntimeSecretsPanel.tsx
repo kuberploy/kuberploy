@@ -509,7 +509,7 @@ function CreateSecretBindingForm({
 
   return (
     <Card className="p-0 [&>form]:p-5">
-      <CardHeader>
+      <CardHeader bar>
         <div>
           <Eyebrow>One-way ingestion</Eyebrow>
           <h3>Create runtime-secret binding</h3>
@@ -722,7 +722,7 @@ function SecretBindingDetailPanel({
 
   return (
     <Card className="p-0">
-      <CardHeader>
+      <CardHeader bar>
         <div>
           <Eyebrow>Safe metadata only</Eyebrow>
           <h3>{binding.name}</h3>
@@ -1097,7 +1097,7 @@ export function RuntimeSecretsPanel({
       ) : list.data?.items.length ? (
         <div className="grid grid-cols-[minmax(250px,_0.7fr)_minmax(420px,_1.3fr)] items-start gap-4 to-1120:grid-cols-[1fr]">
           <Card className="overflow-hidden p-0 [&>div:last-child]:grid">
-            <CardHeader>
+            <CardHeader bar>
               <div>
                 <Eyebrow>Environment metadata</Eyebrow>
                 <h3>Runtime-secret bindings</h3>

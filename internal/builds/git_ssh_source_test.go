@@ -95,11 +95,15 @@ func TestCreatedGitSSHSourceSecretMatchesPlannedObject(t *testing.T) {
 }
 
 type fakeGitSSHCredentials struct {
-	metadata   gitssh.KeyMetadata
-	privateKey []byte
+	metadata    gitssh.KeyMetadata
+	privateKey  []byte
+	activeScope gitssh.Scope
+	activeOwner string
 }
 
-func (f *fakeGitSSHCredentials) Active(context.Context, gitssh.Scope, string) (gitssh.KeyMetadata, error) {
+func (f *fakeGitSSHCredentials) Active(_ context.Context, scope gitssh.Scope, ownerID string) (gitssh.KeyMetadata, error) {
+	f.activeScope = scope
+	f.activeOwner = ownerID
 	return f.metadata, nil
 }
 

@@ -33,14 +33,16 @@ kp_stage_chart "${kp_tmp}/upgrade-chart" 7
 kp_network_args=(--set networkPolicy.enabled=true --set-string networkPolicy.kubeAPIServerCIDRs[0]=10.43.0.1/32)
 helm lint "${kp_tmp}/install-chart" "${kp_network_args[@]}" >/dev/null
 helm lint "${kp_tmp}/upgrade-chart" "${kp_network_args[@]}" >/dev/null
-helm template kuberploy "${kp_tmp}/install-chart" --namespace kuberploy-system "${kp_network_args[@]}" >"${kp_tmp}/install.yaml"
-helm template kuberploy "${kp_tmp}/upgrade-chart" --namespace kuberploy-system --is-upgrade "${kp_network_args[@]}" >"${kp_tmp}/upgrade.yaml"
-helm template kuberploy "${kp_tmp}/install-chart" --namespace kuberploy-system "${kp_network_args[@]}" >"${kp_tmp}/rollback.yaml"
+helm template kuberploy "${kp_tmp}/install-chart" --kube-version 1.34.0 --namespace kuberploy-system "${kp_network_args[@]}" >"${kp_tmp}/install.yaml"
+helm template kuberploy "${kp_tmp}/upgrade-chart" --kube-version 1.34.0 --namespace kuberploy-system --is-upgrade "${kp_network_args[@]}" >"${kp_tmp}/upgrade.yaml"
+helm template kuberploy "${kp_tmp}/install-chart" --kube-version 1.34.0 --namespace kuberploy-system "${kp_network_args[@]}" >"${kp_tmp}/rollback.yaml"
 helm template kuberploy "${kp_tmp}/install-chart" \
+  --kube-version 1.34.0 \
   --namespace kuberploy-system \
   "${kp_network_args[@]}" \
   --set builder.enabled=true >"${kp_tmp}/builder-enabled.yaml"
 helm template kuberploy "${kp_tmp}/install-chart" \
+  --kube-version 1.34.0 \
   --namespace kuberploy-system \
   "${kp_network_args[@]}" \
   --set-string networkPolicy.externalEgressCIDRs[0]=192.0.2.1/32 \

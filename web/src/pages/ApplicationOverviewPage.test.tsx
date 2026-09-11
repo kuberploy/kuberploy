@@ -485,6 +485,8 @@ describe("application source overview", () => {
   });
 
   it("shows the current App source before editing it", async () => {
+    routeParams.projectId = "project-1";
+    routeParams.environmentId = "environment-1";
     const user = userEvent.setup();
     vi.mocked(api.capabilities).mockResolvedValue({
       features: { builds: true, builder: true },
@@ -560,34 +562,66 @@ describe("application source overview", () => {
       ],
       nextCursor: null,
     });
-    const deploy = vi.spyOn(api, "createManualBuildAttempt").mockResolvedValue({
-      id: "attempt-deploy",
-      sourceId: "definition-1",
-      projectId: "project-1",
-      applicationId: "application-1",
-      commitSha: "e".repeat(40),
-      gitRef: "refs/tags/v1.2.3",
-      generation: 3,
-      state: "queued",
-      executionAttempts: 0,
-      maxAttempts: 3,
-      createdAt: "2026-08-12T00:06:00Z",
-      updatedAt: "2026-08-12T00:06:00Z",
+    vi.mocked(api.deployments).mockResolvedValue({
+      items: [
+        {
+          id: "deployment-1",
+          environmentId: "environment-1",
+          applicationId: "application-1",
+          image: `registry.example.com/payments@sha256:${"f".repeat(64)}`,
+          replicas: 1,
+          port: 8080,
+          runtime: {
+            replicas: 1,
+            ports: [{ name: "http", containerPort: 8080, protocol: "TCP" }],
+            resources: { requests: { cpu: "50m", memory: "100Mi" } },
+          },
+          state: "stopped",
+          operationId: "operation-1",
+          generation: 1,
+          createdAt: "2026-08-12T00:00:00Z",
+          updatedAt: "2026-08-12T00:00:00Z",
+        },
+      ],
     });
-    const rebuild = vi.spyOn(api, "retryBuildAttempt").mockResolvedValue({
-      id: "attempt-rebuild",
-      sourceId: "definition-1",
-      projectId: "project-1",
-      applicationId: "application-1",
-      commitSha: "d".repeat(40),
-      gitRef: "refs/tags/v1.2.3",
-      generation: 4,
-      state: "queued",
-      executionAttempts: 0,
-      maxAttempts: 3,
-      createdAt: "2026-08-12T00:07:00Z",
-      updatedAt: "2026-08-12T00:07:00Z",
-    });
+    const deploy = vi
+      .spyOn(api, "deploySourceBuild")
+      .mockResolvedValueOnce({
+        build: {
+          id: "attempt-deploy",
+          sourceId: "definition-1",
+          projectId: "project-1",
+          applicationId: "application-1",
+          commitSha: "e".repeat(40),
+          gitRef: "refs/tags/v1.2.3",
+          generation: 3,
+          state: "queued",
+          executionAttempts: 0,
+          maxAttempts: 3,
+          createdAt: "2026-08-12T00:06:00Z",
+          updatedAt: "2026-08-12T00:06:00Z",
+        },
+        intentId: "intent-deploy",
+        sequence: 1,
+      })
+      .mockResolvedValueOnce({
+        build: {
+          id: "attempt-rebuild",
+          sourceId: "definition-1",
+          projectId: "project-1",
+          applicationId: "application-1",
+          commitSha: "d".repeat(40),
+          gitRef: "refs/tags/v1.2.3",
+          generation: 4,
+          state: "queued",
+          executionAttempts: 0,
+          maxAttempts: 3,
+          createdAt: "2026-08-12T00:07:00Z",
+          updatedAt: "2026-08-12T00:07:00Z",
+        },
+        intentId: "intent-rebuild",
+        sequence: 2,
+      });
 
     render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });
     await screen.findByRole("heading", { name: "Payments API" });
@@ -609,14 +643,20 @@ describe("application source overview", () => {
     await user.click(screen.getByRole("button", { name: "Deploy" }));
     await waitFor(() =>
       expect(deploy).toHaveBeenCalledWith(
-        "definition-1",
+        "deployment-1",
+        "deploy",
         undefined,
         expect.any(String),
       ),
     );
     await user.click(screen.getByRole("button", { name: "Rebuild" }));
     await waitFor(() =>
-      expect(rebuild).toHaveBeenCalledWith("attempt-1", expect.any(String)),
+      expect(deploy).toHaveBeenCalledWith(
+        "deployment-1",
+        "rebuild",
+        "attempt-1",
+        expect.any(String),
+      ),
     );
     await user.click(screen.getByRole("button", { name: "Disconnect source" }));
     await user.type(screen.getByLabelText("Confirm deletion"), "DISCONNECT");

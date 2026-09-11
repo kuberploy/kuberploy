@@ -568,7 +568,7 @@ func (s *PostgreSQLStore) EnqueuePushBuilds(ctx context.Context, input EnqueuePu
 		if err = tx.QueryRow(ctx, `UPDATE applications SET build_generation=build_generation+1 WHERE project_id=$1 AND id=$2 RETURNING build_generation`, current.ProjectID, current.ServiceID).Scan(&generation); err != nil {
 			return nil, classifyPostgres(err)
 		}
-		imports, importErr := cacheImportsQuery(ctx, tx, current, generation)
+		imports, importErr := cacheImportsQuery(ctx, tx, current, generation, now)
 		if importErr != nil {
 			return nil, importErr
 		}
@@ -843,6 +843,7 @@ type rowQuery interface {
 
 type rowsQuery interface {
 	Query(context.Context, string, ...any) (pgx.Rows, error)
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
 }
 
 func deliveryByQuery(ctx context.Context, query rowQuery, claimKey string, forUpdate bool) (DeliveryReceipt, error) {
@@ -1071,22 +1072,30 @@ func attemptsForDeliveryQuery(ctx context.Context, query rowsQuery, claimKey str
 	return result, rows.Err()
 }
 
-func cacheImportsQuery(ctx context.Context, query rowsQuery, definition BuildDefinition, generation int64) ([]string, error) {
-	rows, err := query.Query(ctx, `SELECT cache_reference FROM build_attempts WHERE project_id=$1 AND service_id=$2 AND definition_digest=$3 AND state='succeeded' AND cache_reference<>'' AND generation<$4 ORDER BY generation DESC LIMIT $5`, definition.ProjectID, definition.ServiceID, definition.DefinitionDigest, generation, definition.Spec.CacheImports)
+func cacheImportsQuery(ctx context.Context, query rowsQuery, definition BuildDefinition, generation int64, now time.Time) ([]string, error) {
+	rows, err := query.Query(ctx, `SELECT id::text,cache_reference FROM build_attempts WHERE project_id=$1 AND service_id=$2 AND definition_digest=$3 AND state='succeeded' AND cache_reference<>'' AND generation<$4 ORDER BY generation DESC LIMIT 1`, definition.ProjectID, definition.ServiceID, definition.DefinitionDigest, generation)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	refs := make([]string, 0)
+	ids := make([]string, 0)
 	for rows.Next() {
-		var ref string
-		if err = rows.Scan(&ref); err != nil {
+		var attemptID, ref string
+		if err = rows.Scan(&attemptID, &ref); err != nil {
 			return nil, err
 		}
+		ids = append(ids, attemptID)
 		refs = append(refs, ref)
 	}
 	if err = rows.Err(); err != nil {
 		return nil, err
+	}
+	rows.Close()
+	if len(ids) != 0 {
+		if _, err = query.Exec(ctx, `UPDATE registry_cache_generations SET last_used_at=$2 WHERE id=ANY($1::uuid[]) AND last_used_at<$2`, ids, now.UTC()); err != nil {
+			return nil, classifyPostgres(err)
+		}
 	}
 	sort.Strings(refs)
 	return refs, nil

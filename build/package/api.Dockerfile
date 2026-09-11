@@ -43,7 +43,8 @@ FROM docker.io/library/alpine:3.24
 
 RUN apk add --no-cache \
       ca-certificates=20260611-r0 \
-      git=2.54.0-r0
+      git=2.54.0-r0 \
+      openssh-client-default=10.3_p1-r1
 
 ARG VERSION=dev
 ARG REVISION=unknown

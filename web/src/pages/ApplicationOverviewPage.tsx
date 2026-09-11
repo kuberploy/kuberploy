@@ -287,6 +287,9 @@ export function ApplicationOverviewPage() {
     deployments.data?.items.filter(
       (item) => item.applicationId === applicationId,
     ) ?? [];
+  const selectedDeployment = applicationDeployments.find(
+    (item) => item.environmentId === environmentId,
+  );
   const deleteApplication = useMutation({
     mutationFn: (idempotencyKey: string) =>
       api.deleteApplication(
@@ -340,12 +343,15 @@ export function ApplicationOverviewPage() {
   );
   const canDeployBuild = Boolean(
     activeBuildDefinition &&
-    activeBuildDefinition.sourceKind === "github" &&
+    selectedDeployment &&
+    (activeBuildDefinition.sourceKind === "github" ||
+      activeBuildDefinition.sourceKind === "git_ssh") &&
     buildsReady &&
     canManageBuildDefinitions,
   );
   const canRebuildBuild = Boolean(
     latestSuccessfulBuild &&
+    selectedDeployment &&
     buildsReady &&
     application.data &&
     project &&
@@ -358,30 +364,42 @@ export function ApplicationOverviewPage() {
     ),
   );
   const deployBuild = useMutation({
-    mutationFn: ({ sourceId, key }: { sourceId: string; key: string }) =>
-      api.createManualBuildAttempt(sourceId, undefined, key),
-    onSuccess: async (attempt) => {
+    mutationFn: ({
+      deploymentId,
+      key,
+    }: {
+      deploymentId: string;
+      key: string;
+    }) => api.deploySourceBuild(deploymentId, "deploy", undefined, key),
+    onSuccess: async (accepted) => {
       deployBuildKey.current = null;
       await queryClient.invalidateQueries({
         queryKey: ["build-attempts", applicationId],
       });
       await navigate({
         to: "/builds/$buildId",
-        params: { buildId: attempt.id },
+        params: { buildId: accepted.build.id },
       });
     },
   });
   const rebuildBuild = useMutation({
-    mutationFn: ({ attemptId, key }: { attemptId: string; key: string }) =>
-      api.retryBuildAttempt(attemptId, key),
-    onSuccess: async (attempt) => {
+    mutationFn: ({
+      deploymentId,
+      attemptId,
+      key,
+    }: {
+      deploymentId: string;
+      attemptId: string;
+      key: string;
+    }) => api.deploySourceBuild(deploymentId, "rebuild", attemptId, key),
+    onSuccess: async (accepted) => {
       rebuildBuildKey.current = null;
       await queryClient.invalidateQueries({
         queryKey: ["build-attempts", applicationId],
       });
       await navigate({
         to: "/builds/$buildId",
-        params: { buildId: attempt.id },
+        params: { buildId: accepted.build.id },
       });
     },
   });
@@ -492,7 +510,7 @@ export function ApplicationOverviewPage() {
       />
 
       <nav
-        className="[&_button:focus-visible]:outline-[3px] [&_button:focus-visible]:outline-focus [&_button:focus-visible]:outline-offset-[2px] flex gap-6 mt-[-4px] mx-0 mb-5 border-b border-b-line [&_button]:relative [&_button]:shrink-0 [&_button]:pt-0 [&_button]:px-px [&_button]:pb-[11px] [&_button]:border-0 [&_button]:text-ink-faint [&_button]:bg-transparent [&_button]:cursor-pointer [&_button]:text-meta [&_button]:font-semibold [&_button]:pb-3 [&_button]:transition-[color] [&_button]:duration-(--motion-fast) [&_button]:ease-(--ease-standard) [&_button.active]:text-ink [&_button.active::after]:absolute [&_button.active::after]:right-0 [&_button.active::after]:bottom-[-1px] [&_button.active::after]:left-0 [&_button.active::after]:h-0.5 [&_button.active::after]:content-[''] [&_button.active::after]:bg-mint-dark [&_button.active::after]:origin-left [&_button.active::after]:animate-[tab-underline_var(--motion-base)_var(--ease-standard)] to-580:max-w-full to-580:flex-wrap to-580:gap-x-4 to-580:gap-y-2 pointer-coarse:[&_button]:min-h-10 [&_button:hover:not(:disabled)]:text-ink mb-6"
+        className="[&_button:focus-visible]:outline-[3px] [&_button:focus-visible]:outline-focus [&_button:focus-visible]:outline-offset-[2px] flex gap-6 mt-[-4px] mx-0 mb-6 border-b border-b-line [&_button]:relative [&_button]:shrink-0 [&_button]:pt-0 [&_button]:px-px [&_button]:pb-[11px] [&_button]:border-0 [&_button]:text-ink-faint [&_button]:bg-transparent [&_button]:cursor-pointer [&_button]:text-meta [&_button]:font-semibold [&_button]:pb-3 [&_button]:transition-[color] [&_button]:duration-(--motion-fast) [&_button]:ease-(--ease-standard) [&_button.active]:text-ink [&_button.active::after]:absolute [&_button.active::after]:right-0 [&_button.active::after]:bottom-[-1px] [&_button.active::after]:left-0 [&_button.active::after]:h-0.5 [&_button.active::after]:content-[''] [&_button.active::after]:bg-mint-dark [&_button.active::after]:origin-left [&_button.active::after]:animate-[tab-underline_var(--motion-base)_var(--ease-standard)] to-580:max-w-full to-580:flex-wrap to-580:gap-x-4 to-580:gap-y-2 pointer-coarse:[&_button]:min-h-10 [&_button:hover:not(:disabled)]:text-ink"
         aria-label="App sections"
       >
         {(["overview", "source", "runtime"] as const).map((item) => (
@@ -730,13 +748,13 @@ export function ApplicationOverviewPage() {
                   <Eyebrow>Deploy settings</Eyebrow>
                   <h2>Build actions</h2>
                   <p className="text-meta text-ink-soft">
-                    Deploy fetches the configured GitHub branch head. Rebuild
+                    Deploy fetches the configured branch or tag head. Rebuild
                     uses the latest successful build's recorded source without
-                    fetching a newer commit.
+                    fetching newer code.
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  {canDeployBuild ? (
+                  {canDeployBuild && selectedDeployment ? (
                     <Button
                       variant="primary"
                       busy={deployBuild.isPending}
@@ -747,7 +765,7 @@ export function ApplicationOverviewPage() {
                           deployBuildKey.current ?? crypto.randomUUID();
                         deployBuildKey.current = key;
                         deployBuild.mutate({
-                          sourceId: activeBuildDefinition.id,
+                          deploymentId: selectedDeployment.id,
                           key,
                         });
                       }}
@@ -755,7 +773,9 @@ export function ApplicationOverviewPage() {
                       <Icon name="deploy" /> Deploy
                     </Button>
                   ) : null}
-                  {canRebuildBuild && latestSuccessfulBuild ? (
+                  {canRebuildBuild &&
+                  latestSuccessfulBuild &&
+                  selectedDeployment ? (
                     <Button
                       variant="secondary"
                       busy={rebuildBuild.isPending}
@@ -766,6 +786,7 @@ export function ApplicationOverviewPage() {
                           rebuildBuildKey.current ?? crypto.randomUUID();
                         rebuildBuildKey.current = key;
                         rebuildBuild.mutate({
+                          deploymentId: selectedDeployment.id,
                           attemptId: latestSuccessfulBuild.id,
                           key,
                         });
@@ -982,7 +1003,7 @@ export function ApplicationOverviewPage() {
       {deleteOpen ? (
         <ConfirmDialog
           title={`Delete ${application.data.name}?`}
-          description="Only an App with no deployments, build configuration, releases, bindings, or policies can be deleted. Audit history remains."
+          description="Stop every runtime, disable any Helm release, and remove build configuration, bindings, and policies before deleting this App. Audit history remains."
           confirmLabel="Delete App"
           confirmation={application.data.name}
           busy={deleteApplication.isPending}

@@ -123,6 +123,7 @@ func TestGitHubSetupWebhookAndBuildOpenAPIContract(t *testing.T) {
 		"getBuildAttemptLogs":          "logs.read",
 		"cancelBuildAttempt":           "build.create",
 		"retryBuildAttempt":            "build.create",
+		"deploySourceBuild":            "build.create",
 	}
 	found := make(map[string]bool, len(expectedBuildScopes))
 	for _, pathItem := range document.Paths {
@@ -163,6 +164,14 @@ func TestGitHubSetupWebhookAndBuildOpenAPIContract(t *testing.T) {
 				t.Fatalf("safe schema %s leaks %q", schemaName, name)
 			}
 		}
+	}
+	appSourceProperties := decodeSchemaProperties(t, document.Components.Schemas["AppBuildSource"])
+	knownHosts, ok := appSourceProperties["gitSSHKnownHosts"]
+	if !ok {
+		t.Fatal("App build source omits public Git SSH host-key pins needed for editing")
+	}
+	if knownHosts["maxLength"] != float64(65536) {
+		t.Fatalf("Git SSH known_hosts limit=%v, want 65536", knownHosts["maxLength"])
 	}
 	profileProperties := decodeSchemaProperties(t, document.Components.Schemas["BuildSecretProfile"])
 	for _, forbidden := range []string{"path", "secretName", "secretKey", "credential"} {
@@ -214,7 +223,7 @@ func TestEveryHighRiskLimitedOperationReferencesStableProblems(t *testing.T) {
 		"registerGitHubInstallationMetadata", "updateGitHubInstallationSharing", "authorizeGitHubAppInstallation", "linkVerifiedGitHubAppInstallation",
 		"createEnvironmentGitBinding", "createPlatformArgoGitBinding",
 		"createProjectAccessGrant", "deleteProjectAccessGrant", "createProjectServiceAccount", "disableServiceAccount", "createServiceAccountToken", "revokeServiceAccountToken",
-		"createRuntimeSecretBinding", "rotateRuntimeSecretBinding", "deleteRuntimeSecretBinding", "putApplicationBuildSource", "createManualBuildAttempt", "cancelBuildAttempt", "retryBuildAttempt",
+		"createRuntimeSecretBinding", "rotateRuntimeSecretBinding", "deleteRuntimeSecretBinding", "putApplicationBuildSource", "createManualBuildAttempt", "cancelBuildAttempt", "retryBuildAttempt", "deploySourceBuild",
 	} {
 		expected[operationID] = false
 	}

@@ -220,7 +220,7 @@ function CreateCertificateForm({
 
   return (
     <Card className="p-0 [&>form]:p-5">
-      <CardHeader>
+      <CardHeader bar>
         <div>
           <Eyebrow>{environment.name}</Eyebrow>
           <h3>New custom certificate</h3>
@@ -395,7 +395,7 @@ function CertificateDetail({
 
   return (
     <Card className="p-0">
-      <CardHeader>
+      <CardHeader bar>
         <div>
           <Eyebrow>Public certificate metadata</Eyebrow>
           <h3>{binding.name}</h3>
@@ -735,7 +735,7 @@ export function CertificateBindingsPanel({
       ) : list.data?.items.length ? (
         <div className="grid grid-cols-[minmax(250px,_0.7fr)_minmax(420px,_1.3fr)] items-start gap-4 to-1120:grid-cols-[1fr]">
           <Card className="overflow-hidden p-0 [&>div:last-child]:grid">
-            <CardHeader>
+            <CardHeader bar>
               <div>
                 <Eyebrow>Environment metadata</Eyebrow>
                 <h3>Certificate bindings</h3>

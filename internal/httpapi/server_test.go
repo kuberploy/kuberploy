@@ -704,6 +704,26 @@ func TestApplicationAndEnvironmentDeletionRejectActiveDeployment(t *testing.T) {
 	}
 }
 
+func TestDirectDeploymentRejectsNonOCIApp(t *testing.T) {
+	f := newAPI(t)
+	f.bootstrap()
+	project := decode[domain.Project](t, f.request(http.MethodPost, "/v1/projects", "source-mismatch-project", map[string]string{"name": "Source mismatch"}))
+	environment := decode[domain.Environment](t, f.request(http.MethodPost, "/v1/environments", "source-mismatch-environment", map[string]string{"projectId": project.ID, "name": "Production"}))
+	application := decode[domain.Application](t, f.request(http.MethodPost, "/v1/applications", "source-mismatch-application", map[string]any{
+		"projectId": project.ID, "name": "GitHub App", "sourceKind": "github",
+	}))
+	response := f.request(http.MethodPost, "/v1/deployments", "source-mismatch-deployment", map[string]any{
+		"environmentId": environment.ID,
+		"applicationId": application.ID,
+		"image":         "registry.example.test/api@sha256:" + strings.Repeat("8", 64),
+		"runtime":       domain.DefaultWorkloadRuntime(8080, nil),
+	})
+	problem := decode[httpapi.Problem](t, response)
+	if response.StatusCode != http.StatusConflict || problem.Code != "ApplicationSourceMismatch" {
+		t.Fatalf("source mismatch status=%d problem=%#v", response.StatusCode, problem)
+	}
+}
+
 func TestDeploymentStatusSeparatesExactArgoRolloutFromGitSuccess(t *testing.T) {
 	f := newAPI(t)
 	admin := f.bootstrap()
@@ -851,7 +871,7 @@ func TestReleaseCheckReportsMissingStableRelease(t *testing.T) {
 func newUpgradeAPIWithReleaseError(t *testing.T, releaseErr error) *apiFixture {
 	t.Helper()
 	st := memory.New()
-	srv := httptest.NewServer(httpapi.New(httpapi.Options{Store: st, BootstrapToken: "one-time-secret", Version: "0.1.0-rc.442", Releases: staticReleaseService{err: releaseErr}, HighRiskLimiter: ratelimit.NewMemoryLimiter(10_000)}))
+	srv := httptest.NewServer(httpapi.New(httpapi.Options{Store: st, BootstrapToken: "one-time-secret", Version: "0.1.0-rc.443", Releases: staticReleaseService{err: releaseErr}, HighRiskLimiter: ratelimit.NewMemoryLimiter(10_000)}))
 	jar, _ := cookiejar.New(nil)
 	f := &apiFixture{t: t, server: srv, client: &http.Client{Jar: jar}, store: st}
 	t.Cleanup(srv.Close)

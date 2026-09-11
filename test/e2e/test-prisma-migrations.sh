@@ -10,8 +10,6 @@ kp_delayed_postgres="kuberploy-prisma-delayed-pg-${kp_suffix}"
 kp_waiter="kuberploy-prisma-waiter-${kp_suffix}"
 kp_image="kuberploy-migration:test-${kp_suffix}"
 kp_baseline="${kp_root}/migrations/prisma/migrations/001_initial/migration.sql"
-kp_previous_initial_checksum="efc555eb9c9d8591e74899818b409202165a8978f9052204c6fe9e89cc70230d"
-kp_frozen_initial_checksum="1aa6590b46d37e6a71dfdc85df7a7d8b7376b41e18deb02cab6b16e52e4cad79"
 
 if grep -Fq '\\restrict ' "${kp_baseline}" ||
   grep -Fq '\\unrestrict ' "${kp_baseline}" ||
@@ -118,104 +116,9 @@ kp_second="$(docker run --rm --network "${kp_network}" \
   "${kp_image}" 2>&1)"
 grep -q 'No pending migrations to apply' <<<"${kp_second}"
 
-docker exec "${kp_postgres}" createdb --username postgres --template fresh published_rc431
-docker exec "${kp_postgres}" psql --username postgres --dbname published_rc431 \
-  --set ON_ERROR_STOP=1 --command "
-    DELETE FROM _prisma_migrations
-     WHERE migration_name IN ('002_auto_deploy_policy_cleanup','003_auto_deploy_disable_after_drift');
-    UPDATE _prisma_migrations
-       SET checksum='${kp_previous_initial_checksum}'
-     WHERE migration_name='001_initial';
-    DO \$migration\$
-    DECLARE definition text;
-    BEGIN
-      SELECT pg_get_functiondef('validate_auto_deploy_policy_revision()'::regprocedure)
-        INTO definition;
-      definition := replace(
-        definition,
-        'AND (NOT NEW.enabled OR sa.disabled_at IS NULL)',
-        'AND sa.disabled_at IS NULL'
-      );
-      IF definition = pg_get_functiondef('validate_auto_deploy_policy_revision()'::regprocedure) THEN
-        RAISE EXCEPTION 'failed to restore the published rc.431 function';
-      END IF;
-      EXECUTE definition;
-    END
-    \$migration\$;" >/dev/null
-kp_published_rc431_url="postgresql://postgres:kuberploy-test-only@${kp_postgres}:5432/published_rc431?schema=public"
-docker run --rm --network "${kp_network}" \
-  --env DATABASE_URL="${kp_published_rc431_url}" "${kp_image}" >/dev/null
-[[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname published_rc431 \
-  --tuples-only --no-align --command "
-    SELECT count(*)=3
-       AND count(*) FILTER (
-             WHERE migration_name='001_initial' AND checksum='${kp_frozen_initial_checksum}'
-           )=1
-       AND count(*) FILTER (
-             WHERE migration_name='002_auto_deploy_policy_cleanup'
-               AND finished_at IS NOT NULL AND rolled_back_at IS NULL
-               AND applied_steps_count=1
-           )=1
-       AND count(*) FILTER (
-             WHERE migration_name='003_auto_deploy_disable_after_drift'
-               AND finished_at IS NOT NULL AND rolled_back_at IS NULL
-               AND applied_steps_count=1
-           )=1
-      FROM _prisma_migrations;")" == "t" ]]
-[[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname published_rc431 \
-  --tuples-only --no-align --command "
-    SELECT pg_get_functiondef('validate_auto_deploy_policy_revision()'::regprocedure)
-           LIKE '%AND (NOT NEW.enabled OR d.generation=NEW.source_deployment_generation)%'
-       AND pg_get_functiondef('validate_auto_deploy_policy_revision()'::regprocedure)
-           LIKE '%AND (NOT NEW.enabled OR a.build_source_id IS NOT NULL)%'
-       AND pg_get_functiondef('validate_auto_deploy_policy_revision()'::regprocedure)
-           LIKE '%AND (NOT NEW.enabled OR sa.disabled_at IS NULL)%';")" == "t" ]]
-
-docker exec "${kp_postgres}" createdb --username postgres --template fresh published_rc437
-docker exec "${kp_postgres}" psql --username postgres --dbname published_rc437 \
-  --set ON_ERROR_STOP=1 --command "
-    DELETE FROM _prisma_migrations
-     WHERE migration_name='003_auto_deploy_disable_after_drift';
-    CREATE OR REPLACE FUNCTION public.validate_auto_deploy_policy_revision() RETURNS trigger
-      LANGUAGE plpgsql AS \$function\$
-    DECLARE policy_row auto_deploy_policies%ROWTYPE;
-    BEGIN
-      SELECT * INTO STRICT policy_row FROM auto_deploy_policies WHERE id=NEW.policy_id;
-      IF NOT EXISTS (
-        SELECT 1 FROM applications a
-        JOIN environments e ON e.id=policy_row.environment_id AND e.project_id=a.project_id
-        JOIN deployments d ON d.id=NEW.source_deployment_id
-             AND d.application_id=a.id AND d.environment_id=e.id AND d.generation=NEW.source_deployment_generation
-        JOIN service_accounts sa ON sa.id=NEW.service_actor_id AND sa.project_id=a.project_id
-        WHERE a.id=policy_row.application_id AND a.project_id=policy_row.project_id
-          AND a.build_source_id IS NOT NULL
-          AND (NOT NEW.enabled OR sa.disabled_at IS NULL)
-      ) THEN
-        RAISE EXCEPTION 'auto-deploy policy resource binding mismatch' USING ERRCODE='23503';
-      END IF;
-      IF NEW.created_at<policy_row.created_at THEN
-        RAISE EXCEPTION 'auto-deploy revision predates policy' USING ERRCODE='23514';
-      END IF;
-      RETURN NEW;
-    END; \$function\$;" >/dev/null
-kp_published_rc437_url="postgresql://postgres:kuberploy-test-only@${kp_postgres}:5432/published_rc437?schema=public"
-docker run --rm --network "${kp_network}" \
-  --env DATABASE_URL="${kp_published_rc437_url}" "${kp_image}" >/dev/null
-[[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname published_rc437 \
-  --tuples-only --no-align --command "
-    SELECT count(*)=3
-       AND count(*) FILTER (
-             WHERE migration_name='003_auto_deploy_disable_after_drift'
-               AND finished_at IS NOT NULL AND rolled_back_at IS NULL
-               AND applied_steps_count=1
-           )=1
-      FROM _prisma_migrations;")" == "t" ]]
-
 docker exec "${kp_postgres}" createdb --username postgres --template fresh tampered_initial
 docker exec "${kp_postgres}" psql --username postgres --dbname tampered_initial \
   --set ON_ERROR_STOP=1 --command "
-    DELETE FROM _prisma_migrations
-     WHERE migration_name='002_auto_deploy_policy_cleanup';
     UPDATE _prisma_migrations
        SET checksum=repeat('0',64)
      WHERE migration_name='001_initial';" >/dev/null
@@ -225,7 +128,7 @@ if kp_tampered_initial_output="$(docker run --rm --network "${kp_network}" \
   printf 'Migration image accepted an unknown 001_initial checksum\n' >&2
   exit 1
 fi
-grep -q '001_initial checksum is not an approved published checksum' \
+grep -q 'Database migration history does not match this Kuberploy release' \
   <<<"${kp_tampered_initial_output}"
 [[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname tampered_initial \
   --tuples-only --no-align --command "
@@ -248,9 +151,9 @@ if kp_old_rc_output="$(docker run --rm --network "${kp_network}" \
   printf 'Migration image accepted an older release-candidate history\n' >&2
   exit 1
 fi
-grep -q 'Database migration history has 4 row(s); release requires 3' <<<"${kp_old_rc_output}"
+grep -q 'Database migration history has 2 row(s); release requires 1' <<<"${kp_old_rc_output}"
 [[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname old_rc_history \
-  --tuples-only --no-align --command "SELECT count(*) FROM _prisma_migrations")" == "4" ]]
+  --tuples-only --no-align --command "SELECT count(*) FROM _prisma_migrations")" == "2" ]]
 
 kp_counts="$(docker exec "${kp_postgres}" psql --username postgres --dbname fresh --tuples-only --no-align --command "
   SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL;
@@ -261,7 +164,7 @@ kp_counts="$(docker exec "${kp_postgres}" psql --username postgres --dbname fres
   SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace WHERE n.nspname='public' AND c.condeferrable;
   SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid=i.indrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND i.indexprs IS NOT NULL;
 ")"
-kp_expected_counts=$'3\n97\n63\n68\n651\n9\n2'
+kp_expected_counts=$'1\n98\n63\n68\n666\n9\n2'
 if [[ "${kp_counts}" != "${kp_expected_counts}" ]]; then
   printf 'Unexpected fresh-schema authority counts:\n%s\n' "${kp_counts}" >&2
   exit 1
@@ -366,4 +269,4 @@ if docker run --rm --network "${kp_network}" --env DATABASE_URL="${kp_legacy_url
 fi
 [[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname legacy --tuples-only --no-align --command "SELECT to_regclass('public.users') IS NULL")" == "t" ]]
 
-printf 'Prisma migration image delayed database wait, fresh apply, rc.431 upgrade, declarative drift, personal/team scope authority, idempotency, native authority, and legacy rejection passed\n'
+printf 'Prisma migration image delayed database wait, fresh apply, exact single-baseline history, declarative drift, personal/team scope authority, idempotency, native authority, and legacy rejection passed\n'

@@ -32,11 +32,13 @@ function sessionPrincipal(user: User): Principal {
 export function AuthScreen({
   connectionError,
   invitationToken,
+  onAuthenticated,
   onInvitationAccepted,
   onInvitationDismissed,
 }: {
   connectionError?: unknown;
   invitationToken?: string;
+  onAuthenticated?: () => void;
   onInvitationAccepted?: () => void;
   onInvitationDismissed?: () => void;
 }) {
@@ -82,6 +84,7 @@ export function AuthScreen({
       predicate: (query) => query.queryKey[0] !== "me",
     });
     queryClient.setQueryData(["me"], sessionPrincipal(user));
+    onAuthenticated?.();
   };
   const bootstrap = useMutation({
     mutationFn: api.bootstrap,

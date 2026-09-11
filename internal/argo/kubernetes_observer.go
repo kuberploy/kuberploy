@@ -202,12 +202,19 @@ func (o KubernetesObserver) PollOnce(ctx context.Context) (ObservationBatch, err
 func isManagedHelmApplication(application KubernetesApplication) bool {
 	labels := application.Labels
 	applicationID := strings.TrimSpace(labels["kuberploy.io/application-id"])
+	environmentID := strings.TrimSpace(labels["kuberploy.io/environment-id"])
 	component := labels["app.kubernetes.io/component"]
+	environmentNamePart := strings.ReplaceAll(environmentID, "-", "")
+	if len(environmentNamePart) > 16 {
+		environmentNamePart = environmentNamePart[:16]
+	}
+	currentName := "kp-h-" + environmentNamePart + "-" + strings.ReplaceAll(applicationID, "-", "")
+	legacyName := "kp-h-" + strings.ReplaceAll(applicationID, "-", "")
 	return labels["app.kubernetes.io/managed-by"] == "kuberploy" &&
 		(component == "helm-application" || component == "approved-helm-application") &&
 		uuidRE.MatchString(applicationID) && uuidRE.MatchString(strings.TrimSpace(labels["kuberploy.io/project-id"])) &&
-		uuidRE.MatchString(strings.TrimSpace(labels["kuberploy.io/environment-id"])) &&
-		application.Name == "kp-h-"+strings.ReplaceAll(applicationID, "-", "")
+		uuidRE.MatchString(environmentID) &&
+		(application.Name == currentName || application.Name == legacyName)
 }
 
 func ObservationFromKubernetesApplication(application KubernetesApplication, target ObservationTarget, argoNamespace string) (Observation, error) {

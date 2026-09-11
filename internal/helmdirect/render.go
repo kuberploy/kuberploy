@@ -50,7 +50,16 @@ type applicationManifest struct {
 	} `yaml:"spec"`
 }
 
-func ApplicationName(applicationID string) string {
+func ApplicationName(environmentID, applicationID string) string {
+	environment := strings.ReplaceAll(strings.ToLower(environmentID), "-", "")
+	if len(environment) > 16 {
+		environment = environment[:16]
+	}
+	application := strings.ReplaceAll(strings.ToLower(applicationID), "-", "")
+	return "kp-h-" + environment + "-" + application
+}
+
+func legacyApplicationName(applicationID string) string {
 	return "kp-h-" + strings.ReplaceAll(strings.ToLower(applicationID), "-", "")
 }
 
@@ -62,7 +71,7 @@ func RenderApplication(revision Revision, argoNamespace string) ([]byte, error) 
 	var manifest applicationManifest
 	manifest.APIVersion = "argoproj.io/v1alpha1"
 	manifest.Kind = "Application"
-	manifest.Metadata.Name = ApplicationName(revision.Target.ApplicationID)
+	manifest.Metadata.Name = ApplicationName(revision.Target.EnvironmentID, revision.Target.ApplicationID)
 	manifest.Metadata.Namespace = argoNamespace
 	manifest.Metadata.Finalizers = []string{"resources-finalizer.argocd.argoproj.io"}
 	manifest.Metadata.Labels = map[string]string{

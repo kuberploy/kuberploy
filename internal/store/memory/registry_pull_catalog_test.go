@@ -22,6 +22,9 @@ func TestProjectRegistryPullCredentialsAreMultipleScopedAndSelectable(t *testing
 	store.applications[applicationID] = domain.Application{ID: applicationID, ProjectID: projectID, Name: "API"}
 	store.applications[otherApplicationID] = domain.Application{ID: otherApplicationID, ProjectID: otherProjectID, Name: "Other"}
 	grantRegistryActor(store, actorID, domain.RoleProjectAdmin, domain.ScopeProject, projectID)
+	if automatic, err := store.ApplicationRegistryPullSelectionForActor(ctx, actorID, applicationID); err != nil || automatic.Mode != domain.ApplicationRegistryPullAutomatic {
+		t.Fatalf("default pull selection=%#v err=%v", automatic, err)
+	}
 	for index, target := range []domain.RegistryTarget{
 		{ID: "66666666-6666-4666-8666-666666666666", Name: "primary", Mode: domain.RegistryTargetExternal, Endpoint: "registry.example.com", RepositoryPrefix: "team", PullCredentialRef: "pull-primary"},
 		{ID: "77777777-7777-4777-8777-777777777777", Name: "backup", Mode: domain.RegistryTargetExternal, Endpoint: "backup.example.com", RepositoryPrefix: "team", PullCredentialRef: "pull-backup"},
@@ -56,6 +59,13 @@ func TestProjectRegistryPullCredentialsAreMultipleScopedAndSelectable(t *testing
 	public := domain.ApplicationRegistryPullSelection{ApplicationID: applicationID, Mode: domain.ApplicationRegistryPullPublic}
 	if _, err = store.PutApplicationRegistryPullSelectionForActor(ctx, actorID, "public", "public", "request", public); err != nil {
 		t.Fatal(err)
+	}
+	automatic := domain.ApplicationRegistryPullSelection{ApplicationID: applicationID, Mode: domain.ApplicationRegistryPullAutomatic}
+	if _, err = store.PutApplicationRegistryPullSelectionForActor(ctx, actorID, "automatic", "automatic", "request", automatic); err != nil {
+		t.Fatal(err)
+	}
+	if current, currentErr := store.ApplicationRegistryPullSelectionForActor(ctx, actorID, applicationID); currentErr != nil || current.Mode != domain.ApplicationRegistryPullAutomatic {
+		t.Fatalf("automatic pull selection=%#v err=%v", current, currentErr)
 	}
 	if replay, err := store.DeleteProjectRegistryPullCredentialForActor(ctx, actorID, projectID, second.ID, "delete-second", "delete-second", "request"); err != nil || replay {
 		t.Fatalf("delete replay=%v err=%v", replay, err)

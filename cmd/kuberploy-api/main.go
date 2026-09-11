@@ -70,16 +70,19 @@ func run() error {
 		return err
 	}
 	var gitSSHKeys httpapi.GitSSHKeyBackend
+	var gitSSHBuildRefs httpapi.GitSSHBuildRefProvider
 	if gitSSHEncryption != nil {
 		gitSSHRepository, openErr := gitssh.OpenPostgresRepository(ctx, databaseURL)
 		if openErr != nil {
 			return openErr
 		}
 		defer gitSSHRepository.Close()
-		gitSSHKeys, err = gitssh.NewService(gitSSHRepository, gitSSHEncryption)
+		gitSSHService, serviceErr := gitssh.NewService(gitSSHRepository, gitSSHEncryption)
+		err = serviceErr
 		if err != nil {
 			return err
 		}
+		gitSSHKeys, gitSSHBuildRefs = gitSSHService, gitSSHService
 	}
 	middlewareProfiles, err := middlewareprofiles.OpenPostgresStore(ctx, databaseURL, "kuberploy-api-middleware")
 	if err != nil {
@@ -232,7 +235,7 @@ func run() error {
 	if externalDNSOperationalConfig.Enabled && (!gitProjectionConfig.Enabled || !argoDesiredStateConfig.Enabled || !foundationConfig.Enabled || !edgeRuntimeConfig.Enabled || externalDNSOperationalConfig.BindingID != argoDesiredStateConfig.DesiredState.PlatformBindingID || externalDNSOperationalConfig.BindingID != foundationConfig.PlatformBindingID) {
 		return externaldns.ErrRuntimeUnavailable
 	}
-	sourceBuilds, err := newSourceBuildAPI(ctx, databaseURL, publicURL, os.Getenv(githubAppSlugEnv), sourceBuildConfig, db)
+	sourceBuilds, err := newSourceBuildAPI(ctx, databaseURL, publicURL, os.Getenv(githubAppSlugEnv), sourceBuildConfig, db, gitSSHBuildRefs)
 	if err != nil {
 		return err
 	}
@@ -334,6 +337,7 @@ func run() error {
 	var githubSetup httpapi.GitHubSetupBackend
 	var githubWebhook httpapi.GitHubWebhookBackend
 	var buildBackend httpapi.BuildBackend
+	var sourceDeploymentBackend httpapi.SourceDeploymentBackend
 	var buildPromotions *buildpromotion.Resolver
 	var gitBindingRepositories httpapi.GitBindingRepositoryResolver
 	var buildReadiness httpapi.ReadinessProbe
@@ -364,6 +368,13 @@ func run() error {
 			return environmentfoundation.ErrUnavailable
 		}
 		argoReadiness = combinedReadiness{foundationAPI.readiness, argoDesiredState.readiness}
+	}
+	if sourceBuilds != nil && gitProjection != nil && argoDesiredState != nil && foundationAPI != nil {
+		var ok bool
+		sourceDeploymentBackend, ok = sourceBuilds.backend.(httpapi.SourceDeploymentBackend)
+		if !ok {
+			return errors.New("source deployment backend is unavailable")
+		}
 	}
 	if runtimeSecrets != nil {
 		runtimeSecretBackend, runtimeSecretReadiness = runtimeSecrets.backend, runtimeSecrets.readiness
@@ -411,7 +422,7 @@ func run() error {
 		}
 	}
 	handler := httpapi.New(httpapi.Options{Store: db, BootstrapToken: os.Getenv("KUBERPLOY_BOOTSTRAP_TOKEN"), Version: version, PublicURL: publicURL, MonitoringMode: monitoringMode, SecureCookie: secure, Releases: releaseService, Metrics: metrics, Runtime: runtime, RuntimeReadiness: runtimeReadiness,
-		GitHubSetup: githubSetup, GitHubWebhook: githubWebhook, Builds: buildBackend, BuildPromotions: buildPromotions, BuildLogs: buildLogService, GitBindingRepositories: gitBindingRepositories, PlatformGitBinding: platformGitBindingConfig, BuildReadiness: buildReadiness, BuilderSettings: builderSettings, BuildLogReadiness: buildLogReadiness, ValkeyReadiness: valkeyReadinessProbe{pinger: releaseCache}, OperationCache: operationCache, AppConfigRenderedPreviews: appConfigRenderedPreviews,
+		GitHubSetup: githubSetup, GitHubWebhook: githubWebhook, Builds: buildBackend, SourceDeployments: sourceDeploymentBackend, BuildPromotions: buildPromotions, BuildLogs: buildLogService, GitBindingRepositories: gitBindingRepositories, PlatformGitBinding: platformGitBindingConfig, BuildReadiness: buildReadiness, BuilderSettings: builderSettings, BuildLogReadiness: buildLogReadiness, ValkeyReadiness: valkeyReadinessProbe{pinger: releaseCache}, OperationCache: operationCache, AppConfigRenderedPreviews: appConfigRenderedPreviews,
 		GitProjection: gitProjectionBackend, GitProjectionReadiness: gitProjectionReadiness, ArgoReadiness: argoReadiness,
 		RuntimeSecrets: runtimeSecretBackend, RuntimeSecretReadiness: runtimeSecretReadiness,
 		Certificates: certificateBackend, CertificateReadiness: certificateReadiness, CertificateReferences: certificateReferences, CertificateIssuers: certificateIssuerCatalog,
@@ -428,6 +439,12 @@ func run() error {
 		AutoDeployPolicies:  db,
 		AutoDeployReadiness: autoDeployReadiness,
 		HighRiskLimiter:     highRiskLimiter})
+	if sourceDeploymentBackend != nil {
+		runtime := &sourceDeploymentRuntime{controller: &builds.SourceDeploymentController{Store: sourceBuilds.store,
+			Releases: buildPromotions, Authorization: db, Deployments: handler,
+			Owner: "api-source-deploy-" + id.New(), LeaseDuration: builds.SourceDeploymentLease}}
+		go superviseBackgroundRuntime(ctx, "source-deployment", backgroundRuntimeRestartDelay, runtime.Run)
+	}
 	if autoDeployConfig.Enabled {
 		runtime := &autoDeployRuntime{readiness: autoDeployStore, identity: autoDeployConfig.Identity, workerID: "api-auto-deploy-" + id.New(),
 			controller: &autodeploy.Controller{Store: autoDeployStore, Releases: db, Authorization: db, Deployments: handler,

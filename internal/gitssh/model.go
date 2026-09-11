@@ -39,6 +39,9 @@ var (
 	ErrHostKeyChanged      = errors.New("SSH host key does not match pin")
 	ErrInvalidHostKeyPin   = errors.New("SSH host-key pin is invalid")
 	ErrIdempotencyConflict = errors.New("Git SSH idempotency key was used with different input")
+	ErrKeyRevisionInactive = errors.New("Git SSH key revision is not active")
+	ErrInvalidRemoteRef    = errors.New("Git SSH remote ref request is invalid")
+	ErrRemoteRefNotFound   = errors.New("Git SSH remote ref was not found")
 )
 
 type MutationOperation string

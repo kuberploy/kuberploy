@@ -116,7 +116,7 @@ func TestAgentProfileIsDeterministicAndFailClosed(t *testing.T) {
 		"upsertDesiredHelmRelease": "app.edit", "retryDesiredHelmRelease": "app.edit",
 		"disableDesiredHelmRelease": "app.edit", "rollbackDesiredHelmRelease": "app.edit",
 		"previewDeploymentConfig": "app.edit", "saveDeploymentConfig": "app.edit",
-		"putApplicationBuildSource": "build.create", "createManualBuildAttempt": "build.create", "cancelBuildAttempt": "build.create", "retryBuildAttempt": "build.create",
+		"putApplicationBuildSource": "build.create", "createManualBuildAttempt": "build.create", "cancelBuildAttempt": "build.create", "retryBuildAttempt": "build.create", "deploySourceBuild": "build.create",
 	}
 	if len(operationScopes) != len(expectedScopes) {
 		t.Fatalf("agent operation set drifted: got=%d expected=%d", len(operationScopes), len(expectedScopes))

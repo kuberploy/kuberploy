@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/kuberploy/kuberploy/internal/githubapp"
 )
 
 func TestMemorySourceReplacementKeepsOnlyCurrentAppSource(t *testing.T) {
@@ -103,6 +105,17 @@ func TestMemoryAPICommandAndRetryAreConcurrentAndFailClosed(t *testing.T) {
 	store.serviceGeneration[serviceKey(definition.ProjectID, definition.ServiceID)] = source.Generation
 	store.mu.Unlock()
 
+	edited := definition
+	edited.TriggerRef = "refs/heads/release"
+	edited.Spec.ContextPath = "edited-source"
+	edited, err = PrepareDefinition(edited, completed.Add(30*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.PutDefinition(ctx, edited); err != nil {
+		t.Fatalf("edit App source: %v", err)
+	}
+
 	retryClaim := strings.Repeat("c", 64)
 	retryID := RetryAttemptID(retryClaim, definition.ID)
 	currentExecution := definition.Spec.Execution
@@ -136,6 +149,10 @@ func TestMemoryAPICommandAndRetryAreConcurrentAndFailClosed(t *testing.T) {
 	if retry.PlanRequest.AgentImage != currentExecution.BuilderAgentImage || retry.PlanRequest.AgentImage == source.PlanRequest.AgentImage {
 		t.Fatalf("retry agent image=%q, want refreshed operator runtime %q", retry.PlanRequest.AgentImage, currentExecution.BuilderAgentImage)
 	}
+	if retry.SourceSnapshot.TriggerRef != definition.TriggerRef || retry.SourceSnapshot.Spec.ContextPath != definition.Spec.ContextPath ||
+		retry.SourceSnapshot.DefinitionDigest != source.SourceSnapshot.DefinitionDigest {
+		t.Fatalf("retry source snapshot=%#v, want original snapshot=%#v", retry.SourceSnapshot, source.SourceSnapshot)
+	}
 	store.mu.Lock()
 	_, claimOK := store.claims[claimMapKey("github-delivery", retryClaim)]
 	_, receiptOK := store.deliveries[retryClaim]
@@ -145,6 +162,37 @@ func TestMemoryAPICommandAndRetryAreConcurrentAndFailClosed(t *testing.T) {
 	}
 	if _, _, err = store.RetryAttempt(ctx, source.ID, retryID, strings.Repeat("d", 64), currentExecution, completed.Add(2*time.Minute)); !errors.Is(err, ErrConflict) {
 		t.Fatalf("existing retry rebound to a different durable claim: %v", err)
+	}
+}
+
+func TestMemoryRetryRejectsRevokedSourceProvider(t *testing.T) {
+	ctx := context.Background()
+	store, definition := seedMemory(t, RegistryManaged)
+	now := testNow.Add(2 * time.Hour)
+	source, err := newAttempt(definition, repositoryFixture(now), EnqueuePush{
+		ClaimKey: strings.Repeat("e", 64), CommitSHA: strings.Repeat("f", 40), GitRef: definition.TriggerRef, ResolvedAt: now,
+	}, 1, nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed := now.Add(time.Minute)
+	source.State, source.CompletedAt, source.UpdatedAt = AttemptFailed, &completed, completed
+	store.mu.Lock()
+	store.attempts[source.ID] = cloneAttempt(source)
+	store.serviceGeneration[serviceKey(definition.ProjectID, definition.ServiceID)] = source.Generation
+	store.mu.Unlock()
+
+	installation := validInstallation(testNow)
+	if err = store.ApplyInstallationEvent(ctx, testAppID, githubapp.InstallationEvent{
+		Action: "suspend", InstallationID: testProviderInstall, Account: installation.Account,
+		RepositorySelection: installation.RepositorySelection, Permissions: installation.Permissions,
+	}, completed.Add(time.Minute)); err != nil {
+		t.Fatalf("revoke source provider: %v", err)
+	}
+	retryClaim := strings.Repeat("1", 64)
+	retryID := RetryAttemptID(retryClaim, definition.ID)
+	if _, _, err = store.RetryAttempt(ctx, source.ID, retryID, retryClaim, definition.Spec.Execution, completed.Add(2*time.Minute)); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("revoked source provider accepted retry: %v", err)
 	}
 }
 

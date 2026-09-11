@@ -171,7 +171,7 @@ func TestKubernetesObserverPaginatesIgnoresUnknownAndRejectsSnapshotDrift(t *tes
 	unknown.UID = "66666666-6666-4666-8666-666666666666"
 	unknown.Labels = map[string]string{"app.kubernetes.io/managed-by": "kuberploy", "kuberploy.io/deployment-id": "55555555-5555-4555-8555-555555555555", "kuberploy.io/application-id": "55555555-5555-4555-8555-555555555555"}
 	helmApplication := observerApplication(now)
-	helmApplication.Name = "kp-h-11111111111141118111111111111111"
+	helmApplication.Name = "kp-h-3333333333334333-11111111111141118111111111111111"
 	helmApplication.UID = "88888888-8888-4888-8888-888888888888"
 	helmApplication.Labels = map[string]string{"app.kubernetes.io/managed-by": "kuberploy", "app.kubernetes.io/component": "helm-application", "kuberploy.io/application-id": observerApplicationID,
 		"kuberploy.io/project-id": observerProjectID, "kuberploy.io/environment-id": observerEnvironmentID}
@@ -216,7 +216,7 @@ func TestKubernetesObserverRejectsMalformedMissingAndDuplicateDeploymentIdentity
 func TestKubernetesObserverBoundsIgnoredHelmApplications(t *testing.T) {
 	now := time.Date(2026, 8, 14, 8, 1, 0, 0, time.UTC)
 	helmApplication := observerApplication(now)
-	helmApplication.Name = "kp-h-11111111111141118111111111111111"
+	helmApplication.Name = "kp-h-3333333333334333-11111111111141118111111111111111"
 	helmApplication.Labels = map[string]string{"app.kubernetes.io/managed-by": "kuberploy", "app.kubernetes.io/component": "helm-application",
 		"kuberploy.io/application-id": observerApplicationID, "kuberploy.io/project-id": observerProjectID, "kuberploy.io/environment-id": observerEnvironmentID}
 	applications := make([]KubernetesApplication, MaximumObservedApplications+1)
@@ -232,7 +232,7 @@ func TestKubernetesObserverBoundsIgnoredHelmApplications(t *testing.T) {
 
 func TestManagedHelmApplicationAcceptsCurrentAndLegacyComponents(t *testing.T) {
 	application := observerApplication(time.Date(2026, 8, 14, 8, 2, 0, 0, time.UTC))
-	application.Name = "kp-h-11111111111141118111111111111111"
+	application.Name = "kp-h-3333333333334333-11111111111141118111111111111111"
 	application.Labels = map[string]string{
 		"app.kubernetes.io/managed-by": "kuberploy",
 		"kuberploy.io/application-id":  observerApplicationID,
@@ -244,6 +244,10 @@ func TestManagedHelmApplicationAcceptsCurrentAndLegacyComponents(t *testing.T) {
 		if !isManagedHelmApplication(application) {
 			t.Fatalf("component %q was not recognized as a managed Helm Application", component)
 		}
+	}
+	application.Name = "kp-h-11111111111141118111111111111111"
+	if !isManagedHelmApplication(application) {
+		t.Fatal("legacy Helm Application name was not recognized during upgrade")
 	}
 	application.Labels["app.kubernetes.io/component"] = "deployment"
 	if isManagedHelmApplication(application) {

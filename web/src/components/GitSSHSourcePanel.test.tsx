@@ -124,7 +124,7 @@ describe("Git SSH source key scope", () => {
     expect(api.projectGitSSHKeys).not.toHaveBeenCalled();
   });
 
-  it("creates a pinned Git SSH definition and manually builds an exact commit", async () => {
+  it("creates a pinned Git SSH source with an editable branch or tag", async () => {
     const user = userEvent.setup();
     vi.mocked(api.applicationGitSSHKeys).mockResolvedValue({
       items: [
@@ -146,10 +146,12 @@ describe("Git SSH source key scope", () => {
       repositoryUrl: "ssh://git@git.example.test/team/repository.git",
       gitSSHKeyScope: "app" as const,
       gitSSHKeyRevision: 2,
-      triggerRef: "refs/heads/main",
+      gitSSHKnownHosts:
+        "@cert-authority git.example.test ssh-ed25519 AAAAHOST fixture-comment\n",
+      triggerRef: "refs/tags/v1.2.3",
       contextPath: ".",
       dockerfilePath: "Dockerfile",
-      platforms: ["linux/amd64" as const],
+      platforms: ["linux/arm64" as const],
       registry: {
         targetId: "registry-1",
         mode: "managed" as const,
@@ -160,7 +162,7 @@ describe("Git SSH source key scope", () => {
       secretFiles: [],
       sshFiles: [],
       cacheTrustLane: "protected",
-      cacheImports: 2,
+      cacheImports: 1,
       profile: {
         resource: "standard",
         timeoutSeconds: 900,
@@ -180,22 +182,6 @@ describe("Git SSH source key scope", () => {
     const createDefinition = vi
       .spyOn(api, "createBuildDefinition")
       .mockResolvedValue(activeDefinition);
-    const createBuild = vi
-      .spyOn(api, "createManualBuildAttempt")
-      .mockResolvedValue({
-        id: "attempt-1",
-        sourceId: activeDefinition.id,
-        projectId: project.id,
-        applicationId: application.id,
-        commitSha: "b".repeat(40),
-        gitRef: "refs/heads/main",
-        generation: 1,
-        state: "queued",
-        executionAttempts: 0,
-        maxAttempts: 3,
-        createdAt: "2026-08-23T00:00:00Z",
-        updatedAt: "2026-08-23T00:00:00Z",
-      });
     render(
       <GitSSHSourcePanel
         application={application}
@@ -220,13 +206,14 @@ describe("Git SSH source key scope", () => {
       { wrapper: wrapper() },
     );
 
-    await user.type(
-      await screen.findByLabelText(/^Repository URL/),
+    expect(await screen.findByLabelText(/^Repository URL/)).toHaveValue(
       "ssh://git@git.example.test/team/repository.git",
     );
-    await selectOption(screen.getByLabelText(/^Registry target/), "registry-1");
-    await user.type(
-      screen.getByLabelText(/^SSH host public key/),
+    expect(screen.getByLabelText(/^Branch or tag/)).toHaveValue(
+      "refs/tags/v1.2.3",
+    );
+    expect(screen.getByLabelText(/^Registry target/)).toHaveValue("registry-1");
+    expect(screen.getByLabelText(/^SSH host public key/)).toHaveValue(
       "ssh-ed25519 AAAAHOST",
     );
     expect(
@@ -244,19 +231,14 @@ describe("Git SSH source key scope", () => {
       hostKeyPins: [
         { endpoint: "git.example.test:22", publicKey: "ssh-ed25519 AAAAHOST" },
       ],
+      triggerRef: "refs/tags/v1.2.3",
       platforms: ["linux/amd64", "linux/arm64"],
     });
 
-    const commit = "b".repeat(40);
-    await user.type(screen.getByLabelText(/^Commit SHA/), commit);
-    await user.click(screen.getByRole("button", { name: "Build commit" }));
-    await waitFor(() =>
-      expect(createBuild).toHaveBeenCalledWith(
-        activeDefinition.id,
-        commit,
-        expect.any(String),
-      ),
-    );
+    expect(screen.queryByLabelText(/^Commit SHA/)).toBeNull();
+    expect(
+      screen.getByText(/Deploy resolves the configured branch or tag head/),
+    ).toBeVisible();
   });
 
   it("keeps repository binding editable while build execution is unavailable", async () => {
@@ -287,6 +269,5 @@ describe("Git SSH source key scope", () => {
 
     expect(await screen.findByLabelText(/^Repository URL/)).toBeVisible();
     expect(screen.getByText("Builder runtime unavailable")).toBeVisible();
-    expect(screen.queryByRole("button", { name: "Build commit" })).toBeNull();
   });
 });

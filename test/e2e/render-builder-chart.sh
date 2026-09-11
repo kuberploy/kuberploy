@@ -3,6 +3,7 @@
 set -Eeuo pipefail
 
 kp_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+source "${kp_root}/scripts/helm/use-supported-kube-version.sh"
 kp_chart="${kp_root}/charts/kuberploy-builder"
 kp_values="${kp_chart}/testdata/enabled-values.yaml"
 kp_tmp="$(mktemp -d "${TMPDIR:-/tmp}/kuberploy-builder-render.XXXXXX")"
@@ -158,7 +159,7 @@ for kp_required in \
   "v.name == 'registry-push-credentials' && v.mountPath == '/var/run/secrets/kuberploy/registry-push'" \
   "v.name == 'registry-cache-credentials' && v.mountPath == '/var/run/secrets/kuberploy/registry-cache'" \
   "!has(v.readOnly) || v.readOnly == false" \
-  "c.image == 'registry.example.test/kuberploy/builder-agent:0.1.0-rc.442'" \
+  "c.image == 'registry.example.test/kuberploy/builder-agent:0.1.0-rc.443'" \
   "c.name == 'checkout'" \
   "c.name == 'dind'" \
   "c.command == ['/usr/local/bin/docker-init', '--', '/usr/local/bin/dockerd']" \

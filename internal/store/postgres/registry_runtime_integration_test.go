@@ -108,8 +108,11 @@ func TestNextAcceptedRegistryCleanupUsesUUIDIdempotencyIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
+	if err = testdb.ApplyMigrations(ctx, st.pool); err != nil {
+		t.Fatal(err)
+	}
 	now := databaseTime(time.Now().UTC())
-	actorID, targetID, planID := id.New(), id.New(), id.New()
+	actorID, targetID, planID, automaticPlanID := id.New(), id.New(), id.New(), id.New()
 	if _, err = st.pool.Exec(ctx, `INSERT INTO users(id,display_name,role,issuer,subject,created_at)
 		VALUES($1,$2,'platform-admin','local',$2,$3)`, actorID, "registry-cleanup-"+actorID, now); err != nil {
 		t.Fatal(err)
@@ -128,6 +131,16 @@ func TestNextAcceptedRegistryCleanupUsesUUIDIdempotencyIdentity(t *testing.T) {
 		planID, targetID, postgresRegistryDigest("f"), now); err != nil {
 		t.Fatal(err)
 	}
+	var automatic bool
+	if err = st.pool.QueryRow(ctx, `SELECT automatic FROM registry_cleanup_plans WHERE id=$1`, planID).Scan(&automatic); err != nil {
+		t.Fatal(err)
+	}
+	if automatic {
+		t.Fatal("manual cleanup plan did not default automatic to false")
+	}
+	if accepted, nextErr := st.NextAcceptedRegistryCleanup(ctx, targetID, now); !errors.Is(nextErr, base.ErrNotFound) || accepted != "" {
+		t.Fatalf("manual preview without execute receipt was selected: accepted=%q err=%v", accepted, nextErr)
+	}
 	if _, err = st.pool.Exec(ctx, `INSERT INTO mutation_receipts(
 		actor_id,receipt_kind,namespace,scope_key,idempotency_key,request_digest,resource_type,resource_id,created_at
 	) VALUES($1,'resource',$2,'global','registry-cleanup-key','request-fingerprint','registry-cleanup-plan',$3,$4)`,
@@ -137,6 +150,64 @@ func TestNextAcceptedRegistryCleanupUsesUUIDIdempotencyIdentity(t *testing.T) {
 	accepted, err := st.NextAcceptedRegistryCleanup(ctx, targetID, now)
 	if err != nil || accepted != planID {
 		t.Fatalf("accepted cleanup=%q want=%q err=%v", accepted, planID, err)
+	}
+	if _, err = st.pool.Exec(ctx, `UPDATE registry_cleanup_plans SET state='succeeded' WHERE id=$1`, planID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.pool.Exec(ctx, `INSERT INTO registry_cleanup_plans(
+		id,registry_target_id,service_id,automatic,snapshot_token,authority_token,plan_digest,state,
+		policy,observations,summary,created_at
+	) VALUES($1,$2,'automatic-service',true,'snapshot','authority',$3,'preview','{}','{}','{}',$4)`,
+		automaticPlanID, targetID, postgresRegistryDigest("e"), now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	accepted, err = st.NextAcceptedRegistryCleanup(ctx, targetID, now.Add(time.Second))
+	if err != nil || accepted != automaticPlanID {
+		t.Fatalf("automatic cleanup without receipt=%q want=%q err=%v", accepted, automaticPlanID, err)
+	}
+}
+
+func TestRegistryCleanupCandidatesWaitForRoutineInterval(t *testing.T) {
+	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set KUBERPLOY_TEST_DATABASE_URL for PostgreSQL integration test")
+	}
+	ctx := context.Background()
+	st, err := Open(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err = testdb.ApplyMigrations(ctx, st.pool); err != nil {
+		t.Fatal(err)
+	}
+	now := databaseTime(time.Now().UTC())
+	targetID, serviceID := id.New(), id.New()
+	if _, err = st.PutRegistryTarget(ctx, domain.RegistryTarget{ID: targetID, Name: "automatic-cleanup-" + targetID,
+		Mode: domain.RegistryTargetManaged, Endpoint: "https://registry-cleanup.integration.test", RepositoryPrefix: "integration",
+		CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.PutServiceRegistryPolicy(ctx, registry.DefaultPolicy(targetID, serviceID, "integration/"+serviceID, now)); err != nil {
+		t.Fatal(err)
+	}
+	candidates, err := st.RegistryCleanupCandidates(ctx, targetID, now.Add(-registry.AutomaticRegistryCleanupInterval), 10)
+	if err != nil || len(candidates) != 1 || candidates[0] != serviceID {
+		t.Fatalf("initial candidates=%v err=%v", candidates, err)
+	}
+	if _, err = st.pool.Exec(ctx, `INSERT INTO registry_cleanup_plans(
+		id,registry_target_id,service_id,snapshot_token,authority_token,plan_digest,state,
+		policy,observations,summary,created_at) VALUES($1,$2,$3,'snapshot','authority',$4,'succeeded','{}','{}','{}',$5)`,
+		id.New(), targetID, serviceID, postgresRegistryDigest("a"), now); err != nil {
+		t.Fatal(err)
+	}
+	candidates, err = st.RegistryCleanupCandidates(ctx, targetID, now.Add(-registry.AutomaticRegistryCleanupInterval), 10)
+	if err != nil || len(candidates) != 0 {
+		t.Fatalf("recently planned candidates=%v err=%v", candidates, err)
+	}
+	candidates, err = st.RegistryCleanupCandidates(ctx, targetID, now.Add(time.Second), 10)
+	if err != nil || len(candidates) != 1 || candidates[0] != serviceID {
+		t.Fatalf("due candidates=%v err=%v", candidates, err)
 	}
 }
 

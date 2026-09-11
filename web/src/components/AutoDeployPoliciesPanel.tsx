@@ -44,7 +44,7 @@ function PolicyHistory({ policy }: { policy: AutoDeployPolicy }) {
   });
   if (revisions.isPending || runs.isPending) return <Skeleton lines={3} />;
   return (
-    <div className="grid gap-4 gap-2">
+    <div className="grid gap-4">
       <details>
         <summary>{revisions.data?.items.length ?? 0} saved revisions</summary>
         <ul>

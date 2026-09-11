@@ -145,12 +145,14 @@ type ProjectRegistryPullCredential struct {
 type ApplicationRegistryPullMode string
 
 const (
+	ApplicationRegistryPullAutomatic  ApplicationRegistryPullMode = "automatic"
 	ApplicationRegistryPullPublic     ApplicationRegistryPullMode = "public"
 	ApplicationRegistryPullCredential ApplicationRegistryPullMode = "project-credential"
 )
 
-// ApplicationRegistryPullSelection is the service-level choice. An absent row
-// means a legacy application has not explicitly selected a mode yet.
+// ApplicationRegistryPullSelection is the App-level choice. Automatic is
+// represented by absent optional columns and resolves a matching managed
+// registry credential while leaving public images credential-free.
 type ApplicationRegistryPullSelection struct {
 	ApplicationID       string                      `json:"applicationId"`
 	Mode                ApplicationRegistryPullMode `json:"mode"`
@@ -358,6 +360,11 @@ type CreateDeployment struct {
 	// that is not representable by legacy runtime fields is not regenerated or
 	// lost.
 	ConfigRaw []byte
+	// Source deployment fields are internal durable-command fences. Public
+	// deployment requests never populate them.
+	SourceDeploymentIntentID   string
+	SourceDeploymentSequence   int64
+	SourceDeploymentGeneration int64
 }
 
 // RegistryPullReference is safe, locked AppConfig metadata. It never contains
@@ -693,6 +700,7 @@ type RegistryCleanupPlan struct {
 	ID               string                         `json:"id"`
 	RegistryTargetID string                         `json:"registryTargetId"`
 	ServiceID        string                         `json:"serviceId"`
+	Automatic        bool                           `json:"automatic"`
 	SnapshotToken    string                         `json:"snapshotToken"`
 	AuthorityToken   string                         `json:"authorityToken"`
 	PlanDigest       string                         `json:"planDigest"`

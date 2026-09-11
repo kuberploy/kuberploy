@@ -81,7 +81,7 @@ func newManagedRegistryRuntime(ctx context.Context, host string, config registry
 	}
 	owner := workerLeaseOwner(host+"/"+strconv.Itoa(os.Getpid()), "managed-registry")
 	controller := &registry.RuntimeController{
-		Store: database, Targets: database, Credentials: credentials, Cleanup: executor, Config: config, Owner: owner,
+		Store: database, Targets: database, Credentials: credentials, Cleanup: executor, Planner: coordinator, Config: config, Owner: owner,
 		LeaseDuration: 2 * time.Minute, HeartbeatInterval: 30 * time.Second, IdleDelay: time.Second,
 		MinimumBackoff: 5 * time.Second, MaximumBackoff: 5 * time.Minute, JitterFraction: 0.2,
 		ReportError: func(loop string, err error) {

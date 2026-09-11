@@ -65,6 +65,8 @@ type MemoryStore struct {
 	setupHandoffs           map[[sha256.Size]byte]memorySetupHandoff
 	apiIdempotency          map[string]memoryAPIIdempotency
 	releaseProjections      map[string]memoryReleaseProjection
+	sourceDeploymentIntents map[string]SourceDeploymentIntent
+	sourceDeploymentLatest  map[string]int64
 	runtimeReadiness        map[string]SourceBuildWorkerObservation
 	builderSettings         []BuilderPlatformSettings
 	builderSettingMutations map[string]memoryBuilderSettingMutation
@@ -78,6 +80,8 @@ func NewMemoryStore() *MemoryStore {
 		setupAuthorizations: map[string]SetupAuthorization{}, githubUserBindings: map[string]githubapp.AccountIdentity{},
 		githubUserOwners: map[int64]string{}, setupHandoffs: map[[sha256.Size]byte]memorySetupHandoff{}, apiIdempotency: map[string]memoryAPIIdempotency{},
 		releaseProjections:      map[string]memoryReleaseProjection{},
+		sourceDeploymentIntents: map[string]SourceDeploymentIntent{},
+		sourceDeploymentLatest:  map[string]int64{},
 		runtimeReadiness:        map[string]SourceBuildWorkerObservation{},
 		builderSettingMutations: map[string]memoryBuilderSettingMutation{},
 	}
@@ -621,8 +625,8 @@ func (s *MemoryStore) cacheImportsLocked(definition BuildDefinition, generation 
 		}
 	}
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i].Generation > candidates[j].Generation })
-	if len(candidates) > definition.Spec.CacheImports {
-		candidates = candidates[:definition.Spec.CacheImports]
+	if len(candidates) > 1 {
+		candidates = candidates[:1]
 	}
 	refs := make([]string, len(candidates))
 	for index, attempt := range candidates {

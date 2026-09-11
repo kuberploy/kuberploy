@@ -3,6 +3,7 @@ import {
   createRoute,
   createRouter,
   Navigate,
+  redirect,
 } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useLayoutEffect, useState } from "react";
@@ -58,10 +59,17 @@ export function RootComponent() {
     staleTime: 60_000,
     refetchOnWindowFocus: (query) => query.state.data !== undefined,
   });
+  const finishAuthentication = () => {
+    const destination = postAuthenticationDestination(window.location.pathname);
+    if (destination) {
+      void router.navigate({ to: destination, replace: true });
+    }
+  };
   if (invitationToken)
     return (
       <AuthScreen
         invitationToken={invitationToken}
+        onAuthenticated={finishAuthentication}
         onInvitationAccepted={() => setInvitationToken(null)}
         onInvitationDismissed={() => setInvitationToken(null)}
       />
@@ -82,6 +90,7 @@ export function RootComponent() {
     return (
       <AuthScreen
         connectionError={isUnauthorized(me.error) ? undefined : me.error}
+        onAuthenticated={finishAuthentication}
       />
     );
   return <AppShell user={me.data} />;
@@ -137,6 +146,11 @@ type DeploySearch = {
   environmentId?: string;
   applicationId?: string;
 };
+export function requireScopedDeploySearch(search: DeploySearch) {
+  if (!search.projectId || !search.environmentId || !search.applicationId) {
+    throw redirect({ to: "/projects", replace: true });
+  }
+}
 const deployRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/deploy",
@@ -154,6 +168,7 @@ const deployRoute = createRoute({
         ? search.applicationId
         : undefined,
   }),
+  beforeLoad: ({ search }) => requireScopedDeploySearch(search),
   component: NewDeploymentPage,
 });
 const monitoringRoute = createRoute({
@@ -294,6 +309,20 @@ export const router = createRouter({
   defaultPreload: "intent",
   scrollRestoration: true,
 });
+
+export function postAuthenticationDestination(
+  pathname: string,
+): "/" | "/git" | null {
+  if (/^\/builds\/?$/.test(pathname)) return "/git";
+  try {
+    const hasPageMatch = router
+      .matchRoutes(pathname, {})
+      .some((match) => match.routeId !== "__root__");
+    return hasPageMatch ? null : "/";
+  } catch {
+    return "/";
+  }
+}
 
 declare module "@tanstack/react-router" {
   interface Register {

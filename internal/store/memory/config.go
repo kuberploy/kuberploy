@@ -93,6 +93,9 @@ func (s *Store) CreateDeploymentConfigPreview(_ context.Context, actor string, i
 }
 
 func (s *Store) SaveDeploymentConfig(_ context.Context, actor, key, fingerprint, requestID string, in domain.SaveDeploymentConfig, projection *gitprojection.WritePlan, references ...*base.AppConfigReferencePlan) (base.Result[domain.Deployment], domain.Operation, error) {
+	if (in.SourceDeploymentIntentID == "") != (in.SourceDeploymentSequence == 0) || in.SourceDeploymentSequence < 0 {
+		return base.Result[domain.Deployment]{}, domain.Operation{}, base.ErrPreconditionFailed
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	idemIdentity := ik(actor, "deployments.config.save", key)

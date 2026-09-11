@@ -59,7 +59,7 @@ function defaultDefinitionValues(
         .map((argument) => `${argument.name}=${argument.value}`)
         .join("\n"),
       cacheTrustLane: source.cacheTrustLane,
-      cacheImports: source.cacheImports,
+      cacheImports: 1,
       profileResource: source.profile.resource,
       timeoutSeconds: source.profile.timeoutSeconds,
       profileEgress: source.profile.egress,
@@ -80,7 +80,7 @@ function defaultDefinitionValues(
     arm64: platform === "linux/arm64",
     buildArgs: "",
     cacheTrustLane: "protected",
-    cacheImports: 2,
+    cacheImports: 1,
     profileResource: "standard",
     timeoutSeconds: 900,
     profileEgress: "registry-and-source",
@@ -255,6 +255,14 @@ export function BuildDefinitionForm({
         }),
       ]);
     },
+    onError: (_error, input) => {
+      if (
+        scopeRef.current === input.applicationId &&
+        stableAttempt.current?.key === input.key
+      ) {
+        stableAttempt.current = null;
+      }
+    },
   });
   const submit = (value: DefinitionForm) => {
     setParseError(undefined);
@@ -370,7 +378,7 @@ export function BuildDefinitionForm({
             <h2>Repository</h2>
             <p>
               Choose the GitHub repository and branch or tag that should trigger
-              this service build.
+              this App build.
             </p>
           </div>
         </div>
@@ -583,16 +591,14 @@ export function BuildDefinitionForm({
                 })}
               />
             </Field>
-            <Field label="Cache imports" required hint="1–8 generations">
+            <Field label="Build cache">
+              <p className="text-sm text-ink-soft">
+                Uses only the latest successful cache for this App and platform.
+              </p>
               <input
-                type="number"
-                min={1}
-                max={8}
-                {...form.register("cacheImports", {
-                  valueAsNumber: true,
-                  min: 1,
-                  max: 8,
-                })}
+                type="hidden"
+                value={1}
+                {...form.register("cacheImports", { valueAsNumber: true })}
               />
             </Field>
             <Field label="Resource profile" required>

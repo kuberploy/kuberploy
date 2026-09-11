@@ -692,6 +692,16 @@ func (s *Store) CreateApplication(_ context.Context, actor, key, fp string, in d
 			State: domain.EnvironmentAppPlacementDraft, DesiredState: domain.EnvironmentAppPlacementStopped,
 			CreatedAt: now, UpdatedAt: now,
 		}
+		if v.SourceKind == domain.ApplicationSourceGitHub || v.SourceKind == domain.ApplicationSourceGitSSH {
+			runtime := domain.DefaultWorkloadRuntime(3000, nil)
+			deploymentID, operationID := id.New(), id.New()
+			s.deployments[deploymentID] = domain.Deployment{ID: deploymentID, EnvironmentID: in.EnvironmentID,
+				ApplicationID: v.ID, Image: "", Replicas: 1, Port: 3000, Runtime: runtime, State: "stopped",
+				OperationID: operationID, Generation: 1, CreatedAt: now, UpdatedAt: now}
+			s.operations[operationID] = domain.Operation{ID: operationID, Kind: "deployment.source-draft", Status: "succeeded",
+				TargetType: "deployment", TargetID: deploymentID, RequestID: "application-create:" + v.ID, Generation: 1,
+				Progress: []domain.ProgressStep{}, CreatedAt: now, UpdatedAt: now, FinishedAt: &now}
+		}
 	}
 	s.idempotency[k] = idemRecord{fp, "application", v.ID, ""}
 	s.audits++
@@ -775,6 +785,10 @@ func (s *Store) DeleteApplication(_ context.Context, actor, applicationID, confi
 }
 
 func (s *Store) CreateDeployment(_ context.Context, actor, key, fp, requestID string, in domain.CreateDeployment, projection *gitprojection.WritePlan, references ...*base.AppConfigReferencePlan) (base.Result[domain.Deployment], domain.Operation, error) {
+	if in.SourceDeploymentIntentID == "" && (in.SourceDeploymentSequence != 0 || in.SourceDeploymentGeneration != 0) ||
+		in.SourceDeploymentIntentID != "" && (in.SourceDeploymentSequence < 1 || in.SourceDeploymentGeneration < 1) {
+		return base.Result[domain.Deployment]{}, domain.Operation{}, base.ErrPreconditionFailed
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	k := ik(actor, "deployments.create", key)
@@ -830,6 +844,9 @@ func (s *Store) CreateDeployment(_ context.Context, actor, key, fp, requestID st
 	created := now
 	for _, current := range s.deployments {
 		if current.EnvironmentID == in.EnvironmentID && current.ApplicationID == in.ApplicationID {
+			if in.SourceDeploymentIntentID != "" && (current.ID == "" || current.Generation != in.SourceDeploymentGeneration || current.State != "stopped") {
+				return base.Result[domain.Deployment]{}, domain.Operation{}, base.ErrPreconditionFailed
+			}
 			dID = current.ID
 			generation = current.Generation + 1
 			configVersion = current.ConfigVersion + 1

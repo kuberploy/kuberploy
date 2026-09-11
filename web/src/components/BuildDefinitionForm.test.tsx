@@ -421,6 +421,36 @@ describe("App source form", () => {
     expect(branch).toHaveValue("release");
   });
 
+  it("uses a new command key after a rejected save", async () => {
+    const user = userEvent.setup();
+    const create = vi
+      .spyOn(api, "createBuildDefinition")
+      .mockRejectedValueOnce(new Error("temporary failure"))
+      .mockResolvedValueOnce(definition);
+    renderForm();
+
+    await selectOption(
+      screen.getByLabelText(/^GitHub installation/),
+      "installation-safe",
+    );
+    await selectOption(screen.getByLabelText(/^Repository/), "repository-safe");
+    await selectOption(
+      screen.getByLabelText(/^Registry target/),
+      "target-safe",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Connect App source" }),
+    );
+    await screen.findByText("temporary failure");
+    await user.click(
+      screen.getByRole("button", { name: "Connect App source" }),
+    );
+
+    await screen.findByText("App source saved");
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(create.mock.calls[0]?.[2]).not.toBe(create.mock.calls[1]?.[2]);
+  });
+
   it("labels Docker build arguments as build-time-only input", () => {
     renderForm();
     expect(

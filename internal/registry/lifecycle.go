@@ -42,6 +42,15 @@ type Service struct {
 	maxObservationAge time.Duration
 }
 
+// AutomaticRegistryCleanupInterval bounds routine retention planning. Blob
+// garbage collection has its own one-hour minimum; routine planning runs less
+// frequently so an idle registry is not churned by no-op plans.
+const AutomaticRegistryCleanupInterval = 2 * time.Hour
+
+type automaticCleanupCandidateStore interface {
+	RegistryCleanupCandidates(context.Context, string, time.Time, int) ([]string, error)
+}
+
 type Option func(*Service)
 
 func WithClock(now func() time.Time) Option {
@@ -77,6 +86,10 @@ func NewService(repository store.RegistryStore, options ...Option) *Service {
 }
 
 func (s *Service) Preview(ctx context.Context, targetID, serviceID string) (domain.RegistryCleanupPlan, error) {
+	return s.preview(ctx, targetID, serviceID, false)
+}
+
+func (s *Service) preview(ctx context.Context, targetID, serviceID string, automatic bool) (domain.RegistryCleanupPlan, error) {
 	now := s.now().UTC()
 	if s.protection != nil {
 		if err := s.protection.RefreshRegistryProtection(ctx, targetID, serviceID, now, true); err != nil {
@@ -91,9 +104,38 @@ func (s *Service) Preview(ctx context.Context, targetID, serviceID string) (doma
 	if err != nil {
 		return domain.RegistryCleanupPlan{}, err
 	}
+	plan.Automatic = automatic
+	plan.PlanDigest = store.RegistryCleanupPlanDigest(plan)
 	plan.ID = s.newID()
 	returnPlan, _, err := s.store.SaveRegistryCleanupPlan(ctx, plan)
 	return returnPlan, err
+}
+
+// PlanAutomaticCleanup creates one durable automatic retention plan for the
+// oldest App due on a managed target. Manual previews remain receipt-gated.
+func (s *Service) PlanAutomaticCleanup(ctx context.Context, targetID string) (string, error) {
+	candidates, ok := s.store.(automaticCleanupCandidateStore)
+	if !ok || strings.TrimSpace(targetID) == "" {
+		return "", store.ErrRegistryPolicyInvalid
+	}
+	now := s.now().UTC()
+	serviceIDs, err := candidates.RegistryCleanupCandidates(ctx, targetID, now.Add(-AutomaticRegistryCleanupInterval), 32)
+	if err != nil {
+		return "", err
+	}
+	for _, serviceID := range serviceIDs {
+		plan, planErr := s.preview(ctx, targetID, serviceID, true)
+		if errors.Is(planErr, store.ErrRegistryObservationIncomplete) || errors.Is(planErr, store.ErrRegistrySnapshotStale) {
+			continue
+		}
+		if planErr != nil {
+			return "", planErr
+		}
+		if plan.State == "preview" || plan.State == "executing" || store.RegistryCleanupPlanCanResumeOfflineSweep(plan) {
+			return plan.ID, nil
+		}
+	}
+	return "", store.ErrNotFound
 }
 
 func (s *Service) Claim(ctx context.Context, planID, owner string, lease time.Duration) (domain.RegistryCleanupPlan, bool, error) {
@@ -350,7 +392,7 @@ func BuildCleanupPlan(snapshot domain.RegistryLifecycleSnapshot, now time.Time, 
 	}
 
 	protectSuccessfulReleases(snapshot, graph, protect)
-	cacheDecisions, cacheBefore, cacheAfter := decideCaches(snapshot, now)
+	cacheDecisions, cacheBefore, cacheAfter := decideCaches(snapshot, graph, now)
 	for key, decision := range cacheDecisions {
 		if decision.protect {
 			for _, reason := range decision.reasons {
@@ -631,14 +673,8 @@ func validateCompleteness(snapshot domain.RegistryLifecycleSnapshot, now time.Ti
 func protectSuccessfulReleases(snapshot domain.RegistryLifecycleSnapshot, graph lifecycleGraph, protect func(string, string)) {
 	releases := append([]domain.RegistryRelease(nil), snapshot.Releases...)
 	sort.Slice(releases, func(i, j int) bool {
-		if releases[i].SucceededAt == nil {
-			return false
-		}
-		if releases[j].SucceededAt == nil {
-			return true
-		}
-		if !releases[i].SucceededAt.Equal(*releases[j].SucceededAt) {
-			return releases[i].SucceededAt.After(*releases[j].SucceededAt)
+		if !releases[i].CreatedAt.Equal(releases[j].CreatedAt) {
+			return releases[i].CreatedAt.After(releases[j].CreatedAt)
 		}
 		return releases[i].ID > releases[j].ID
 	})
@@ -668,7 +704,7 @@ type cacheDecision struct {
 	reasons []string
 }
 
-func decideCaches(snapshot domain.RegistryLifecycleSnapshot, now time.Time) (map[string]cacheDecision, int64, int64) {
+func decideCaches(snapshot domain.RegistryLifecycleSnapshot, graph lifecycleGraph, now time.Time) (map[string]cacheDecision, int64, int64) {
 	decisions := make(map[string]cacheDecision)
 	groups := make(map[string][]domain.RegistryCacheGeneration)
 	type rootInfo struct {
@@ -686,8 +722,12 @@ func decideCaches(snapshot domain.RegistryLifecycleSnapshot, now time.Time) (map
 		key := nodeKey(generation.Repository, generation.RootDigest)
 		root := roots[key]
 		root.key = key
-		if generation.SizeBytes > root.size {
-			root.size = generation.SizeBytes
+		size := generation.SizeBytes
+		if size == 0 {
+			size = cacheRootObservedSize(graph, key)
+		}
+		if size > root.size {
+			root.size = size
 		}
 		if root.lastUsed.IsZero() || generation.LastUsedAt.After(root.lastUsed) {
 			root.lastUsed = generation.LastUsedAt
@@ -785,6 +825,35 @@ func decideCaches(snapshot domain.RegistryLifecycleSnapshot, now time.Time) (map
 		remaining = 0
 	}
 	return decisions, before, remaining
+}
+
+func cacheRootObservedSize(graph lifecycleGraph, root string) int64 {
+	queue := []string{root}
+	seenManifests := make(map[string]struct{})
+	seenBlobs := make(map[string]struct{})
+	var size int64
+	for len(queue) > 0 {
+		key := queue[0]
+		queue = queue[1:]
+		if _, seen := seenManifests[key]; seen {
+			continue
+		}
+		manifest, exists := graph.manifests[key]
+		if !exists {
+			continue
+		}
+		seenManifests[key] = struct{}{}
+		size += manifest.SizeBytes
+		for _, digest := range graph.manifestBlobs[key] {
+			if _, seen := seenBlobs[digest]; seen {
+				continue
+			}
+			seenBlobs[digest] = struct{}{}
+			size += maxBlobSize(graph.blobByDigest[digest])
+		}
+		queue = append(queue, graph.children[key]...)
+	}
+	return size
 }
 
 func cleanupItem(repository, resourceKind, digest string, disposition domain.RegistryCleanupDisposition, action string, size int64, reasons map[string]struct{}) domain.RegistryCleanupItem {

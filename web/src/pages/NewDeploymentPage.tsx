@@ -367,7 +367,9 @@ export function NewDeploymentPage() {
   const filteredApplications = useMemo(
     () =>
       applications.data?.items.filter(
-        (application) => application.projectId === projectId,
+        (application) =>
+          application.projectId === projectId &&
+          application.sourceKind === "oci",
       ) ?? [],
     [applications.data, projectId],
   );
@@ -414,7 +416,8 @@ export function NewDeploymentPage() {
       const applicationMatches = applications.data?.items.some(
         (application) =>
           application.id === search.applicationId &&
-          application.projectId === search.projectId,
+          application.projectId === search.projectId &&
+          application.sourceKind === "oci",
       );
       if (!applicationMatches) {
         initialScopeApplied.current = true;

@@ -236,6 +236,7 @@ export type BuildDefinition = {
   repositoryUrl?: string;
   gitSSHKeyScope?: "app" | "project";
   gitSSHKeyRevision?: number;
+  gitSSHKnownHosts?: string;
   triggerRef: string;
   contextPath: string;
   dockerfilePath: string;
@@ -291,6 +292,12 @@ export type BuildAttempt = {
   completedAt?: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type SourceDeploymentAcceptance = {
+  build: BuildAttempt;
+  intentId: string;
+  sequence: number;
 };
 
 export type BuildLogSource = {
@@ -761,6 +768,7 @@ export type Deployment = ResourceMetadata & {
   source?: ExistingImageSource;
   state?: string;
   operationId?: string;
+  generation?: number;
   desiredRevision?: string;
   observedRevision?: string;
   /** Normalized compatibility alias for older UI components. */
@@ -1530,7 +1538,7 @@ export type ProjectRegistryPullCredentialCatalog = {
 
 export type ApplicationRegistryPullSelection = {
   applicationId: string;
-  type: "public" | "project-credential";
+  type: "automatic" | "public" | "project-credential";
   projectCredentialId?: string;
 };
 

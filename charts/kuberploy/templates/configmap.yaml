@@ -438,8 +438,8 @@
 {{- fail "config.helmApplications accepts only enabled" -}}
 {{- end -}}
 {{- if .Values.config.helmApplications.enabled -}}
-  {{- if not .Values.config.argoDesiredState.enabled -}}
-  {{- fail "Helm Apps require Argo CD desired state" -}}
+  {{- if not .Values.rbac.argoNamespace -}}
+  {{- fail "Helm Apps require rbac.argoNamespace" -}}
   {{- end -}}
 {{- end -}}
 {{- if and .Values.config.githubApp.enabled (ne .Values.builder.controllerServiceAccount.name (include "kuberploy.componentName" (dict "root" . "component" "worker"))) -}}
@@ -587,8 +587,10 @@ data:
   KUBERPLOY_ENVIRONMENT_FOUNDATION_CONTROL_PLANE_NAMESPACE: {{ .Release.Namespace | quote }}
   KUBERPLOY_ENVIRONMENT_FOUNDATION_OBSERVER_SERVICE_ACCOUNT: {{ include "kuberploy.componentName" (dict "root" . "component" "api") | quote }}
   {{- end }}
+  {{- if or .Values.config.argoDesiredState.enabled .Values.config.helmApplications.enabled }}
+  KUBERPLOY_ARGO_NAMESPACE: {{ .Values.rbac.argoNamespace | quote }}
+  {{- end }}
   {{- if .Values.config.argoDesiredState.enabled }}
-  KUBERPLOY_ARGO_NAMESPACE: {{ .Values.config.argoDesiredState.namespace | quote }}
   KUBERPLOY_ARGO_PLATFORM_BINDING_ID: {{ .Values.config.argoDesiredState.platformBindingID | quote }}
   KUBERPLOY_ARGO_RUNTIME_CHART_REPOSITORY: {{ .Values.config.argoDesiredState.runtimeChartRepository | quote }}
   KUBERPLOY_ARGO_RUNTIME_CHART_VERSION: {{ .Values.config.argoDesiredState.runtimeChartVersion | quote }}

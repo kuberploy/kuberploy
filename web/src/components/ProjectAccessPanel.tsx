@@ -461,7 +461,7 @@ export function ProjectAccessPanel({
           }}
         >
           <DialogContent
-            className="grid w-[min(480px,_100%)] gap-5 p-6 border border-line shadow-overlay [&_h2]:m-0 [&_h2]:text-[19px] [&_h2]:font-semibold [&_h2]:tracking-[-0.025em] [&_h2]:leading-[1.25] to-580:p-5 gap-3 mt-4 p-4 border-[color-mix(in_srgb,_var(--red)_35%,_var(--line))] rounded-[10px] bg-[color-mix(in_srgb,_var(--red)_5%,_white)] [&_p]:m-0 [&_p]:text-ink-soft [&_p]:text-meta [&>div]:flex [&>div]:gap-2 max-w-none"
+            className="grid w-[min(480px,_100%)] gap-5 border border-[color-mix(in_srgb,_var(--red)_35%,_var(--line))] rounded-[10px] bg-[color-mix(in_srgb,_var(--red)_5%,_white)] p-6 shadow-overlay sm:max-w-[480px] to-580:p-5 [&_h2]:m-0 [&_h2]:text-[19px] [&_h2]:font-semibold [&_h2]:tracking-[-0.025em] [&_h2]:leading-[1.25] [&_p]:m-0 [&_p]:text-ink-soft [&_p]:text-meta [&>div]:flex [&>div]:gap-2"
             role="alertdialog"
             showCloseButton={false}
           >

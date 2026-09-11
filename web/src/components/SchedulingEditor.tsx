@@ -292,7 +292,7 @@ function PodPresetRows({
       <div className="flex items-center justify-between gap-3 mb-3 [&>div]:grid [&>div]:gap-1 [&_strong]:text-ink [&_strong]:text-meta [&_span]:text-ink-faint [&_span]:text-xs [&_span]:font-semibold to-580:items-start to-580:flex-col">
         <div>
           <strong>{title}</strong>
-          <span>Always targets only this service.</span>
+          <span>Always targets only this App.</span>
         </div>
         <Button
           type="button"
@@ -819,7 +819,7 @@ export function SchedulingEditor({
         <div className="flex items-center justify-between gap-3 mb-3 [&>div]:grid [&>div]:gap-1 [&_strong]:text-ink [&_strong]:text-meta [&_span]:text-ink-faint [&_span]:text-xs [&_span]:font-semibold to-580:items-start to-580:flex-col">
           <div>
             <strong>Tolerations</strong>
-            <span>Allow this service onto matching tainted nodes.</span>
+            <span>Allow this App onto matching tainted nodes.</span>
           </div>
           <Button
             type="button"
@@ -1013,7 +1013,7 @@ export function SchedulingEditor({
         <div className="flex items-center justify-between gap-3 mb-3 [&>div]:grid [&>div]:gap-1 [&_strong]:text-ink [&_strong]:text-meta [&_span]:text-ink-faint [&_span]:text-xs [&_span]:font-semibold to-580:items-start to-580:flex-col">
           <div>
             <strong>Topology spread</strong>
-            <span>Spread only this service across topology domains.</span>
+            <span>Spread only this App across topology domains.</span>
           </div>
           <Button
             type="button"

@@ -17,6 +17,7 @@ import type {
   BuildSecretProfileCatalog,
   BuildFileReference,
   BuildProfile,
+  SourceDeploymentAcceptance,
   CertificateBindingDetail,
   CertificateBindingMetadata,
   CertificateIssuerAdminEntry,
@@ -779,6 +780,9 @@ function safeBuildDefinition(definition: BuildDefinition): BuildDefinition {
       : {}),
     ...(definition.gitSSHKeyRevision
       ? { gitSSHKeyRevision: definition.gitSSHKeyRevision }
+      : {}),
+    ...(definition.gitSSHKnownHosts
+      ? { gitSSHKnownHosts: definition.gitSSHKnownHosts }
       : {}),
     triggerRef: definition.triggerRef,
     contextPath: definition.contextPath,
@@ -2359,19 +2363,32 @@ export const api = {
     request<BuildDefinition>(
       `/v1/app-sources/${encodeURIComponent(definitionId)}`,
     ).then(safeBuildDefinition),
-  createManualBuildAttempt: (
-    definitionId: string,
-    commitSha: string | undefined,
-    idempotencyKey: string,
-  ) =>
+  createManualBuildAttempt: (definitionId: string, idempotencyKey: string) =>
     request<BuildAttempt>(
       `/v1/app-sources/${encodeURIComponent(definitionId)}/builds`,
       {
         method: "POST",
         headers: { "Idempotency-Key": idempotencyKey },
-        body: commitSha ? { commitSha } : {},
+        body: {},
       },
     ).then(safeBuildAttempt),
+  deploySourceBuild: (
+    deploymentId: string,
+    mode: "deploy" | "rebuild",
+    sourceAttemptId: string | undefined,
+    idempotencyKey: string,
+  ) =>
+    request<SourceDeploymentAcceptance>(
+      `/v1/deployments/${encodeURIComponent(deploymentId)}/source-build`,
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: mode === "rebuild" ? { mode, sourceAttemptId } : { mode },
+      },
+    ).then((accepted) => ({
+      ...accepted,
+      build: safeBuildAttempt(accepted.build),
+    })),
   buildAttempts: (applicationId: string, requestedLimit = 50) => {
     const limit = boundedRegistryLimit(requestedLimit);
     return request<Collection<BuildAttempt> | BuildAttempt[]>(

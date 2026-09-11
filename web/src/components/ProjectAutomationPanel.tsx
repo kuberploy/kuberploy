@@ -403,7 +403,7 @@ export function ProjectAutomationPanel({
           }}
         >
           <DialogContent
-            className="grid w-[min(480px,_100%)] gap-5 p-6 border border-line rounded-overlay bg-surface shadow-overlay [&_h2]:m-0 [&_h2]:text-[19px] [&_h2]:font-semibold [&_h2]:tracking-[-0.025em] [&_h2]:leading-[1.25] to-580:p-5 max-w-none"
+            className="grid w-[min(480px,_100%)] gap-5 p-6 border border-line rounded-overlay bg-surface shadow-overlay [&_h2]:m-0 [&_h2]:text-[19px] [&_h2]:font-semibold [&_h2]:tracking-[-0.025em] [&_h2]:leading-[1.25] to-580:p-5 sm:max-w-[480px]"
             role="alertdialog"
             showCloseButton={false}
           >
@@ -776,7 +776,7 @@ function AccountTokens({
           onOpenChange={() => undefined}
         >
           <DialogContent
-            className="grid gap-5 p-6 border border-line rounded-overlay bg-surface shadow-overlay [&_h2]:m-0 [&_h2]:text-[19px] [&_h2]:font-semibold [&_h2]:tracking-[-0.025em] [&_h2]:leading-[1.25] to-580:p-5 w-[min(620px,100%)] max-w-none"
+            className="grid gap-5 p-6 border border-line rounded-overlay bg-surface shadow-overlay [&_h2]:m-0 [&_h2]:text-[19px] [&_h2]:font-semibold [&_h2]:tracking-[-0.025em] [&_h2]:leading-[1.25] to-580:p-5 w-[min(620px,100%)] sm:max-w-[620px]"
             role="alertdialog"
             showCloseButton={false}
           >
@@ -840,7 +840,7 @@ function AccountTokens({
           }}
         >
           <DialogContent
-            className="grid w-[min(480px,_100%)] gap-5 p-6 border border-line rounded-overlay bg-surface shadow-overlay [&_h2]:m-0 [&_h2]:text-[19px] [&_h2]:font-semibold [&_h2]:tracking-[-0.025em] [&_h2]:leading-[1.25] to-580:p-5 max-w-none"
+            className="grid w-[min(480px,_100%)] gap-5 p-6 border border-line rounded-overlay bg-surface shadow-overlay [&_h2]:m-0 [&_h2]:text-[19px] [&_h2]:font-semibold [&_h2]:tracking-[-0.025em] [&_h2]:leading-[1.25] to-580:p-5 sm:max-w-[480px]"
             role="alertdialog"
             showCloseButton={false}
           >

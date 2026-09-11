@@ -193,8 +193,9 @@ func (b *buildHTTPBackend) Build(_ context.Context, _, _, commitSHA, _, _ string
 	return result, false, nil
 }
 
-func TestGitSSHAppSourceAndManualBuildHTTP(t *testing.T) {
-	backend := &buildHTTPBackend{definition: builds.BuildDefinition{ID: "55555555-5555-4555-8555-555555555555", SourceKind: builds.SourceGitSSH},
+func TestGitSSHAppSourceAndResolvedRefBuildHTTP(t *testing.T) {
+	backend := &buildHTTPBackend{definition: builds.BuildDefinition{ID: "55555555-5555-4555-8555-555555555555", SourceKind: builds.SourceGitSSH,
+		GitSSH: &builds.GitSSHSource{KnownHosts: "git.example.test ssh-ed25519 AAAAFixture\n"}},
 		attempt: builds.BuildAttempt{ID: "66666666-6666-4666-8666-666666666666", DefinitionID: "55555555-5555-4555-8555-555555555555", Generation: 1, MaxAttempts: 3}}
 	f := newGitHubBuildHTTP(t, nil, nil, backend, ratelimit.NewMemoryLimiter(10_000))
 	f.bootstrap()
@@ -217,7 +218,10 @@ func TestGitSSHAppSourceAndManualBuildHTTP(t *testing.T) {
 		problem := decode[httpapi.Problem](t, response)
 		t.Fatalf("definition status=%d problem=%#v", response.StatusCode, problem)
 	}
-	response.Body.Close()
+	definition := decode[map[string]any](t, response)
+	if definition["gitSSHKnownHosts"] != "git.example.test ssh-ed25519 AAAAFixture\n" {
+		t.Fatalf("safe Git SSH known hosts=%#v", definition["gitSSHKnownHosts"])
+	}
 	backend.mu.Lock()
 	mutation := backend.mutation
 	backend.mu.Unlock()
@@ -225,8 +229,7 @@ func TestGitSSHAppSourceAndManualBuildHTTP(t *testing.T) {
 		t.Fatalf("Git SSH mutation=%#v", mutation)
 	}
 
-	commit := strings.Repeat("a", 40)
-	response = f.request(http.MethodPost, "/v1/app-sources/"+backend.definition.ID+"/builds", "git-ssh-manual-build", map[string]string{"commitSha": commit})
+	response = f.request(http.MethodPost, "/v1/app-sources/"+backend.definition.ID+"/builds", "git-ssh-manual-build", map[string]string{})
 	if response.StatusCode != http.StatusAccepted {
 		problem := decode[httpapi.Problem](t, response)
 		t.Fatalf("build status=%d problem=%#v", response.StatusCode, problem)
@@ -235,11 +238,11 @@ func TestGitSSHAppSourceAndManualBuildHTTP(t *testing.T) {
 	backend.mu.Lock()
 	buildCommit, buildCalls := backend.buildCommit, backend.buildCalls
 	backend.mu.Unlock()
-	if buildCommit != commit || buildCalls != 1 {
+	if buildCommit != "" || buildCalls != 1 {
 		t.Fatalf("manual build commit=%q calls=%d", buildCommit, buildCalls)
 	}
 
-	response = f.request(http.MethodPost, "/v1/app-sources/"+backend.definition.ID+"/builds", "git-ssh-manual-bad", map[string]string{"commitSha": "main"})
+	response = f.request(http.MethodPost, "/v1/app-sources/"+backend.definition.ID+"/builds", "git-ssh-manual-bad", map[string]string{"commitSha": strings.Repeat("a", 40)})
 	problem := decode[httpapi.Problem](t, response)
 	backend.mu.Lock()
 	buildCalls = backend.buildCalls
@@ -251,7 +254,7 @@ func TestGitSSHAppSourceAndManualBuildHTTP(t *testing.T) {
 	backend.mu.Lock()
 	backend.buildErr = builds.ErrGitSSHKeyInactive
 	backend.mu.Unlock()
-	response = f.request(http.MethodPost, "/v1/app-sources/"+backend.definition.ID+"/builds", "git-ssh-manual-inactive-key", map[string]string{"commitSha": commit})
+	response = f.request(http.MethodPost, "/v1/app-sources/"+backend.definition.ID+"/builds", "git-ssh-manual-inactive-key", map[string]string{})
 	problem = decode[httpapi.Problem](t, response)
 	if response.StatusCode != http.StatusConflict || problem.Code != "GitSSHKeyInactive" || problem.Title != "Git SSH key is inactive" {
 		t.Fatalf("inactive key status=%d problem=%#v", response.StatusCode, problem)
@@ -276,7 +279,7 @@ func TestGitSSHAppSourceAndManualBuildHTTP(t *testing.T) {
 		t.Fatalf("GitHub Deploy commit=%q calls=%d, want provider-resolved head", buildCommit, buildCalls)
 	}
 
-	response = f.request(http.MethodPost, "/v1/app-sources/"+backend.definition.ID+"/builds", "github-deploy-forged-commit", map[string]string{"commitSha": commit})
+	response = f.request(http.MethodPost, "/v1/app-sources/"+backend.definition.ID+"/builds", "github-deploy-forged-commit", map[string]string{"commitSha": strings.Repeat("a", 40)})
 	problem = decode[httpapi.Problem](t, response)
 	backend.mu.Lock()
 	buildCalls = backend.buildCalls

@@ -49,6 +49,9 @@ func TestPostgreSQLProjectRegistryPullCredentialScopeAndSelection(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	if automatic, readErr := store.ApplicationRegistryPullSelectionForActor(t.Context(), actorID, application.Value.ID); readErr != nil || automatic.Mode != domain.ApplicationRegistryPullAutomatic {
+		t.Fatalf("default selection=%#v err=%v", automatic, readErr)
+	}
 	targetID := id.New()
 	if _, err = store.PutRegistryTarget(t.Context(), domain.RegistryTarget{ID: targetID, Name: "pull-" + actorID[:8], Mode: domain.RegistryTargetExternal, Endpoint: "registry.example.test", RepositoryPrefix: "team", PullCredentialRef: "runtime-pull/main"}); err != nil {
 		t.Fatal(err)
@@ -71,6 +74,13 @@ func TestPostgreSQLProjectRegistryPullCredentialScopeAndSelection(t *testing.T) 
 	public := domain.ApplicationRegistryPullSelection{ApplicationID: application.Value.ID, Mode: domain.ApplicationRegistryPullPublic}
 	if _, err = store.PutApplicationRegistryPullSelectionForActor(t.Context(), actorID, "public", "public", "request", public); err != nil {
 		t.Fatal(err)
+	}
+	automatic := domain.ApplicationRegistryPullSelection{ApplicationID: application.Value.ID, Mode: domain.ApplicationRegistryPullAutomatic}
+	if _, err = store.PutApplicationRegistryPullSelectionForActor(t.Context(), actorID, "automatic", "automatic", "request", automatic); err != nil {
+		t.Fatal(err)
+	}
+	if current, readErr := store.ApplicationRegistryPullSelectionForActor(t.Context(), actorID, application.Value.ID); readErr != nil || current.Mode != domain.ApplicationRegistryPullAutomatic {
+		t.Fatalf("automatic selection=%#v err=%v", current, readErr)
 	}
 	if replay, err := store.DeleteProjectRegistryPullCredentialForActor(t.Context(), actorID, project.ID, credential.ID, "delete-credential", "delete-credential", "request"); err != nil || replay {
 		t.Fatalf("delete replay=%v err=%v", replay, err)

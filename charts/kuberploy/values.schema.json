@@ -811,13 +811,14 @@
       },
       "then": {
         "properties": {
-          "config": {
+          "rbac": {
             "properties": {
-              "argoDesiredState": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] }
+              "argoNamespace": { "minLength": 1 }
             },
-            "required": ["argoDesiredState"]
+            "required": ["argoNamespace"]
           }
-        }
+        },
+        "required": ["rbac"]
       }
     },
     {

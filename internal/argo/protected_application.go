@@ -66,7 +66,11 @@ func (e ProtectedApplicationExpectation) Validate() error {
 }
 
 func protectedApplicationName(e ProtectedApplicationExpectation) string {
-	return "kp-h-" + strings.ReplaceAll(e.ApplicationID, "-", "")
+	environment := strings.ReplaceAll(e.EnvironmentID, "-", "")
+	if len(environment) > 16 {
+		environment = environment[:16]
+	}
+	return "kp-h-" + environment + "-" + strings.ReplaceAll(e.ApplicationID, "-", "")
 }
 
 func protectedApplicationPath(e ProtectedApplicationExpectation) string {

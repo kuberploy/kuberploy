@@ -59,9 +59,10 @@ export function RegistryPullCredentialsPanel({
     selection ||
     (current.data?.type === "project-credential"
       ? current.data.projectCredentialId
-      : "public");
+      : (current.data?.type ?? "automatic"));
   const selectedCredentialUnavailable = Boolean(
     selectedValue &&
+    selectedValue !== "automatic" &&
     selectedValue !== "public" &&
     catalog.data &&
     !catalog.data.items.some((credential) => credential.id === selectedValue),
@@ -116,8 +117,8 @@ export function RegistryPullCredentialsPanel({
     }) =>
       api.putApplicationRegistryPullSelection(
         applicationId,
-        value === "public"
-          ? { type: "public" }
+        value === "automatic" || value === "public"
+          ? { type: value }
           : { type: "project-credential", projectCredentialId: value },
         idempotencyKey,
       ),
@@ -132,8 +133,8 @@ export function RegistryPullCredentialsPanel({
       if (scopeRef.current !== input.scopeKey) return;
       setSelection(
         current.data?.type === "project-credential"
-          ? (current.data.projectCredentialId ?? "public")
-          : "public",
+          ? (current.data.projectCredentialId ?? "automatic")
+          : (current.data?.type ?? "automatic"),
       );
     },
   });
@@ -230,8 +231,8 @@ export function RegistryPullCredentialsPanel({
         <div>
           <h2>Image pull credentials</h2>
           <p>
-            Choose what Kubernetes uses to pull this service image. Builder push
-            and cache credentials are configured separately.
+            Choose what Kubernetes uses to pull this App image. Builder push and
+            cache credentials are configured separately.
           </p>
         </div>
       </FormCardHeading>
@@ -247,7 +248,7 @@ export function RegistryPullCredentialsPanel({
       <FormGrid columns="auto">
         <Field
           label="Pull strategy"
-          hint="Public sends no credential. A project credential is resolved to a locked runtime Secret by the server."
+          hint="Automatic uses matching configured registry credentials; otherwise it uses a public pull without credentials."
         >
           <Select
             aria-label="Pull strategy"
@@ -264,6 +265,7 @@ export function RegistryPullCredentialsPanel({
               saveSelection(value);
             }}
           >
+            <option value="automatic">Automatic — managed or public</option>
             <option value="public">Public registry / no credential</option>
             {selectedCredentialUnavailable ? (
               <option value={selectedValue}>
@@ -280,18 +282,22 @@ export function RegistryPullCredentialsPanel({
         <div>
           <StatusPill
             value={
-              selectedValue === "public"
-                ? "public"
-                : selectedCredentialUnavailable
-                  ? "unavailable"
-                  : "active"
+              selectedValue === "automatic"
+                ? "automatic"
+                : selectedValue === "public"
+                  ? "public"
+                  : selectedCredentialUnavailable
+                    ? "unavailable"
+                    : "active"
             }
             label={
-              selectedValue === "public"
-                ? "Public pull"
-                : selectedCredentialUnavailable
-                  ? "Credential unavailable"
-                  : "Project credential"
+              selectedValue === "automatic"
+                ? "Automatic pull"
+                : selectedValue === "public"
+                  ? "Public pull"
+                  : selectedCredentialUnavailable
+                    ? "Credential unavailable"
+                    : "Project credential"
             }
           />
           <p className="text-ink-faint text-xs leading-[1.45]">
@@ -327,7 +333,7 @@ export function RegistryPullCredentialsPanel({
               ))}
             </Select>
           </Field>
-          <div className="flex min-w-0 flex-col gap-1.5 gap-2 [&_input]:w-full [&_input]:py-0 [&_input]:px-3 [&_input]:border [&_input]:border-line-strong [&_input]:outline-none [&_input]:text-ink [&_input]:bg-surface [&_input]:transition-[border-color,box-shadow] [&_input]:duration-(--motion-fast) [&_input]:ease-(--ease-standard) [&_input]:min-h-11 [&_input]:rounded-[9px] [&_input]:text-sm [&_select]:w-full [&_select]:py-0 [&_select]:px-3 [&_select]:border [&_select]:border-line-strong [&_select]:outline-none [&_select]:text-ink [&_select]:bg-surface [&_select]:transition-[border-color,box-shadow] [&_select]:duration-(--motion-fast) [&_select]:ease-(--ease-standard) [&_select]:min-h-11 [&_select]:rounded-[9px] [&_select]:text-sm [&_textarea]:w-full [&_textarea]:py-0 [&_textarea]:px-3 [&_textarea]:border [&_textarea]:border-line-strong [&_textarea]:outline-none [&_textarea]:text-ink [&_textarea]:bg-surface [&_textarea]:transition-[border-color,box-shadow] [&_textarea]:duration-(--motion-fast) [&_textarea]:ease-(--ease-standard) [&_textarea]:min-h-11 [&_textarea]:rounded-[9px] [&_textarea]:text-sm self-end justify-end [&>[data-slot='button']]:self-start">
+          <div className="flex min-w-0 flex-col gap-2 [&_input]:w-full [&_input]:py-0 [&_input]:px-3 [&_input]:border [&_input]:border-line-strong [&_input]:outline-none [&_input]:text-ink [&_input]:bg-surface [&_input]:transition-[border-color,box-shadow] [&_input]:duration-(--motion-fast) [&_input]:ease-(--ease-standard) [&_input]:min-h-11 [&_input]:rounded-[9px] [&_input]:text-sm [&_select]:w-full [&_select]:py-0 [&_select]:px-3 [&_select]:border [&_select]:border-line-strong [&_select]:outline-none [&_select]:text-ink [&_select]:bg-surface [&_select]:transition-[border-color,box-shadow] [&_select]:duration-(--motion-fast) [&_select]:ease-(--ease-standard) [&_select]:min-h-11 [&_select]:rounded-[9px] [&_select]:text-sm [&_textarea]:w-full [&_textarea]:py-0 [&_textarea]:px-3 [&_textarea]:border [&_textarea]:border-line-strong [&_textarea]:outline-none [&_textarea]:text-ink [&_textarea]:bg-surface [&_textarea]:transition-[border-color,box-shadow] [&_textarea]:duration-(--motion-fast) [&_textarea]:ease-(--ease-standard) [&_textarea]:min-h-11 [&_textarea]:rounded-[9px] [&_textarea]:text-sm self-end justify-end [&>[data-slot='button']]:self-start">
             <Button
               type="button"
               variant="secondary"

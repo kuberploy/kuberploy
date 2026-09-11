@@ -33,6 +33,7 @@ type APIStore interface {
 	ClaimAPICommand(context.Context, string, string, string, string, string, string, time.Time) (string, bool, error)
 	RetryAttempt(context.Context, string, string, string, ExecutionSettings, time.Time) (BuildAttempt, bool, error)
 	EnqueueManualAttempt(context.Context, string, string, string, ExecutionSettings, time.Time) (BuildAttempt, bool, error)
+	AcceptSourceDeployment(context.Context, SourceDeploymentCommand) (SourceDeploymentAcceptance, error)
 }
 
 func APICommandClaimKey(actorID, operation, scopeID, idempotencyKey string) string {
@@ -49,7 +50,7 @@ func ManualAttemptID(claimKey, definitionID string) string {
 }
 
 func validAPICommand(operation, actorID, scopeID, key, fingerprint, resourceID string, now time.Time) bool {
-	return (operation == APICommandDefinitionCreate || operation == APICommandDefinitionDelete || operation == APICommandDefinitionBuild || operation == APICommandAttemptCancel || operation == APICommandAttemptRetry) &&
+	return (operation == APICommandDefinitionCreate || operation == APICommandDefinitionDelete || operation == APICommandDefinitionBuild || operation == APICommandAttemptCancel || operation == APICommandAttemptRetry || operation == APICommandSourceDeployment) &&
 		uuidRE.MatchString(actorID) && uuidRE.MatchString(scopeID) && setupIdempotencyRE.MatchString(key) && setupFingerprintRE.MatchString(fingerprint) &&
 		uuidRE.MatchString(resourceID) && !now.IsZero()
 }

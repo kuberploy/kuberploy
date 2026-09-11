@@ -269,8 +269,8 @@ The starter configuration schedules privileged DinD on the installation's curren
 | APIServiceAccount | Named automation principal with an owner, scoped grants and independently expiring/revocable token records; unrelated to a Kubernetes workload ServiceAccount |
 | Project | Groups applications and environments |
 | Environment | Binds a project to one administrator-approved namespace, Git path and the project's Argo AppProject; a project gains multiple namespaces by owning multiple environments |
-| Application | Stable logical workload independent of an environment, with one editable source configuration: `oci`, `github`, `git-ssh`, or `helm`; changing source settings updates the App instead of creating a parallel definition record |
-| DeploymentSpec | Configuration of an application in one environment; a cloned stopped draft is local and editable until explicit Start App publication makes Git authoritative |
+| Application | Stable project-scoped workload identity with one editable source configuration: `oci`, `github`, `git-ssh`, or `helm`; changing source settings updates the App instead of creating a parallel definition record |
+| DeploymentSpec | Configuration of an application in one environment; new source Apps and cloned Apps begin as stopped drafts, then explicit deployment makes Git authoritative |
 | VariableSet | Git-backed project or environment ordinary values and opt-in secret-binding references; application-level values remain in `AppConfig` |
 | Build | One build attempt, its execution state, and the exact snapshot of the App source used for that attempt |
 | Release | Source SHA, build config hash, image digest or chart revision and provenance |
@@ -649,8 +649,7 @@ Builder modes:
 
 | Mode | Use | Isolation |
 |---|---|---|
-| `buildkit-rootless` | Preferred Dockerfile builder | One rootless BuildKit daemon per Job; capability preflight required |
-| `dind` | Docker compatibility mode | One privileged Docker daemon per Job on isolated nodes |
+| `dind` | Default Dockerfile builder | One privileged Docker daemon per build Job; optional node isolation can place these Jobs on dedicated nodes |
 | `image` | Existing image | No build Job; resolve tag to digest and validate pull access |
 
 ### Managed registry and bounded retention
@@ -700,13 +699,12 @@ the grace period. The window is ordered by the durable Release creation time and
 ID, never by a mutable tag or provider upload timestamp; promoting the same
 digest again does not consume another slot.
 
-The registry lifecycle manager calculates an auditable dry-run mark set, then
+The registry lifecycle manager automatically calculates an auditable mark set every two hours, then
 revalidates Git projection freshness, target heads, Operations and registry
 manifests immediately before deletion. Stale or unavailable authority skips
 cleanup. Blob garbage collection runs only through registry-supported global
 reachability so shared layers and multi-platform child manifests are not removed
-while referenced. A storage hard limit rejects new builds rather than deleting a
-protected image.
+while referenced. Expensive offline blob garbage collection runs at most once per hour.
 
 For managed mode, the UI shows repository usage, retained releases, each
 protection reason, reclaimable bytes, last cleanup result and rollback
@@ -1654,7 +1652,7 @@ Operations use at-least-once execution with idempotency:
 | Node eviction | Retry as a new attempt using registry cache |
 | Registry push succeeds but Git update fails | Preserve verified digest and retry `ConfigPending` idempotently |
 | Managed registry is unavailable | Keep running workloads unchanged; block new source-build publication and digest-dependent deployment checks with `RegistryUnavailable`, then retry without rebuilding when an already-pushed digest is verified |
-| Managed registry storage reaches its soft or hard watermark | Schedule a retention dry run at the soft watermark; at the hard watermark reject new builds with capacity diagnostics and never evict a protected current/rollback artifact |
+| Managed registry retention is due | Build and execute the next safe plan; stale authority postpones cleanup and protected current/rollback artifacts are never evicted |
 | Registry build cache is missing, corrupt, expired or unavailable | Discard that cache input, report `ColdBuild` or `CacheDegraded`, and continue a clean build; cache export failure is a nonterminal warning while final image push failure remains terminal |
 | Registry cleanup cannot prove Git/projection/Operation freshness | Fail closed, delete nothing, record the stale authority and retry after indexing or provider recovery |
 | A candidate manifest becomes protected after cleanup planning | Revalidation detects the changed Git head, rollout, pin or Operation generation and skips the deletion |
@@ -1782,7 +1780,7 @@ The Arazzo document and matching human guides define at least these bounded work
 1. Discover identity capabilities and list visible projects/environments.
 2. Create a logical App inside an Environment, then configure an existing image, GitHub, Git SSH, or direct Argo CD Helm source.
 3. Read config -> validate -> preview -> conditionally save -> poll the Operation and projection revision -> inspect Argo sync and rollout health.
-4. Start a source build -> poll build and operation -> verify the exact release -> deploy or promote it.
+4. Deploy a source App -> resolve the current branch or tag head -> build -> publish the exact image digest through Git -> observe Argo and rollout health. Rebuild repeats the latest successful build snapshot without fetching newer code.
 5. Add a route with manual or automatic DNS and HTTP-only, Let's Encrypt or custom-certificate TLS.
 6. Inspect application health, bounded metrics, events and log snapshots without requesting arbitrary namespaces or selectors.
 7. Preview and perform a rollback to a retained, registry-verified release.
@@ -1957,9 +1955,9 @@ Successful validation, preview and read-only connection tests return synchronous
 
 `POST /v1/secret-bindings/{id}/versions` is the special write-only ingress described in Section 12. Its closed request schema marks the value `writeOnly`; every GET/Operation/result exposes only binding/key/version IDs, timestamps and per-namespace reconciliation state. The API returns `202` only after the broker has synchronously stored the external version or produced Sealed Secret ciphertext, so the remaining Operation contains no plaintext. There is no reveal endpoint. The default compact AI-agent profile omits raw secret creation/rotation and deletion; an agent may bind an already-authorized version through the normal AppConfig workflow unless its service account has an explicit high-risk secret-write capability.
 
-An `Application` remains an environment-independent identity. `POST /v1/deployments` explicitly binds one application to one environment and creates its initial `DeploymentSpec`; the `(applicationId, environmentId)` pair is unique. The returned resource/Operation link supplies the ID used by config and status calls. A second environment is another explicit deployment, never an undocumented side effect of application creation.
+An `Application` remains a stable project-scoped identity. Creating a GitHub or Git SSH App inside an Environment atomically creates its unique stopped `DeploymentSpec`, so the Environment page can immediately expose Deploy without publishing Git or starting a workload. Existing-image deployment uses `POST /v1/deployments`. The `(applicationId, environmentId)` pair remains unique, and a second environment is created only through an explicit deployment or Environment clone.
 
-Environment clone is the explicit convenience path: it creates the new Environment, copies each source App's current configuration into a target-bound `stopped` draft, and inherits the source Environment's trusted Git repository and ref into a new Environment-scoped binding. The new binding has its own target-scoped path prefix and must be indexed independently; no Git write command, provider mutation, Argo Application, or workload exists before Start App. Draft config GET/validate/preview/save reads PostgreSQL even while that binding converges, and saves remain local. `POST /v1/deployments/{id}/redeploy` is the explicit Start App action for a stopped draft and uses the normal image/reference validation, protected-Git publication and Argo observation path. The same endpoint republishes an already-started App without changing its saved configuration. Deleting a clean Environment removes its scoped projection binding and projection observations after every App is stopped; provider-wide push receipts remain shared history.
+Environment clone is the explicit convenience path: it creates the new Environment, copies each App's current configuration into a target-bound `stopped` draft, and inherits the source Environment's trusted Git repository and ref into a new Environment-scoped binding. The new binding has its own target-scoped path prefix and must be indexed independently; no Git write command, provider mutation, Argo Application, workload, or source build starts during clone. Draft config GET/validate/preview/save reads PostgreSQL even while that binding converges, and saves remain local. Existing-image Apps start through `POST /v1/deployments/{id}/redeploy`. GitHub and Git SSH Apps start through `POST /v1/deployments/{id}/source-build`; Deploy resolves the configured branch or tag, then the successful build publishes its exact digest through the normal protected-Git and Argo path. Deleting a clean Environment removes its scoped projection binding and projection observations after every App is stopped; provider-wide push receipts remain shared history.
 
 The config response is a `ConfigBundle` containing `kind`, one path/dependency-scoped strong ETag, `targetHeadRevision`, `indexedRevision`, `configRevision`, projection freshness and `documents[]`. Each document has a stable ID, Git path, source blob, `documentKind`, schema identity, raw YAML, the exact parsed JSON `document` against which JSON Pointers operate and editable/locked pointers. A managed runtime bundle contains `app.yaml`. An external Helm bundle atomically contains its descriptor `app.yaml` and values `values.yaml`; the ETag and preview token bind both documents and declared dependencies so a chart revision and its values cannot tear across saves while unrelated branch paths can advance safely.
 

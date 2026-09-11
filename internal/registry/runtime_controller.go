@@ -22,9 +22,12 @@ type RuntimeController struct {
 	Targets   interface {
 		RegistryTarget(context.Context, string) (domain.RegistryTarget, error)
 	}
-	Credentials       DistributionCredentialSource
-	Transport         http.RoundTripper
-	Cleanup           CleanupPlanExecutor
+	Credentials DistributionCredentialSource
+	Transport   http.RoundTripper
+	Cleanup     CleanupPlanExecutor
+	Planner     interface {
+		PlanAutomaticCleanup(context.Context, string) (string, error)
+	}
 	Config            RuntimeConfig
 	Owner             string
 	LeaseDuration     time.Duration
@@ -38,7 +41,7 @@ type RuntimeController struct {
 }
 
 func (c *RuntimeController) validate() error {
-	if c == nil || c.Store == nil || c.Targets == nil || c.Credentials == nil || c.Cleanup == nil || c.Config.Validate() != nil || !c.Config.Enabled ||
+	if c == nil || c.Store == nil || c.Targets == nil || c.Credentials == nil || c.Cleanup == nil || c.Planner == nil || c.Config.Validate() != nil || !c.Config.Enabled ||
 		!registryRuntimeControllerOwnerRE.MatchString(c.Owner) || c.LeaseDuration < 20*time.Second || c.LeaseDuration > time.Hour ||
 		c.HeartbeatInterval < time.Second || c.HeartbeatInterval >= c.LeaseDuration/2 || c.IdleDelay < 100*time.Millisecond || c.IdleDelay > time.Minute ||
 		c.MinimumBackoff < time.Second || c.MaximumBackoff < c.MinimumBackoff || c.MaximumBackoff > time.Hour || c.JitterFraction < 0 || c.JitterFraction > 0.5 {
@@ -184,7 +187,16 @@ func (c *RuntimeController) ReconcileCleanup(ctx context.Context) (bool, error) 
 	}
 	planID, err := c.Store.NextAcceptedRegistryCleanup(ctx, c.Config.TargetID, c.now())
 	if errors.Is(err, store.ErrNotFound) {
-		return false, nil
+		_, err = c.Planner.PlanAutomaticCleanup(ctx, c.Config.TargetID)
+		if errors.Is(err, store.ErrNotFound) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		// Let the durable selector pick up the new plan on the next loop. That
+		// path enforces the one-hour offline garbage-collection throttle.
+		return true, nil
 	}
 	if err != nil {
 		return false, err

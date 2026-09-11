@@ -63,16 +63,16 @@ NetworkPolicy. The Pod has:
 - UID/GID and fsGroup `65532`, group-readable `0440` projections, restrictive
   container security contexts, size limits, CPU/memory/ephemeral-storage
   requests and limits, deadline, zero Job retries, and TTL;
-- an exact dedicated-node label and taint toleration plus operation-scoped
+- optional dedicated-node label and taint toleration plus operation-scoped
   egress ports. Empty provider CIDR lists use dual-stack public `/0` routes;
   configured Kubernetes API CIDRs are excluded when available, while explicit
   provider ranges remain supported for narrower infrastructure policies.
 
-The default-disabled `charts/kuberploy-builder` chart creates the isolated
+The `charts/kuberploy-builder` chart creates the isolated
 namespace, tokenless Pod ServiceAccount, controller-only namespaced RBAC,
-quota, default-deny NetworkPolicy, and fail-closed admission policy. It does not
-schedule workloads. Enable it only after provisioning the dedicated tainted
-builder node pool described in the chart README.
+quota, default-deny NetworkPolicy, and admission policy. It runs on ordinary
+schedulable nodes by default. Dedicated builder-node selection is an optional
+platform setting.
 
 The controller must attach the planner's operation, generation, and spec-hash
 labels to the Job, NetworkPolicy, request ConfigMap, and credential Secrets.

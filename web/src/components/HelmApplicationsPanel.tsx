@@ -218,7 +218,7 @@ export function HelmApplicationsPanel({
   };
 
   return (
-    <div className="grid gap-4 gap-6">
+    <div className="grid gap-6">
       <FormCard>
         <FormCardHeading step="01">
           <div>
@@ -357,7 +357,7 @@ export function HelmApplicationsPanel({
         <Card>
           <div className="">
             <div>
-              <Eyebrow>Argo desired state</Eyebrow>
+              <Eyebrow>Argo deployment state</Eyebrow>
               <h2>Current revision</h2>
             </div>
             <StatusPill value={head.data.state} />
@@ -370,7 +370,7 @@ export function HelmApplicationsPanel({
           {head.data.failureCode ? (
             <Notice tone="error" role="alert">
               <div>
-                <strong>Argo apply failed</strong>
+                <strong>Argo deployment failed</strong>
                 <p>{head.data.failureCode}</p>
               </div>
             </Notice>

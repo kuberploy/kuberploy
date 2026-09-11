@@ -25,6 +25,10 @@ func ValidateApplicationPullSelection(value domain.ApplicationRegistryPullSelect
 		return store.ErrRegistryPolicyInvalid
 	}
 	switch value.Mode {
+	case domain.ApplicationRegistryPullAutomatic:
+		if value.ProjectCredentialID != "" {
+			return store.ErrRegistryPolicyInvalid
+		}
 	case domain.ApplicationRegistryPullPublic:
 		if value.ProjectCredentialID != "" {
 			return store.ErrRegistryPolicyInvalid

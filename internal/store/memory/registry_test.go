@@ -69,8 +69,8 @@ func seedManagedRegistry(t *testing.T) registrySeed {
 		}
 	}
 	latestAt, oldAt := now.Add(-24*time.Hour), now.Add(-48*time.Hour)
-	latest := domain.RegistryRelease{ID: "33333333-3333-4333-8333-333333333333", RegistryTargetID: targetID, ServiceID: serviceID, Repository: repository, RootDigest: registryDigest("a"), CreatedAt: old, SucceededAt: &latestAt, Availability: domain.RegistryArtifactPresent}
-	oldRelease := domain.RegistryRelease{ID: "44444444-4444-4444-8444-444444444444", RegistryTargetID: targetID, ServiceID: serviceID, Repository: repository, RootDigest: registryDigest("b"), CreatedAt: old, SucceededAt: &oldAt, Availability: domain.RegistryArtifactPresent}
+	latest := domain.RegistryRelease{ID: "33333333-3333-4333-8333-333333333333", RegistryTargetID: targetID, ServiceID: serviceID, Repository: repository, RootDigest: registryDigest("a"), CreatedAt: latestAt, SucceededAt: &latestAt, Availability: domain.RegistryArtifactPresent}
+	oldRelease := domain.RegistryRelease{ID: "44444444-4444-4444-8444-444444444444", RegistryTargetID: targetID, ServiceID: serviceID, Repository: repository, RootDigest: registryDigest("b"), CreatedAt: oldAt, SucceededAt: &oldAt, Availability: domain.RegistryArtifactPresent}
 	for _, release := range []domain.RegistryRelease{latest, oldRelease} {
 		if _, _, err := st.PutRegistryRelease(ctx, release); err != nil {
 			t.Fatal(err)
@@ -191,6 +191,35 @@ func TestRegistryLifecycleConcurrencyAndIdempotency(t *testing.T) {
 	}
 	if err = seed.store.FinishRegistryCleanupPlan(ctx, plan.ID, "worker-a", true, "", seed.now.Add(4*time.Second)); err != nil {
 		t.Fatalf("finish replay: %v", err)
+	}
+}
+
+func TestRegistryCleanupPlanAuthorityRoundTripsAndKeepsDistinctDigests(t *testing.T) {
+	seed := seedManagedRegistry(t)
+	ctx := context.Background()
+	lifecycle := registry.NewService(seed.store,
+		registry.WithClock(func() time.Time { return seed.now }),
+		registry.WithMaxObservationAge(time.Hour),
+		registry.WithIDGenerator(func() string { return "56565656-5656-4565-8565-565656565656" }),
+	)
+	manual, err := lifecycle.Preview(ctx, seed.targetID, seed.serviceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	automatic := manual
+	automatic.ID = "67676767-6767-4767-8767-676767676767"
+	automatic.Automatic = true
+	automatic.PlanDigest = base.RegistryCleanupPlanDigest(automatic)
+	saved, replay, err := seed.store.SaveRegistryCleanupPlan(ctx, automatic)
+	if err != nil || replay {
+		t.Fatalf("save automatic replay=%v err=%v", replay, err)
+	}
+	if !saved.Automatic || saved.PlanDigest == manual.PlanDigest || saved.ID == manual.ID {
+		t.Fatalf("manual=%#v automatic=%#v", manual, saved)
+	}
+	loaded, err := seed.store.RegistryCleanupPlan(ctx, saved.ID)
+	if err != nil || !loaded.Automatic {
+		t.Fatalf("loaded automatic=%v err=%v", loaded.Automatic, err)
 	}
 }
 

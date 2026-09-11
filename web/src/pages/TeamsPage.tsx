@@ -1047,7 +1047,7 @@ export function ExactDeleteConfirmation({
   return (
     <Dialog open onOpenChange={(open) => !open && !busy && onCancel()}>
       <DialogContent
-        className="grid w-[min(480px,_100%)] gap-5 p-6 border border-line rounded-overlay bg-surface shadow-overlay [&_h2]:m-0 [&_h2]:text-[19px] [&_h2]:font-semibold [&_h2]:tracking-[-0.025em] [&_h2]:leading-[1.25] to-580:p-5 max-w-none"
+        className="grid w-[min(480px,_100%)] gap-5 p-6 border border-line rounded-overlay bg-surface shadow-overlay [&_h2]:m-0 [&_h2]:text-[19px] [&_h2]:font-semibold [&_h2]:tracking-[-0.025em] [&_h2]:leading-[1.25] to-580:p-5 sm:max-w-[480px]"
         role="alertdialog"
         showCloseButton={false}
       >
@@ -1221,7 +1221,7 @@ export function RemoveMemberConfirmation({
       }}
     >
       <DialogContent
-        className="grid w-[min(480px,_100%)] gap-5 p-6 border border-line rounded-overlay bg-surface shadow-overlay [&_h2]:m-0 [&_h2]:text-[19px] [&_h2]:font-semibold [&_h2]:tracking-[-0.025em] [&_h2]:leading-[1.25] to-580:p-5 max-w-none"
+        className="grid w-[min(480px,_100%)] gap-5 p-6 border border-line rounded-overlay bg-surface shadow-overlay [&_h2]:m-0 [&_h2]:text-[19px] [&_h2]:font-semibold [&_h2]:tracking-[-0.025em] [&_h2]:leading-[1.25] to-580:p-5 sm:max-w-[480px]"
         role="alertdialog"
         showCloseButton={false}
       >
@@ -1302,7 +1302,7 @@ export function InstallationSharingConfirmation({
       }}
     >
       <DialogContent
-        className="grid w-[min(480px,_100%)] max-w-none gap-5 border border-line rounded-overlay bg-surface p-6 shadow-overlay [&_h2]:m-0 [&_h2]:text-[19px] [&_h2]:font-semibold [&_h2]:tracking-[-0.025em] [&_h2]:leading-[1.25] [&>.field]:mb-4 to-580:p-5"
+        className="grid w-[min(480px,_100%)] sm:max-w-[480px] gap-5 border border-line rounded-overlay bg-surface p-6 shadow-overlay [&_h2]:m-0 [&_h2]:text-[19px] [&_h2]:font-semibold [&_h2]:tracking-[-0.025em] [&_h2]:leading-[1.25] [&>.field]:mb-4 to-580:p-5"
         role="alertdialog"
         showCloseButton={false}
       >

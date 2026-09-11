@@ -47,7 +47,7 @@ This chart owns only the API, worker, web UI and namespaced control-plane
 support resources. It never templates an Argo `Application`, tenant Namespace,
 or tenant workload, so an in-place Helm upgrade cannot prune application state.
 
-Source defaults use the explicit `0.1.0-rc.442` release-candidate tags. Stable
+Source defaults use the explicit `0.1.0-rc.443` release-candidate tags. Stable
 release packaging must inject immutable `image@sha256` references
 for all five deployed release images (API, worker, web, migration, and builder-agent) and set
 `global.requireImageDigest=true`; rendering then
@@ -369,10 +369,11 @@ removed. Namespaced RBAC is paired with fail-closed admission that rejects any
 spec, identity, label, owner, finalizer, unrelated annotation, namespace, or
 name mutation.
 
-`config.helmApplications.enabled` enables direct Argo CD Helm Apps. It requires
-protected Argo desired state so the chart has one exact Argo namespace. The API
+`config.helmApplications.enabled` enables direct Argo CD Helm Apps. Set
+`rbac.argoNamespace` to the namespace where Argo CD is installed; GitHub and
+Kuberploy's GitOps projection are not required for Helm-only Apps. The API
 stores current source-and-values settings with revision history and reconciles deterministic
-`kp-h-<application UUID>` Argo `Application` objects. Argo CD resolves, renders,
+`kp-h-<environment identity>-<application UUID>` Argo `Application` objects. Argo CD resolves, renders,
 syncs, and observes OCI, classic Helm repository, and Git chart sources; the
 control plane has no chart downloader, approval catalog, package cache, or
 renderer Job.

@@ -4,6 +4,7 @@ set -Eeuo pipefail
 
 kp_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 source "${kp_root}/scripts/helm/download-locked-artifact.sh"
+source "${kp_root}/scripts/helm/use-supported-kube-version.sh"
 kp_tmp="$(mktemp -d "${TMPDIR:-/tmp}/kuberploy-secret-controllers-render.XXXXXX")"
 
 kp_cleanup() {

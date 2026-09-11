@@ -382,6 +382,85 @@ func TestPostgreSQLResourceDeletionRejectsDeploymentHistory(t *testing.T) {
 	}
 }
 
+func TestPostgreSQLApplicationDeletionRequiresAppliedHelmDisable(t *testing.T) {
+	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set KUBERPLOY_TEST_DATABASE_URL for PostgreSQL integration test")
+	}
+	ctx := t.Context()
+	store, err := Open(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err = testdb.ApplyMigrations(ctx, store.pool); err != nil {
+		t.Fatal(err)
+	}
+
+	suffix := strings.ReplaceAll(id.New(), "-", "")[:12]
+	actorID := id.New()
+	now := time.Now().UTC()
+	if _, err = store.pool.Exec(ctx, `INSERT INTO users(id,display_name,role,issuer,subject,grant_revision,created_at) VALUES($1,$2,'platform-admin','helm-delete-test',$3,1,$4)`, actorID, "helm-delete-admin-"+suffix, actorID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.pool.Exec(ctx, `INSERT INTO access_grants(id,subject_user_id,role,scope_type,scope_id,source,created_by,created_at) VALUES($1,$2,'platform-admin','platform','platform','bootstrap',$2,$3)`, id.New(), actorID, now); err != nil {
+		t.Fatal(err)
+	}
+	project, err := store.CreateProject(ctx, actorID, "helm-delete-project-"+suffix, "helm-delete-project-"+suffix, domain.CreateProject{Name: "Helm delete project", Slug: "helm-delete-" + suffix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment, err := store.CreateEnvironment(ctx, actorID, "helm-delete-environment-"+suffix, "helm-delete-environment-"+suffix, domain.CreateEnvironment{ProjectID: project.Value.ID, Name: "Production", Slug: "production"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	application, err := store.CreateApplication(ctx, actorID, "helm-delete-application-"+suffix, "helm-delete-application-"+suffix, domain.CreateApplication{ProjectID: project.Value.ID, EnvironmentID: environment.Value.ID, Name: "Valkey", Slug: "valkey", SourceKind: domain.ApplicationSourceHelm})
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := []byte("{}\n")
+	valuesSum := sha256.Sum256(values)
+	valuesDigest := "sha256:" + hex.EncodeToString(valuesSum[:])
+	activeRevisionID := id.New()
+	if _, err = store.pool.Exec(ctx, `INSERT INTO helm_app_revisions(
+		id,generation,project_id,environment_id,application_id,release_name,destination_namespace,argo_project,
+		source_kind,repository_url,chart,target_revision,chart_path,values_yaml,values_digest,action,desired_enabled,
+		state,failure_code,actor_id,idempotency_key,request_id,created_at,updated_at)
+		VALUES($1,1,$2,$3,$4,'valkey',$5,$6,'helm-repository','https://charts.example.test','valkey','1.0.0','',$7,$8,'deploy',true,'applied','',$9,$10,$11,$12,$12)`,
+		activeRevisionID, project.Value.ID, environment.Value.ID, application.Value.ID, environment.Value.Namespace, environment.Value.ArgoProject,
+		values, valuesDigest, actorID, "helm-active-"+suffix, "request-active-"+suffix, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.pool.Exec(ctx, `INSERT INTO helm_app_heads(project_id,environment_id,application_id,revision_id,generation,updated_at) VALUES($1,$2,$3,$4,1,$5)`,
+		project.Value.ID, environment.Value.ID, application.Value.ID, activeRevisionID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.DeleteEnvironment(ctx, actorID, environment.Value.ID, environment.Value.Name, "helm-environment-delete-blocked-"+suffix, "helm-environment-delete-blocked", "request-helm-environment-delete-blocked-"+suffix); !errors.Is(err, base.ErrEnvironmentDeletionBlocked) {
+		t.Fatalf("active Helm Environment deletion err=%v", err)
+	}
+	if _, err = store.DeleteApplication(ctx, actorID, application.Value.ID, application.Value.Name, "helm-delete-blocked-"+suffix, "helm-delete-blocked", "request-helm-delete-blocked-"+suffix); !errors.Is(err, base.ErrApplicationDeletionBlocked) {
+		t.Fatalf("active Helm App deletion err=%v", err)
+	}
+
+	disabledRevisionID := id.New()
+	if _, err = store.pool.Exec(ctx, `INSERT INTO helm_app_revisions(
+		id,generation,project_id,environment_id,application_id,release_name,destination_namespace,argo_project,
+		source_kind,repository_url,chart,target_revision,chart_path,values_yaml,values_digest,action,desired_enabled,
+		state,failure_code,actor_id,idempotency_key,request_id,parent_revision_id,created_at,updated_at)
+		VALUES($1,2,$2,$3,$4,'valkey',$5,$6,'helm-repository','https://charts.example.test','valkey','1.0.0','',$7,$8,'disable',false,'applied','',$9,$10,$11,$12,$13,$13)`,
+		disabledRevisionID, project.Value.ID, environment.Value.ID, application.Value.ID, environment.Value.Namespace, environment.Value.ArgoProject,
+		values, valuesDigest, actorID, "helm-disabled-"+suffix, "request-disabled-"+suffix, activeRevisionID, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.pool.Exec(ctx, `UPDATE helm_app_heads SET revision_id=$1,generation=2,updated_at=$2 WHERE environment_id=$3 AND application_id=$4`,
+		disabledRevisionID, now.Add(time.Second), environment.Value.ID, application.Value.ID); err != nil {
+		t.Fatal(err)
+	}
+	if replay, deleteErr := store.DeleteApplication(ctx, actorID, application.Value.ID, application.Value.Name, "helm-delete-ready-"+suffix, "helm-delete-ready", "request-helm-delete-ready-"+suffix); deleteErr != nil || replay {
+		t.Fatalf("disabled Helm App delete replay=%t err=%v", replay, deleteErr)
+	}
+}
+
 func TestPostgreSQLEnvironmentDeletionRemovesUnpublishedFailedFoundation(t *testing.T) {
 	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
 	if databaseURL == "" {

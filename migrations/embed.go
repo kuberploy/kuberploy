@@ -9,20 +9,20 @@ import (
 	"sort"
 )
 
-// FS contains the immutable SQL history shipped in the migration image and
-// embedded in Go only so API and worker can verify the exact applied history.
+// FS contains the SQL history shipped in the migration image and embedded in Go
+// only so API and worker can verify the exact applied history.
 // Long-running processes never execute these files.
 //
 //go:embed prisma/migrations/*/migration.sql
 var FS embed.FS
 
-// CurrentSchema is bumped with every ordered migration and is published in the
-// immutable release manifest for Helm-driven install and upgrade qualification.
-const CurrentSchema = "003_auto_deploy_disable_after_drift"
+// CurrentSchema names the single pre-stable baseline. After the first stable
+// release, it advances with each ordered append-only migration.
+const CurrentSchema = "001_initial"
 
 var namePattern = regexp.MustCompile(`^[0-9]{3}_[a-z0-9]+(?:_[a-z0-9]+)*$`)
 
-// Migration is the immutable identity Prisma records in _prisma_migrations.
+// Migration is the identity Prisma records in _prisma_migrations.
 type Migration struct {
 	Name     string
 	Checksum string

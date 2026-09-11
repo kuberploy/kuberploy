@@ -3,6 +3,7 @@
 set -Eeuo pipefail
 
 kp_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+source "${kp_root}/scripts/helm/use-supported-kube-version.sh"
 kp_chart="${kp_root}/charts/kuberploy-postgresql"
 kp_tmp="$(mktemp -d "${TMPDIR:-/tmp}/kuberploy-postgresql-render.XXXXXX")"
 

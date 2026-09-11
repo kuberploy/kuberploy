@@ -40,12 +40,14 @@ type CreateConfigPreview struct {
 }
 
 type SaveDeploymentConfig struct {
-	DeploymentID  string
-	BaseETag      string
-	TokenHash     []byte
-	CandidateHash []byte
-	RawYAML       []byte
-	Runtime       WorkloadRuntime
+	DeploymentID             string
+	BaseETag                 string
+	TokenHash                []byte
+	CandidateHash            []byte
+	RawYAML                  []byte
+	Runtime                  WorkloadRuntime
+	SourceDeploymentIntentID string
+	SourceDeploymentSequence int64
 }
 
 func DeploymentConfigETag(deploymentID string, version int64, raw []byte) string {

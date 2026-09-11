@@ -732,6 +732,22 @@ func (s *Store) CreateApplication(ctx context.Context, actor, key, fingerprint s
 		if err != nil {
 			return base.Result[domain.Application]{}, classify(err)
 		}
+		if a.SourceKind == domain.ApplicationSourceGitHub || a.SourceKind == domain.ApplicationSourceGitSSH {
+			deploymentID, operationID := id.New(), id.New()
+			runtime := domain.DefaultWorkloadRuntime(3000, nil)
+			runtimeJSON, marshalErr := json.Marshal(runtime)
+			if marshalErr != nil {
+				return base.Result[domain.Application]{}, marshalErr
+			}
+			if _, err = tx.Exec(ctx, `INSERT INTO operations(id,kind,status,target_type,target_id,request_id,generation,progress,created_at,updated_at,finished_at)
+				VALUES($1,'deployment.source-draft','succeeded','deployment',$2,$3,1,'[]',$4,$4,$4)`, operationID, deploymentID, "application-create:"+a.ID, a.CreatedAt); err != nil {
+				return base.Result[domain.Application]{}, classify(err)
+			}
+			if _, err = tx.Exec(ctx, `INSERT INTO deployments(id,environment_id,application_id,image,replicas,port,environment,runtime,state,operation_id,generation,created_at,updated_at)
+				VALUES($1,$2,$3,'',1,3000,'{}',$4,'stopped',$5,1,$6,$6)`, deploymentID, in.EnvironmentID, a.ID, runtimeJSON, operationID, a.CreatedAt); err != nil {
+				return base.Result[domain.Application]{}, classify(err)
+			}
+		}
 	}
 	if err = audit(ctx, tx, actor, "application.create", "application", a.ID, "", a); err != nil {
 		return base.Result[domain.Application]{}, err
@@ -806,7 +822,11 @@ func (s *Store) deleteNamedResource(ctx context.Context, actor, table, resourceT
 	}
 	if resourceType == "application" {
 		var running bool
-		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM deployments WHERE application_id=$1 AND state<>'stopped')`, resourceID).Scan(&running); err != nil {
+		if err = tx.QueryRow(ctx, `SELECT
+			EXISTS(SELECT 1 FROM deployments WHERE application_id=$1 AND state<>'stopped') OR
+			EXISTS(SELECT 1 FROM helm_app_heads head
+				JOIN helm_app_revisions revision ON revision.id=head.revision_id
+				WHERE head.application_id=$1 AND (revision.desired_enabled OR revision.state<>'applied'))`, resourceID).Scan(&running); err != nil {
 			return false, err
 		}
 		if running {
@@ -823,7 +843,10 @@ func (s *Store) deleteNamedResource(ctx context.Context, actor, table, resourceT
 		var running bool
 		if err = tx.QueryRow(ctx, `SELECT
 			EXISTS(SELECT 1 FROM deployments WHERE environment_id=$1 AND state<>'stopped') OR
-			EXISTS(SELECT 1 FROM environment_app_placements WHERE environment_id=$1 AND (state<>'draft' OR desired_state<>'stopped'))`, resourceID).Scan(&running); err != nil {
+			EXISTS(SELECT 1 FROM environment_app_placements WHERE environment_id=$1 AND (state<>'draft' OR desired_state<>'stopped')) OR
+			EXISTS(SELECT 1 FROM helm_app_heads head
+				JOIN helm_app_revisions revision ON revision.id=head.revision_id
+				WHERE head.environment_id=$1 AND (revision.desired_enabled OR revision.state<>'applied'))`, resourceID).Scan(&running); err != nil {
 			return false, err
 		}
 		if running {

@@ -424,7 +424,7 @@ function CleanupPanel({
       <div className="flex items-start justify-between gap-5 [&_h3]:mt-1 [&_h3]:mx-0 [&_h3]:mb-0 to-580:items-start to-580:flex-col">
         <div>
           <Eyebrow>Managed lifecycle</Eyebrow>
-          <h3>Fail-closed cleanup preview</h3>
+          <h3>Automatic cleanup</h3>
         </div>
         <Button
           variant="secondary"
@@ -436,8 +436,9 @@ function CleanupPanel({
         </Button>
       </div>
       <MutedCopy>
-        Preview requires fresh, complete inventory, catalog, Git, runtime, and
-        operation observations. Execution revalidates the same authorities.
+        Kuberploy creates and runs a safe retention plan every two hours. Create
+        a preview to inspect or refresh the next plan; use Execute now to run it
+        immediately. Every run rechecks current releases, cache, and workloads.
       </MutedCopy>
       {preview.error ? <ErrorPanel error={preview.error} /> : null}
       {status.error ? (
@@ -512,7 +513,7 @@ function CleanupPanel({
                 busy={execute.isPending}
                 disabled={confirmation !== plan.id || preview.isPending}
               >
-                Execute managed cleanup
+                Execute now
               </Button>
             </form>
           ) : null}
@@ -532,7 +533,7 @@ function InventoryTable({ target }: { target: ApplicationRegistryTarget }) {
         </div>
         {target.releasesTruncated ? (
           <span className="inline-flex w-max min-h-[22px] items-center py-0 px-2 border border-line rounded-md text-ink-soft bg-surface-soft text-xs font-semibold whitespace-nowrap">
-            Most recent 50
+            Most recent 100
           </span>
         ) : null}
       </div>
@@ -541,7 +542,7 @@ function InventoryTable({ target }: { target: ApplicationRegistryTarget }) {
           compact
           icon="deploy"
           title="No release inventory"
-          description="No release records have been observed for this service and target."
+          description="No release records have been observed for this App and target."
         />
       ) : (
         <div className="overflow-x-auto mt-4 border border-line rounded-lg [&>table]:w-full [&>table]:border-collapse">
@@ -764,8 +765,8 @@ export function RegistryPanel({
     "registry-targets:read",
   );
   const inventory = useQuery({
-    queryKey: ["application-registry", application.id, 50],
-    queryFn: () => api.applicationRegistry(application.id, 50),
+    queryKey: ["application-registry", application.id, 100],
+    queryFn: () => api.applicationRegistry(application.id, 100),
     enabled: featureEnabled && canRead,
     retry: false,
   });

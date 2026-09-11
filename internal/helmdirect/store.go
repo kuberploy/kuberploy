@@ -2,6 +2,7 @@ package helmdirect
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -128,10 +129,18 @@ func (s *Service) mutate(ctx context.Context, request MutationRequest, now time.
 
 func (s *Service) finish(ctx context.Context, revision Revision, now time.Time) (Revision, bool, error) {
 	if err := s.reconcile(ctx, revision, now); err != nil {
-		if markErr := s.Store.MarkFailed(ctx, revision.ID, "argo-apply-failed", now); markErr != nil {
+		if errors.Is(err, ErrPending) {
+			return revision, false, nil
+		}
+		failureCode := "argo-apply-failed"
+		var reconcileFailure ReconcileFailure
+		if errors.As(err, &reconcileFailure) {
+			failureCode = reconcileFailure.Code
+		}
+		if markErr := s.Store.MarkFailed(ctx, revision.ID, failureCode, now); markErr != nil {
 			return Revision{}, false, markErr
 		}
-		revision.State, revision.FailureCode, revision.UpdatedAt = StateFailed, "argo-apply-failed", now.UTC()
+		revision.State, revision.FailureCode, revision.UpdatedAt = StateFailed, failureCode, now.UTC()
 		return revision, false, nil
 	}
 	revision.State, revision.FailureCode, revision.UpdatedAt = StateApplied, "", now.UTC()

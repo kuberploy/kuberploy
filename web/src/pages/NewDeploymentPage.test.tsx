@@ -67,7 +67,12 @@ beforeEach(() => {
   });
   vi.spyOn(api, "applications").mockResolvedValue({
     items: [
-      { id: "application-1", projectId: "project-1", name: "Payments API" },
+      {
+        id: "application-1",
+        projectId: "project-1",
+        name: "Payments API",
+        sourceKind: "oci",
+      },
     ],
   });
   vi.spyOn(api, "deployments").mockResolvedValue({ items: [] });
@@ -144,6 +149,79 @@ describe("new deployment runtime controls", () => {
         screen.getByRole("combobox", { name: /^Environment/ }),
       ).toHaveValue("environment-1");
     });
+  });
+
+  it("lists only OCI Apps in the existing-image wizard", async () => {
+    vi.mocked(api.applications).mockResolvedValue({
+      items: [
+        {
+          id: "application-oci",
+          projectId: "project-1",
+          name: "OCI App",
+          sourceKind: "oci",
+        },
+        {
+          id: "application-github",
+          projectId: "project-1",
+          name: "GitHub App",
+          sourceKind: "github",
+        },
+      ],
+    });
+    router.search.projectId = "project-1";
+    router.search.environmentId = "environment-1";
+    router.search.applicationId = "application-oci";
+
+    render(<NewDeploymentPage />, { wrapper: wrapper() });
+
+    const appSelect = await screen.findByRole("combobox", { name: "App" });
+    expect(appSelect).toHaveTextContent("OCI App");
+    expect(appSelect).not.toHaveTextContent("GitHub App");
+  });
+
+  it("rejects a scoped initial App that is not OCI", async () => {
+    let resolveApplications!: (
+      value: Awaited<ReturnType<typeof api.applications>>,
+    ) => void;
+    vi.mocked(api.applications).mockReturnValue(
+      new Promise((resolve) => {
+        resolveApplications = resolve;
+      }),
+    );
+    router.search.projectId = "project-1";
+    router.search.environmentId = "environment-1";
+    router.search.applicationId = "application-github";
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+
+    render(<NewDeploymentPage />, { wrapper: wrapper(queryClient) });
+
+    resolveApplications({
+      items: [
+        {
+          id: "application-github",
+          projectId: "project-1",
+          name: "GitHub App",
+          sourceKind: "github",
+        },
+      ],
+    });
+    await waitFor(() =>
+      expect(queryClient.getQueryState(["applications"])?.status).toBe(
+        "success",
+      ),
+    );
+
+    await waitFor(() => {
+      expect(api.environmentGitBinding).toHaveBeenCalledWith("environment-1");
+      expect(screen.getByRole("radio", { name: "New App" })).toBeChecked();
+    });
+    expect(screen.queryByRole("combobox", { name: "App" })).toBeNull();
+    expect(api.deployments).not.toHaveBeenCalled();
   });
 
   it("waits for the invalidated App list before applying an Add App handoff", async () => {
@@ -968,8 +1046,18 @@ describe("new deployment runtime controls", () => {
     const user = userEvent.setup();
     vi.mocked(api.applications).mockResolvedValue({
       items: [
-        { id: "application-1", projectId: "project-1", name: "Payments API" },
-        { id: "application-2", projectId: "project-1", name: "Billing API" },
+        {
+          id: "application-1",
+          projectId: "project-1",
+          name: "Payments API",
+          sourceKind: "oci",
+        },
+        {
+          id: "application-2",
+          projectId: "project-1",
+          name: "Billing API",
+          sourceKind: "oci",
+        },
       ],
     });
     render(<NewDeploymentPage />, { wrapper: wrapper() });
@@ -1006,8 +1094,18 @@ describe("new deployment runtime controls", () => {
     const user = userEvent.setup();
     vi.mocked(api.applications).mockResolvedValue({
       items: [
-        { id: "application-1", projectId: "project-1", name: "Payments API" },
-        { id: "application-2", projectId: "project-1", name: "Billing API" },
+        {
+          id: "application-1",
+          projectId: "project-1",
+          name: "Payments API",
+          sourceKind: "oci",
+        },
+        {
+          id: "application-2",
+          projectId: "project-1",
+          name: "Billing API",
+          sourceKind: "oci",
+        },
       ],
     });
     render(<NewDeploymentPage />, { wrapper: wrapper() });
@@ -1057,7 +1155,12 @@ describe("new deployment runtime controls", () => {
     const user = userEvent.setup();
     vi.mocked(api.applications).mockResolvedValue({
       items: [
-        { id: "application-1", projectId: "project-1", name: "Payments API" },
+        {
+          id: "application-1",
+          projectId: "project-1",
+          name: "Payments API",
+          sourceKind: "oci",
+        },
       ],
     });
     render(<NewDeploymentPage />, { wrapper: wrapper() });
@@ -1138,8 +1241,18 @@ describe("new deployment runtime controls", () => {
     });
     vi.mocked(api.applications).mockResolvedValue({
       items: [
-        { id: "application-1", projectId: "project-1", name: "Payments API" },
-        { id: "application-2", projectId: "project-2", name: "Billing API" },
+        {
+          id: "application-1",
+          projectId: "project-1",
+          name: "Payments API",
+          sourceKind: "oci",
+        },
+        {
+          id: "application-2",
+          projectId: "project-2",
+          name: "Billing API",
+          sourceKind: "oci",
+        },
       ],
     });
     render(<NewDeploymentPage />, { wrapper: wrapper() });

@@ -153,7 +153,7 @@ func TestRuntimeChartSecretNameMatchesTargetSecretName(t *testing.T) {
 	fixture := filepath.Join(chart, "testdata", "workload-scheduling.yaml")
 	assertRender := func(t *testing.T, values, bindingID, name string, version int64) {
 		t.Helper()
-		command := exec.Command(helm, "template", "secret-contract", chart, "-f", values)
+		command := exec.Command(helm, "template", "secret-contract", chart, "--kube-version", "1.34.0", "-f", values)
 		output, commandErr := command.CombinedOutput()
 		if commandErr != nil {
 			t.Fatalf("helm template: %v\n%s", commandErr, output)
@@ -187,7 +187,7 @@ func TestRuntimeChartSecretNameMatchesTargetSecretName(t *testing.T) {
 	if err = os.WriteFile(missingValues, []byte(missingID), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if output, commandErr := exec.Command(helm, "template", "invalid", chart, "-f", missingValues).CombinedOutput(); commandErr == nil {
+	if output, commandErr := exec.Command(helm, "template", "invalid", chart, "--kube-version", "1.34.0", "-f", missingValues).CombinedOutput(); commandErr == nil {
 		t.Fatalf("chart accepted reference without bindingId:\n%s", output)
 	}
 	stringVersion := strings.Replace(string(raw), "version: 3", "version: v3", 1)
@@ -195,7 +195,7 @@ func TestRuntimeChartSecretNameMatchesTargetSecretName(t *testing.T) {
 	if err = os.WriteFile(stringValues, []byte(stringVersion), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if output, commandErr := exec.Command(helm, "template", "invalid", chart, "-f", stringValues).CombinedOutput(); commandErr == nil {
+	if output, commandErr := exec.Command(helm, "template", "invalid", chart, "--kube-version", "1.34.0", "-f", stringValues).CombinedOutput(); commandErr == nil {
 		t.Fatalf("chart accepted string version:\n%s", output)
 	}
 }
@@ -207,7 +207,7 @@ func TestRuntimeChartCustomCertificateNameMatchesTargetSecretName(t *testing.T) 
 	}
 	chart := filepath.Join("..", "..", "charts", "kuberploy-runtime")
 	fixture := filepath.Join(chart, "testdata", "custom-certificate.yaml")
-	output, err := exec.Command(helm, "template", "custom-certificate-contract", chart, "-f", fixture,
+	output, err := exec.Command(helm, "template", "custom-certificate-contract", chart, "--kube-version", "1.34.0", "-f", fixture,
 		"--set-string", "kuberployExpectedIdentity.projectId=11111111-1111-4111-8111-111111111111",
 		"--set-string", "kuberployExpectedIdentity.environmentId=22222222-2222-4222-8222-222222222222",
 		"--set-string", "kuberployExpectedIdentity.applicationId=33333333-3333-4333-8333-333333333333").CombinedOutput()

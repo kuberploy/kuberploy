@@ -457,6 +457,15 @@ func (s *Server) deployments(w http.ResponseWriter, r *http.Request) {
 		mappedError(w, r, replayErr)
 		return
 	}
+	application, applicationErr := s.store.GetApplicationForActor(r.Context(), u.ID, in.ApplicationID)
+	if applicationErr != nil {
+		mappedError(w, r, applicationErr)
+		return
+	}
+	if application.SourceKind != domain.ApplicationSourceOCI {
+		writeProblem(w, r, http.StatusConflict, "ApplicationSourceMismatch", "App source mismatch", "Existing-image deployment is available only for OCI image Apps.")
+		return
+	}
 	if !immutableInput {
 		if s.imageResolution == nil {
 			mappedImageResolutionError(w, r, imageresolution.ErrUnavailable)

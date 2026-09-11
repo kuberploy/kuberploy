@@ -10,16 +10,28 @@ import (
 	"github.com/kuberploy/kuberploy/internal/builder"
 	"github.com/kuberploy/kuberploy/internal/builds"
 	"github.com/kuberploy/kuberploy/internal/githubapp"
+	"github.com/kuberploy/kuberploy/internal/gitssh"
 )
 
 type retryExecutionStore struct {
 	builds.APIStore
-	source            builds.BuildAttempt
-	definition        builds.BuildDefinition
-	existing          *builds.BuildAttempt
-	commandReplay     bool
-	capturedExecution builds.ExecutionSettings
-	historicalReads   int
+	source                   builds.BuildAttempt
+	definition               builds.BuildDefinition
+	existing                 *builds.BuildAttempt
+	commandReplay            bool
+	capturedExecution        builds.ExecutionSettings
+	historicalReads          int
+	capturedCommit           string
+	capturedSourceDeployment builds.SourceDeploymentCommand
+}
+
+func (s *retryExecutionStore) DefinitionsForService(context.Context, string) ([]builds.BuildDefinition, error) {
+	return []builds.BuildDefinition{s.definition}, nil
+}
+
+func (s *retryExecutionStore) AcceptSourceDeployment(_ context.Context, command builds.SourceDeploymentCommand) (builds.SourceDeploymentAcceptance, error) {
+	s.capturedSourceDeployment = command
+	return builds.SourceDeploymentAcceptance{Attempt: builds.BuildAttempt{ID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}}, nil
 }
 
 func (s *retryExecutionStore) Attempt(_ context.Context, attemptID string) (builds.BuildAttempt, error) {
@@ -53,10 +65,17 @@ func (s *retryExecutionStore) RetryAttempt(_ context.Context, _, retryID, claimK
 	return builds.BuildAttempt{ID: retryID, DefinitionID: s.definition.ID, DeliveryClaimKey: claimKey, TriggerKind: "github_push", TriggerKey: claimKey, State: builds.AttemptQueued, CreatedAt: now}, false, nil
 }
 
+func (s *retryExecutionStore) EnqueueManualAttempt(_ context.Context, definitionID, commitSHA, claimKey string, execution builds.ExecutionSettings, now time.Time) (builds.BuildAttempt, bool, error) {
+	s.capturedCommit = commitSHA
+	s.capturedExecution = execution
+	return builds.BuildAttempt{ID: builds.ManualAttemptID(claimKey, definitionID), DefinitionID: definitionID, CommitSHA: commitSHA, GitRef: s.definition.TriggerRef, State: builds.AttemptQueued, CreatedAt: now}, false, nil
+}
+
 type retryExecutionResolver struct {
 	resolution BuildDefinitionResolution
 	err        error
 	calls      int
+	targetID   string
 }
 
 type githubBuildRefProviderStub struct {
@@ -67,6 +86,17 @@ type githubBuildRefProviderStub struct {
 	requestedRef string
 	repositoryID int64
 	installation int64
+}
+
+type gitSSHBuildRefProviderStub struct {
+	request gitssh.RemoteRefRequest
+	result  gitssh.RemoteRefResolution
+	err     error
+}
+
+func (p *gitSSHBuildRefProviderStub) ResolveRemoteRef(_ context.Context, request gitssh.RemoteRefRequest) (gitssh.RemoteRefResolution, error) {
+	p.request = request
+	return p.result, p.err
 }
 
 func (p *githubBuildRefProviderStub) VerifyInstallation(_ context.Context, installationID int64, _ githubapp.AccountIdentity, _ githubapp.Permissions) (githubapp.Installation, error) {
@@ -91,8 +121,9 @@ func (p *githubBuildRefProviderStub) ResolveRemoteRef(_ context.Context, _ githu
 	return p.resolved, nil
 }
 
-func (r *retryExecutionResolver) ResolveBuildDefinition(context.Context, string, string, string, string) (BuildDefinitionResolution, error) {
+func (r *retryExecutionResolver) ResolveBuildDefinition(_ context.Context, _, _, _, targetID string) (BuildDefinitionResolution, error) {
 	r.calls++
+	r.targetID = targetID
 	return r.resolution, r.err
 }
 
@@ -101,10 +132,14 @@ func TestBuildRetryRefreshesTrustedExecutionAndReplayKeepsAcceptedAttempt(t *tes
 	sourceID := "22222222-2222-4222-8222-222222222222"
 	targetID := "33333333-3333-4333-8333-333333333333"
 	definition := builds.BuildDefinition{ID: definitionID, ProjectID: "44444444-4444-4444-8444-444444444444", ServiceID: "55555555-5555-4555-8555-555555555555",
-		Spec: builds.DefinitionSpec{Registry: builds.RegistryBinding{TargetID: targetID}}}
-	source := builds.BuildAttempt{ID: sourceID, DefinitionID: definitionID, State: builds.AttemptFailed}
+		Enabled: true, DefinitionDigest: "sha256:" + strings.Repeat("8", 64), Spec: builds.DefinitionSpec{Registry: builds.RegistryBinding{TargetID: targetID}}}
+	source := builds.BuildAttempt{ID: sourceID, DefinitionID: definitionID, ProjectID: definition.ProjectID, ServiceID: definition.ServiceID,
+		DefinitionDigest: definition.DefinitionDigest, SourceSnapshot: definition, State: builds.AttemptFailed}
 	current := builds.ExecutionSettings{BuilderAgentImage: "registry.test/builder@sha256:" + strings.Repeat("9", 64)}
-	store := &retryExecutionStore{source: source, definition: definition}
+	editedDefinition := definition
+	editedDefinition.DefinitionDigest = "sha256:" + strings.Repeat("7", 64)
+	editedDefinition.Spec.Registry.TargetID = "77777777-7777-4777-8777-777777777777"
+	store := &retryExecutionStore{source: source, definition: editedDefinition}
 	resolver := &retryExecutionResolver{resolution: BuildDefinitionResolution{Registry: builds.RegistryBinding{TargetID: targetID}, Execution: current}}
 	backend, err := NewBuildBackendWithClock(store, resolver, func() time.Time { return time.Date(2026, 8, 12, 1, 2, 3, 0, time.UTC) })
 	if err != nil {
@@ -112,7 +147,7 @@ func TestBuildRetryRefreshesTrustedExecutionAndReplayKeepsAcceptedAttempt(t *tes
 	}
 
 	attempt, replay, err := backend.Retry(t.Context(), "66666666-6666-4666-8666-666666666666", sourceID, "retry-runtime-0001", "sha256:"+strings.Repeat("a", 64))
-	if err != nil || replay || attempt.State != builds.AttemptQueued || store.capturedExecution.BuilderAgentImage != current.BuilderAgentImage || resolver.calls != 1 {
+	if err != nil || replay || attempt.State != builds.AttemptQueued || store.capturedExecution.BuilderAgentImage != current.BuilderAgentImage || resolver.calls != 1 || resolver.targetID != targetID {
 		t.Fatalf("attempt=%#v replay=%v captured=%#v resolverCalls=%d err=%v", attempt, replay, store.capturedExecution, resolver.calls, err)
 	}
 
@@ -122,6 +157,70 @@ func TestBuildRetryRefreshesTrustedExecutionAndReplayKeepsAcceptedAttempt(t *tes
 	replayed, replay, err := backend.Retry(t.Context(), "66666666-6666-4666-8666-666666666666", sourceID, "retry-runtime-0001", "sha256:"+strings.Repeat("a", 64))
 	if err != nil || !replay || replayed.ID != attempt.ID || resolver.calls != 1 {
 		t.Fatalf("replayed=%#v replay=%v resolverCalls=%d err=%v", replayed, replay, resolver.calls, err)
+	}
+}
+
+func TestGitSSHDeployResolvesConfiguredRemoteRef(t *testing.T) {
+	now := time.Date(2026, 9, 12, 1, 2, 3, 0, time.UTC)
+	targetID := "33333333-3333-4333-8333-333333333333"
+	definition := builds.BuildDefinition{
+		ID: "11111111-1111-4111-8111-111111111111", ProjectID: "44444444-4444-4444-8444-444444444444",
+		ServiceID: "55555555-5555-4555-8555-555555555555", SourceKind: builds.SourceGitSSH, TriggerRef: "refs/tags/v1.2.3",
+		GitSSH: &builds.GitSSHSource{RepositoryURL: "ssh://git@git.example.test/team/app.git", ApprovedHost: "git.example.test",
+			KeyScope: "app", KeyOwnerID: "55555555-5555-4555-8555-555555555555", KeyRevision: 2,
+			KnownHosts: "git.example.test ssh-ed25519 AAAAFixture\n"},
+		Spec: builds.DefinitionSpec{Registry: builds.RegistryBinding{TargetID: targetID}},
+	}
+	store := &retryExecutionStore{definition: definition}
+	resolver := &retryExecutionResolver{resolution: BuildDefinitionResolution{Registry: builds.RegistryBinding{TargetID: targetID}}}
+	provider := &gitSSHBuildRefProviderStub{result: gitssh.RemoteRefResolution{
+		CommitSHA: strings.Repeat("a", 40), Ref: definition.TriggerRef, ObservedAt: now,
+	}}
+	backend, err := NewBuildBackendWithProviders(store, resolver, nil, provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt, replay, err := backend.Build(t.Context(), "66666666-6666-4666-8666-666666666666", definition.ID, "", "git-ssh-deploy-0001", "sha256:"+strings.Repeat("b", 64))
+	if err != nil || replay || attempt.CommitSHA != provider.result.CommitSHA || store.capturedCommit != provider.result.CommitSHA {
+		t.Fatalf("attempt=%#v replay=%v captured=%q err=%v", attempt, replay, store.capturedCommit, err)
+	}
+	if provider.request.Ref != definition.TriggerRef || provider.request.RepositoryURL != definition.GitSSH.RepositoryURL ||
+		provider.request.Scope != gitssh.ScopeApp || provider.request.OwnerID != definition.ServiceID || provider.request.KeyRevision != 2 {
+		t.Fatalf("remote ref request=%#v", provider.request)
+	}
+}
+
+func TestSourceDeploymentRebuildUsesSuccessfulAttemptSnapshot(t *testing.T) {
+	now := time.Date(2026, 9, 12, 1, 2, 3, 0, time.UTC)
+	definition := builds.BuildDefinition{ID: "11111111-1111-4111-8111-111111111111", ProjectID: "44444444-4444-4444-8444-444444444444",
+		ServiceID: "55555555-5555-4555-8555-555555555555", Enabled: true, DefinitionDigest: "sha256:" + strings.Repeat("8", 64),
+		SourceKind: builds.SourceGitHub, Spec: builds.DefinitionSpec{Registry: builds.RegistryBinding{TargetID: "33333333-3333-4333-8333-333333333333"}}}
+	source := builds.BuildAttempt{ID: "22222222-2222-4222-8222-222222222222", DefinitionID: definition.ID,
+		ProjectID: definition.ProjectID, ServiceID: definition.ServiceID, DefinitionDigest: definition.DefinitionDigest,
+		CommitSHA: strings.Repeat("a", 40), SourceSnapshot: definition, State: builds.AttemptSucceeded}
+	edited := definition
+	edited.DefinitionDigest = "sha256:" + strings.Repeat("7", 64)
+	store := &retryExecutionStore{definition: edited, source: source}
+	resolver := &retryExecutionResolver{resolution: BuildDefinitionResolution{Registry: definition.Spec.Registry}}
+	backend, err := newBuildBackend(store, resolver, nil, nil, func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceBackend := backend.(SourceDeploymentBackend)
+	_, err = sourceBackend.AcceptSourceDeployment(t.Context(), builds.SourceDeploymentCommand{ActorID: "66666666-6666-4666-8666-666666666666",
+		ProjectID: definition.ProjectID, ApplicationID: definition.ServiceID, Mode: builds.SourceDeploymentRebuild, SourceAttemptID: source.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	captured := store.capturedSourceDeployment
+	if captured.CommitSHA != source.CommitSHA || captured.ExpectedDefinitionDigest != source.DefinitionDigest || captured.DefinitionID != source.DefinitionID {
+		t.Fatalf("rebuild did not retain attempt snapshot: %+v", captured)
+	}
+	source.State = builds.AttemptFailed
+	store.source = source
+	if _, err = sourceBackend.AcceptSourceDeployment(t.Context(), builds.SourceDeploymentCommand{ActorID: captured.ActorID,
+		ProjectID: definition.ProjectID, ApplicationID: definition.ServiceID, Mode: builds.SourceDeploymentRebuild, SourceAttemptID: source.ID}); !errors.Is(err, builds.ErrConflict) {
+		t.Fatalf("failed source attempt accepted: %v", err)
 	}
 }
 
@@ -200,6 +299,11 @@ func TestBuildBackendEditsOneStableAppSource(t *testing.T) {
 		Platforms: []string{"linux/amd64"}, CacheTrustLane: "trusted", CacheImports: 1,
 		Profile: builder.BuildProfile{Resource: "standard", TimeoutSeconds: 900, Egress: "registry-and-source"}, MaxAttempts: 3,
 		ActorID: actorID, IdempotencyKey: "edit-app-source-01", Fingerprint: "sha256:" + strings.Repeat("a", 64)}
+	resolver.err = errors.New("temporary source settings lookup failure")
+	if _, _, err = backend.CreateDefinition(t.Context(), mutation); err == nil {
+		t.Fatal("temporary validation failure unexpectedly saved source")
+	}
+	resolver.err = nil
 	edited, replay, err := backend.CreateDefinition(t.Context(), mutation)
 	if err != nil || replay || edited.ID != sourceID || edited.DefinitionGeneration != 2 || edited.Spec.DockerfilePath != "Dockerfile.prod" ||
 		len(edited.Spec.BuildArgs) != 1 || edited.Spec.BuildArgs[0].Value != "production" {

@@ -68,6 +68,19 @@ type cleanupExecutorStub struct {
 	once    sync.Once
 }
 
+type automaticCleanupPlannerStub struct {
+	planID string
+	calls  int
+}
+
+func (s *automaticCleanupPlannerStub) PlanAutomaticCleanup(context.Context, string) (string, error) {
+	s.calls++
+	if s.planID == "" {
+		return "", store.ErrNotFound
+	}
+	return s.planID, nil
+}
+
 func (s *cleanupExecutorStub) Execute(_ context.Context, plan, owner string) error {
 	s.calls++
 	s.plan, s.owner = plan, owner
@@ -132,7 +145,7 @@ func TestRuntimeControllerSchedulesNextObservationAfterScanCompletion(t *testing
 			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header),
 				Body: io.NopCloser(strings.NewReader(`{"repositories":[]}`))}, nil
 		}),
-		Cleanup: &cleanupExecutorStub{}, Config: config, Owner: "worker-managed-registry-test",
+		Cleanup: &cleanupExecutorStub{}, Planner: &automaticCleanupPlannerStub{}, Config: config, Owner: "worker-managed-registry-test",
 		LeaseDuration: time.Minute, HeartbeatInterval: 10 * time.Second, IdleDelay: time.Second,
 		MinimumBackoff: time.Second, MaximumBackoff: time.Minute,
 		Now: func() time.Time {
@@ -160,11 +173,32 @@ func runtimeControllerForCleanup(t *testing.T, target domain.RegistryTarget) (*R
 		return DistributionAuthorization{}, ErrDistributionCredentialUnavailable
 	})
 	controller := &RuntimeController{
-		Store: runtimeStore, Targets: targetReaderStub{target: target}, Credentials: credentials, Cleanup: executor,
+		Store: runtimeStore, Targets: targetReaderStub{target: target}, Credentials: credentials, Cleanup: executor, Planner: &automaticCleanupPlannerStub{},
 		Config: config, Owner: "worker-managed-registry-test", LeaseDuration: time.Minute, HeartbeatInterval: 10 * time.Second,
 		IdleDelay: time.Second, MinimumBackoff: time.Second, MaximumBackoff: time.Minute,
 	}
 	return controller, runtimeStore, executor
+}
+
+func TestRuntimeControllerCreatesAndExecutesAutomaticCleanup(t *testing.T) {
+	config := testManagedRuntimeConfig(t)
+	target, err := config.ManagedTarget()
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller, runtimeStore, executor := runtimeControllerForCleanup(t, target)
+	runtimeStore.planID = ""
+	planner := &automaticCleanupPlannerStub{planID: "33333333-3333-4333-8333-333333333333"}
+	controller.Planner = planner
+	didWork, err := controller.ReconcileCleanup(t.Context())
+	if err != nil || !didWork || planner.calls != 1 || executor.calls != 0 {
+		t.Fatalf("didWork=%v planner=%+v executor=%+v err=%v", didWork, planner, executor, err)
+	}
+	runtimeStore.planID = planner.planID
+	didWork, err = controller.ReconcileCleanup(t.Context())
+	if err != nil || !didWork || planner.calls != 1 || executor.plan != planner.planID {
+		t.Fatalf("second reconcile didWork=%v planner=%+v executor=%+v err=%v", didWork, planner, executor, err)
+	}
 }
 
 func TestRuntimeControllerCleanupRequiresExactManagedTarget(t *testing.T) {

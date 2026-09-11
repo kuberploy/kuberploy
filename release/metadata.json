@@ -2,5 +2,5 @@
   "breakingChanges": true,
   "summary": "User and team lifecycle flows preserve sessions, transfer GitHub App ownership safely, and keep access screens usable for ordinary members.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.442"
+  "version": "0.1.0-rc.443"
 }

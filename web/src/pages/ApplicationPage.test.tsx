@@ -605,7 +605,7 @@ describe("application registry navigation", () => {
     ).toBeInTheDocument();
     expect(api.applicationRegistry).toHaveBeenCalledWith(
       "application-payments",
-      50,
+      100,
     );
   });
 });

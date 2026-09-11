@@ -26,6 +26,26 @@ import { useCopyToClipboard } from "../lib/clipboard";
 type KeyScope = "app" | "project";
 type Confirmation = "rotate" | "revoke" | null;
 
+function publicKeyFromKnownHosts(value: string | undefined): string {
+  const fields = value?.trim().split(/\s+/) ?? [];
+  const keyTypeIndex = fields.findIndex(
+    (field) =>
+      field.startsWith("ssh-") ||
+      field.startsWith("ecdsa-") ||
+      field.startsWith("sk-"),
+  );
+  return keyTypeIndex >= 0 && fields[keyTypeIndex + 1]
+    ? `${fields[keyTypeIndex]} ${fields[keyTypeIndex + 1]}`
+    : "";
+}
+
+function normalizeTriggerRef(value: string): string {
+  const ref = value.trim();
+  return ref.startsWith("refs/heads/") || ref.startsWith("refs/tags/")
+    ? ref
+    : `refs/heads/${ref}`;
+}
+
 export function GitSSHSourcePanel({
   application,
   project,
@@ -58,7 +78,6 @@ export function GitSSHSourcePanel({
   const [dockerfilePath, setDockerfilePath] = useState("Dockerfile");
   const [amd64, setAMD64] = useState(defaultBuildPlatform === "linux/amd64");
   const [arm64, setARM64] = useState(defaultBuildPlatform === "linux/arm64");
-  const [commitSHA, setCommitSHA] = useState("");
   const [formError, setFormError] = useState("");
   const attempt = useRef<{
     operation: "create" | "rotate" | "revoke";
@@ -97,6 +116,18 @@ export function GitSSHSourcePanel({
       ),
     [definitions.data?.items],
   );
+  useEffect(() => {
+    if (!activeDefinition) return;
+    setScope(activeDefinition.gitSSHKeyScope ?? "app");
+    setRepositoryURL(activeDefinition.repositoryUrl ?? "");
+    setHostKey(publicKeyFromKnownHosts(activeDefinition.gitSSHKnownHosts));
+    setBranch(activeDefinition.triggerRef.replace(/^refs\/heads\//, ""));
+    setRegistryTargetID(activeDefinition.registry.targetId);
+    setContextPath(activeDefinition.contextPath);
+    setDockerfilePath(activeDefinition.dockerfilePath);
+    setAMD64(activeDefinition.platforms.includes("linux/amd64"));
+    setARM64(activeDefinition.platforms.includes("linux/arm64"));
+  }, [activeDefinition]);
   const mutation = useMutation({
     mutationFn: (input: {
       operation: "create" | "rotate" | "revoke";
@@ -157,22 +188,6 @@ export function GitSSHSourcePanel({
       });
     },
   });
-  const createBuild = useMutation({
-    mutationFn: (input: { definitionId: string; commitSha: string }) =>
-      api.createManualBuildAttempt(
-        input.definitionId,
-        input.commitSha,
-        crypto.randomUUID(),
-      ),
-    onSuccess: async () => {
-      setCommitSHA("");
-      setFormError("");
-      await client.invalidateQueries({
-        queryKey: ["build-attempts", application.id],
-      });
-    },
-  });
-
   const submitDefinition = () => {
     setFormError("");
     if (!activeKey) return;
@@ -201,12 +216,12 @@ export function GitSSHSourcePanel({
           },
         ],
         registryTargetId: registryTargetID,
-        triggerRef: `refs/heads/${branch.trim()}`,
+        triggerRef: normalizeTriggerRef(branch),
         contextPath: contextPath.trim(),
         dockerfilePath: dockerfilePath.trim(),
         platforms,
         cacheTrustLane: "protected",
-        cacheImports: 2,
+        cacheImports: 1,
         profile: {
           resource: "standard",
           timeoutSeconds: 900,
@@ -219,18 +234,6 @@ export function GitSSHSourcePanel({
         error instanceof Error ? error.message : "Invalid Git SSH source.",
       );
     }
-  };
-
-  const submitBuild = () => {
-    const commit = commitSHA.trim();
-    if (!activeDefinition || !/^[a-f0-9]{40}$/.test(commit)) {
-      setFormError("Enter the exact lowercase 40-character commit SHA.");
-      return;
-    }
-    createBuild.mutate({
-      definitionId: activeDefinition.id,
-      commitSha: commit,
-    });
   };
 
   if (!enabled) {
@@ -348,7 +351,11 @@ export function GitSSHSourcePanel({
                 placeholder="ssh://git@git.example.com/team/repository.git"
               />
             </Field>
-            <Field label="Branch" required>
+            <Field
+              label="Branch or tag"
+              required
+              hint="Use a branch name or a full refs/tags/* ref."
+            >
               <input
                 value={branch}
                 onChange={(event) => setBranch(event.target.value)}
@@ -436,28 +443,6 @@ export function GitSSHSourcePanel({
           </div>
         </Notice>
       ) : null}
-      {activeDefinition && buildReady && canManageBuilds ? (
-        <section className="grid gap-5 p-7 [&_+_.service-settings-section]:border-t [&_+_.service-settings-section]:border-t-line [&>.field]:max-w-[calc(50%_-_7px)] to-760:[&>.field]:max-w-[none]">
-          <div>
-            <Eyebrow>Manual build</Eyebrow>
-            <h3>Build exact commit</h3>
-            <p className="">
-              Git SSH has no provider webhook. Paste the commit SHA after the
-              provider accepts this deploy key.
-            </p>
-          </div>
-          <Field label="Commit SHA" required>
-            <input
-              value={commitSHA}
-              onChange={(event) => setCommitSHA(event.target.value)}
-              placeholder="40 lowercase hexadecimal characters"
-            />
-          </Field>
-          <Button busy={createBuild.isPending} onClick={submitBuild}>
-            <Icon name="deploy" /> Build commit
-          </Button>
-        </section>
-      ) : null}
       {formError ? (
         <ErrorPanel
           error={new Error(formError)}
@@ -470,16 +455,13 @@ export function GitSSHSourcePanel({
           title="Could not save Git SSH source"
         />
       ) : null}
-      {createBuild.error ? (
-        <ErrorPanel error={createBuild.error} title="Git SSH build failed" />
-      ) : null}
       <Notice>
         <div>
           <strong>Next: authorize and verify the repository</strong>
           <p>
             Add the public key to the repository. Kuberploy pins the SSH host
-            key before checkout. Git SSH uses manual or API-triggered builds
-            because it has no provider webhook.
+            key before checkout. Deploy resolves the configured branch or tag
+            head. Git SSH has no automatic provider webhook by default.
           </p>
         </div>
       </Notice>

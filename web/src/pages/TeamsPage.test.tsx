@@ -272,7 +272,7 @@ describe("GitHub App sharing confirmation", () => {
       ),
     ).toBeInTheDocument();
     const dialog = screen.getByRole("alertdialog");
-    expect(dialog).toHaveClass("max-w-none");
+    expect(dialog).toHaveClass("sm:max-w-[480px]");
     expect(dialog.className).not.toContain("_[&>.field]");
   });
 

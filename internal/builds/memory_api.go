@@ -183,8 +183,8 @@ func (s *MemoryStore) RetryAttempt(_ context.Context, sourceAttemptID, retryAtte
 	if source.State != AttemptSucceeded && source.State != AttemptFailed && source.State != AttemptCancelled {
 		return BuildAttempt{}, false, ErrConflict
 	}
-	definition, ok := s.definitions[source.DefinitionID]
-	if !ok || !definition.Enabled || definition.DefinitionDigest != source.DefinitionDigest {
+	definition := source.SourceSnapshot
+	if !definition.Enabled || definition.DefinitionDigest != source.DefinitionDigest || definition.validate() != nil {
 		return BuildAttempt{}, false, ErrUnauthorized
 	}
 	var installation Installation

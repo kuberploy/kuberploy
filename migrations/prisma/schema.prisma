@@ -403,6 +403,43 @@ model build_release_projections {
   @@index([available_at, created_at, attempt_id], map: "build_release_projections_work_idx", where: raw("(state = ANY (ARRAY['pending'::text, 'processing'::text]))"))
 }
 
+/// Durable one-shot deployment command paired with one source build attempt.
+/// This table contains check constraints and native foreign keys in the SQL baseline.
+model source_deployment_intents {
+  id                           String    @id @db.Uuid
+  attempt_id                   String    @unique @db.Uuid
+  actor_id                     String    @db.Uuid
+  project_id                   String    @db.Uuid
+  application_id               String    @db.Uuid
+  environment_id               String    @db.Uuid
+  deployment_id                String    @db.Uuid
+  mode                         String
+  source_attempt_id            String?   @db.Uuid
+  sequence                     BigInt
+  definition_id                String    @db.Uuid
+  definition_digest            String
+  source_deployment_generation BigInt
+  source_config_etag           String
+  config_intent                Bytes
+  template_digest              String
+  request_id                   String
+  start_draft                  Boolean   @default(false)
+  state                        String    @default("pending")
+  attempts                     Int       @default(0)
+  available_at                 DateTime  @default(now()) @db.Timestamptz(6)
+  lease_owner                  String?
+  lease_until                  DateTime? @db.Timestamptz(6)
+  lease_epoch                  BigInt    @default(0)
+  operation_id                 String?   @db.Uuid
+  failure_code                 String    @default("")
+  created_at                   DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at                   DateTime  @default(now()) @db.Timestamptz(6)
+  completed_at                 DateTime? @db.Timestamptz(6)
+
+  @@unique([deployment_id, sequence])
+  @@index([available_at, created_at, id], map: "source_deployment_intents_work_idx", where: raw("(state = ANY (ARRAY['pending'::text, 'processing'::text]))"))
+}
+
 model builder_platform_settings_revisions {
   revision                BigInt   @id
   node_isolation          Boolean  @default(false)
@@ -1298,6 +1335,7 @@ model registry_cleanup_plans {
   id                 String    @id @db.Uuid
   registry_target_id String    @db.Uuid
   service_id         String
+  automatic          Boolean   @default(false)
   snapshot_token     String
   authority_token    String
   plan_digest        String

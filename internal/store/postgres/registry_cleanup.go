@@ -75,10 +75,10 @@ func saveRegistryCleanupPlan(ctx context.Context, tx pgx.Tx, plan domain.Registr
 	observationsJSON, _ := json.Marshal(cleanupObservationsJSON{Inventory: plan.Inventory, Catalogs: plan.Catalogs, Authorities: plan.Authorities})
 	summaryJSON, _ := json.Marshal(plan.Summary)
 	_, err = tx.Exec(ctx, `INSERT INTO registry_cleanup_plans(
-		id,registry_target_id,service_id,snapshot_token,authority_token,plan_digest,
+		id,registry_target_id,service_id,automatic,snapshot_token,authority_token,plan_digest,
 		state,policy,observations,summary,created_at
-	) VALUES($1,$2,$3,$4,$5,$6,'preview',$7,$8,$9,$10)`, plan.ID,
-		plan.RegistryTargetID, plan.ServiceID, plan.SnapshotToken, plan.AuthorityToken,
+	) VALUES($1,$2,$3,$4,$5,$6,$7,'preview',$8,$9,$10,$11)`, plan.ID,
+		plan.RegistryTargetID, plan.ServiceID, plan.Automatic, plan.SnapshotToken, plan.AuthorityToken,
 		plan.PlanDigest, policyJSON, observationsJSON, summaryJSON, plan.CreatedAt)
 	if err != nil {
 		return domain.RegistryCleanupPlan{}, false, classify(err)
@@ -118,10 +118,10 @@ func (s *Store) RegistryCleanupPlan(ctx context.Context, planID string) (domain.
 func registryCleanupPlan(ctx context.Context, q registryDB, planID string) (domain.RegistryCleanupPlan, error) {
 	var plan domain.RegistryCleanupPlan
 	var policyJSON, observationsJSON, summaryJSON []byte
-	err := q.QueryRow(ctx, `SELECT id,registry_target_id,service_id,snapshot_token,
+	err := q.QueryRow(ctx, `SELECT id,registry_target_id,service_id,automatic,snapshot_token,
 		authority_token,plan_digest,state,policy,observations,summary,created_at,
 		claimed_at,completed_at,failure FROM registry_cleanup_plans WHERE id=$1`, planID).
-		Scan(&plan.ID, &plan.RegistryTargetID, &plan.ServiceID, &plan.SnapshotToken,
+		Scan(&plan.ID, &plan.RegistryTargetID, &plan.ServiceID, &plan.Automatic, &plan.SnapshotToken,
 			&plan.AuthorityToken, &plan.PlanDigest, &plan.State, &policyJSON,
 			&observationsJSON, &summaryJSON, &plan.CreatedAt, &plan.ClaimedAt,
 			&plan.CompletedAt, &plan.Failure)

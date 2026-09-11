@@ -24,6 +24,10 @@ import (
 var outboxDatasetIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 func (s *Store) CreateDeployment(ctx context.Context, actor, key, fingerprint, requestID string, in domain.CreateDeployment, projection *gitprojection.WritePlan, references ...*base.AppConfigReferencePlan) (base.Result[domain.Deployment], domain.Operation, error) {
+	if in.SourceDeploymentIntentID == "" && (in.SourceDeploymentSequence != 0 || in.SourceDeploymentGeneration != 0) ||
+		in.SourceDeploymentIntentID != "" && (in.SourceDeploymentSequence < 1 || in.SourceDeploymentGeneration < 1) {
+		return base.Result[domain.Deployment]{}, domain.Operation{}, base.ErrPreconditionFailed
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, err
@@ -103,10 +107,30 @@ func (s *Store) CreateDeployment(ctx context.Context, actor, key, fingerprint, r
 	err = tx.QueryRow(ctx, `SELECT id,generation,config_version FROM deployments WHERE environment_id=$1 AND application_id=$2 FOR UPDATE`, in.EnvironmentID, in.ApplicationID).Scan(&dID, &generation, &configVersion)
 	if err == nil {
 		existing = true
+		if in.SourceDeploymentIntentID != "" {
+			var accepted bool
+			err = tx.QueryRow(ctx, `SELECT EXISTS(
+				SELECT 1 FROM source_deployment_intents i JOIN deployments d ON d.id=i.deployment_id
+				WHERE i.id=$1 AND i.actor_id=$2 AND i.deployment_id=$3 AND i.sequence=$4
+				  AND i.source_deployment_generation=$5 AND d.generation=$5 AND d.state='stopped'
+				  AND i.state='processing' AND i.lease_until>now()
+				  AND NOT EXISTS (SELECT 1 FROM source_deployment_intents newer
+				                  WHERE newer.deployment_id=i.deployment_id AND newer.sequence>i.sequence))`,
+				in.SourceDeploymentIntentID, actor, dID, in.SourceDeploymentSequence, in.SourceDeploymentGeneration).Scan(&accepted)
+			if err != nil {
+				return base.Result[domain.Deployment]{}, domain.Operation{}, classify(err)
+			}
+			if !accepted {
+				return base.Result[domain.Deployment]{}, domain.Operation{}, base.ErrPreconditionFailed
+			}
+		}
 		generation++
 		configVersion++
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, err
+	}
+	if in.SourceDeploymentIntentID != "" && !existing {
+		return base.Result[domain.Deployment]{}, domain.Operation{}, base.ErrPreconditionFailed
 	}
 	if existing {
 		_, err = tx.Exec(ctx, `UPDATE operations SET status='superseded',updated_at=$2,finished_at=$2,problem=jsonb_build_object('code','Superseded','detail','A newer deployment release was accepted.') WHERE target_type='deployment' AND target_id=$1 AND status='queued'`, dID, now)

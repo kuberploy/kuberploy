@@ -146,6 +146,9 @@ func (s *Store) CreateDeploymentConfigPreview(ctx context.Context, actor string,
 }
 
 func (s *Store) SaveDeploymentConfig(ctx context.Context, actor, key, fingerprint, requestID string, in domain.SaveDeploymentConfig, projection *gitprojection.WritePlan, references ...*base.AppConfigReferencePlan) (base.Result[domain.Deployment], domain.Operation, error) {
+	if (in.SourceDeploymentIntentID == "") != (in.SourceDeploymentSequence == 0) || in.SourceDeploymentSequence < 0 {
+		return base.Result[domain.Deployment]{}, domain.Operation{}, base.ErrPreconditionFailed
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, err
@@ -184,6 +187,22 @@ func (s *Store) SaveDeploymentConfig(ctx context.Context, actor, key, fingerprin
 		WHERE d.id=$1 FOR UPDATE OF d`, in.DeploymentID).Scan(&currentETag, &version, &generation, &projectID, &environmentID, &applicationID, &deploymentState)
 	if err != nil {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, classify(err)
+	}
+	if in.SourceDeploymentIntentID != "" {
+		var accepted bool
+		err = tx.QueryRow(ctx, `SELECT EXISTS(
+			SELECT 1 FROM source_deployment_intents i
+			WHERE i.id=$1 AND i.actor_id=$2 AND i.deployment_id=$3 AND i.sequence=$4
+			  AND i.state='processing' AND i.lease_until>now()
+			  AND NOT EXISTS (SELECT 1 FROM source_deployment_intents newer
+			                  WHERE newer.deployment_id=i.deployment_id AND newer.sequence>i.sequence))`,
+			in.SourceDeploymentIntentID, actor, in.DeploymentID, in.SourceDeploymentSequence).Scan(&accepted)
+		if err != nil {
+			return base.Result[domain.Deployment]{}, domain.Operation{}, classify(err)
+		}
+		if !accepted {
+			return base.Result[domain.Deployment]{}, domain.Operation{}, base.ErrPreconditionFailed
+		}
 	}
 	var referencePlan *base.AppConfigReferencePlan
 	if deploymentState == "stopped" && projection == nil {

@@ -262,7 +262,7 @@ func TestRenderedAppConfigPassesRuntimeChartSchemaWhenHelmAvailable(t *testing.T
 		t.Fatal(err)
 	}
 	chart := filepath.Join("..", "..", "charts", "kuberploy-runtime")
-	cmd := exec.Command(helm, "template", "contract", chart, "-f", values,
+	cmd := exec.Command(helm, "template", "contract", chart, "--kube-version", "1.34.0", "-f", values,
 		"--set-string", "kuberployExpectedIdentity.projectId="+p.ID,
 		"--set-string", "kuberployExpectedIdentity.environmentId="+e.ID,
 		"--set-string", "kuberployExpectedIdentity.applicationId="+a.ID)

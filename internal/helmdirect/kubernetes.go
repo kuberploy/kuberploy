@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -83,6 +84,67 @@ func (c *InClusterApplicationAPI) Delete(ctx context.Context, namespace, name st
 		return fmt.Errorf("Kubernetes Argo Application delete returned HTTP %d", response.StatusCode)
 	}
 	return nil
+}
+
+func (c *InClusterApplicationAPI) Observe(ctx context.Context, namespace, name string) (ApplicationState, error) {
+	if c == nil || c.http == nil || !dnsLabelRE.MatchString(namespace) || !strings.HasPrefix(name, "kp-h-") {
+		return ApplicationState{}, ErrInvalid
+	}
+	response, err := c.request(ctx, http.MethodGet, c.applicationPath(namespace, name), nil, "application/json")
+	if err != nil {
+		return ApplicationState{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1<<20))
+		return ApplicationState{}, nil
+	}
+	if response.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1<<20))
+		return ApplicationState{}, fmt.Errorf("Kubernetes Argo Application read returned HTTP %d", response.StatusCode)
+	}
+	var payload struct {
+		Metadata struct {
+			Labels map[string]string `json:"labels"`
+		} `json:"metadata"`
+		Status struct {
+			Sync struct {
+				Status string `json:"status"`
+			} `json:"sync"`
+			Health struct {
+				Status string `json:"status"`
+			} `json:"health"`
+			OperationState struct {
+				Phase string `json:"phase"`
+			} `json:"operationState"`
+			Conditions []struct {
+				Type string `json:"type"`
+			} `json:"conditions"`
+			ReconciledAt string `json:"reconciledAt"`
+		} `json:"status"`
+	}
+	limited := io.LimitReader(response.Body, 1<<20)
+	if err = json.NewDecoder(limited).Decode(&payload); err != nil {
+		return ApplicationState{}, fmt.Errorf("decode Kubernetes Argo Application: %w", err)
+	}
+	state := ApplicationState{
+		Exists:        true,
+		EnvironmentID: payload.Metadata.Labels["kuberploy.io/environment-id"],
+		Sync:          payload.Status.Sync.Status,
+		Health:        payload.Status.Health.Status,
+		Operation:     payload.Status.OperationState.Phase,
+	}
+	if reconciledAt, parseErr := time.Parse(time.RFC3339Nano, strings.TrimSpace(payload.Status.ReconciledAt)); parseErr == nil {
+		state.ReconciledAt = &reconciledAt
+	}
+	for _, condition := range payload.Status.Conditions {
+		switch condition.Type {
+		case "InvalidSpecError", "ComparisonError", "SyncError", "UnknownError":
+			state.ConditionType = condition.Type
+			return state, nil
+		}
+	}
+	return state, nil
 }
 
 func (c *InClusterApplicationAPI) applicationPath(namespace, name string) string {

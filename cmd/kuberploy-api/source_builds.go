@@ -33,7 +33,7 @@ type sourceBuildAPI struct {
 	webhookService *builds.WebhookService
 }
 
-func newSourceBuildAPI(ctx context.Context, databaseURL, publicURL, appSlug string, config builds.WorkerRuntimeConfig, catalog sourceBuildCatalog) (*sourceBuildAPI, error) {
+func newSourceBuildAPI(ctx context.Context, databaseURL, publicURL, appSlug string, config builds.WorkerRuntimeConfig, catalog sourceBuildCatalog, gitSSH httpapi.GitSSHBuildRefProvider) (*sourceBuildAPI, error) {
 	if !config.Enabled {
 		return nil, nil
 	}
@@ -68,7 +68,7 @@ func newSourceBuildAPI(ctx context.Context, databaseURL, publicURL, appSlug stri
 	}
 	settings := &builds.BuilderPlatformSettingsService{Store: buildStore, Defaults: builds.DefaultBuilderPlatformSettings(config)}
 	resolver := &httpapi.ServerBuildDefinitionResolver{Catalog: catalog, Runtime: config, Settings: settings}
-	backend, err := httpapi.NewBuildBackendWithProvider(buildStore, resolver, client)
+	backend, err := httpapi.NewBuildBackendWithProviders(buildStore, resolver, client, gitSSH)
 	if err != nil {
 		buildStore.Close()
 		return nil, err

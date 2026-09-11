@@ -107,6 +107,7 @@ func RegistryCleanupPlanDigest(plan domain.RegistryCleanupPlan) string {
 	type planView struct {
 		RegistryTargetID string
 		ServiceID        string
+		Automatic        bool
 		SnapshotToken    string
 		AuthorityToken   string
 		Policy           domain.ServiceRegistryPolicy
@@ -137,6 +138,7 @@ func RegistryCleanupPlanDigest(plan domain.RegistryCleanupPlan) string {
 	return digestJSON(planView{
 		RegistryTargetID: plan.RegistryTargetID,
 		ServiceID:        plan.ServiceID,
+		Automatic:        plan.Automatic,
 		SnapshotToken:    plan.SnapshotToken,
 		AuthorityToken:   plan.AuthorityToken,
 		Policy:           plan.Policy,

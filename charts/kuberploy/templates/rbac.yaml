@@ -113,7 +113,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: {{ include "kuberploy.fullname" . }}-helm-applications
-  namespace: {{ .Values.config.argoDesiredState.namespace }}
+  namespace: {{ .Values.rbac.argoNamespace }}
   labels:
     {{- include "kuberploy.componentLabels" (dict "root" . "component" "api") | nindent 4 }}
 rules:
@@ -125,7 +125,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: {{ include "kuberploy.fullname" . }}-helm-applications
-  namespace: {{ .Values.config.argoDesiredState.namespace }}
+  namespace: {{ .Values.rbac.argoNamespace }}
   labels:
     {{- include "kuberploy.componentLabels" (dict "root" . "component" "api") | nindent 4 }}
 subjects:

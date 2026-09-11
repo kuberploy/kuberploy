@@ -41,7 +41,7 @@ web-build:
 
 helm-lint: platform-chart-test installer-chart-test monitoring-chart-test edge-chart-test argocd-chart-test postgresql-chart-test valkey-chart-test secret-controller-chart-test
 	@for chart in charts/kuberploy charts/kuberploy-runtime charts/kuberploy-registry charts/kuberploy-builder; do \
-		if [ -f "$$chart/Chart.yaml" ]; then helm lint "$$chart"; helm template test "$$chart" >/dev/null; fi; \
+		if [ -f "$$chart/Chart.yaml" ]; then helm lint "$$chart" --kube-version 1.34.0; helm template test "$$chart" --kube-version 1.34.0 >/dev/null; fi; \
 	done
 
 check: secret-scan test web-build helm-lint builder-chart-test registry-chart-test kubernetes-harness-test

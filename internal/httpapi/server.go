@@ -129,6 +129,7 @@ type Options struct {
 	GitHubSetup                        GitHubSetupBackend
 	GitHubWebhook                      GitHubWebhookBackend
 	Builds                             BuildBackend
+	SourceDeployments                  SourceDeploymentBackend
 	BuildPromotions                    *buildpromotion.Resolver
 	BuildLogs                          BuildLogService
 	GitBindingRepositories             GitBindingRepositoryResolver
@@ -186,6 +187,7 @@ type Server struct {
 	githubSetup                       GitHubSetupBackend
 	githubWebhookBackend              GitHubWebhookBackend
 	builds                            BuildBackend
+	sourceDeployments                 SourceDeploymentBackend
 	buildPromotions                   *buildpromotion.Resolver
 	buildLogs                         BuildLogService
 	gitBindingRepositories            GitBindingRepositoryResolver
@@ -223,6 +225,7 @@ func New(o Options) *Server {
 		defaultBuildPlatform = "linux/" + runtime.GOARCH
 	}
 	s := &Server{store: o.Store, version: o.Version, publicURL: strings.TrimSuffix(o.PublicURL, "/"), monitoringMode: strings.TrimSpace(o.MonitoringMode), sessionTTL: o.SessionTTL, secureCookie: o.SecureCookie, releases: o.Releases, metrics: o.Metrics, runtime: o.Runtime, runtimeReadiness: o.RuntimeReadiness, runtimeSecrets: o.RuntimeSecrets, runtimeSecretReadiness: o.RuntimeSecretReadiness, certificates: o.Certificates, certificateReadiness: o.CertificateReadiness, certificateReferences: o.CertificateReferences, certificateIssuers: o.CertificateIssuers, certificateIssuerAdmin: o.CertificateIssuerAdmin, certificateIssuerRuntimeReadiness: o.CertificateIssuerRuntimeReadiness, registryPullReadiness: o.RegistryPullReadiness, registryPulls: o.RegistryPulls, registryPullConfig: o.RegistryPullConfig, imageResolution: o.ImageResolution, githubSetup: o.GitHubSetup, githubWebhookBackend: o.GitHubWebhook, builds: o.Builds, buildPromotions: o.BuildPromotions, buildLogs: o.BuildLogs, gitBindingRepositories: o.GitBindingRepositories, platformGitBinding: o.PlatformGitBinding, buildReadiness: o.BuildReadiness, defaultBuildPlatform: defaultBuildPlatform, builderSettings: o.BuilderSettings, buildLogReadiness: o.BuildLogReadiness, valkeyReadiness: o.ValkeyReadiness, operationCache: o.OperationCache, appConfigRenderedPreviews: o.AppConfigRenderedPreviews, gitProjection: o.GitProjection, gitReadiness: o.GitProjectionReadiness, argoReadiness: o.ArgoReadiness, edgeReadiness: o.EdgeReadiness, edgeFeatures: o.EdgeFeatures, sslip: o.SSLIP, registryReadiness: o.RegistryReadiness, registry: newRegistryHTTP(o.Registry, o.RegistryReadiness), externalDNS: newExternalDNSHTTP(o.ExternalDNS, o.EdgeReadiness, o.EdgeFeatures.ExternalDNS), helmApplications: o.HelmApplications, gitSSHKeys: o.GitSSHKeys, middleware: o.MiddlewareProfiles, deploymentRollbacks: o.DeploymentRollbacks, autoDeployService: o.AutoDeployService, autoDeployPolicies: o.AutoDeployPolicies, autoDeployReadiness: o.AutoDeployReadiness, highRiskLimiter: o.HighRiskLimiter}
+	s.sourceDeployments = o.SourceDeployments
 	s.imageResolutionCatalog, _ = o.Store.(imageresolution.Catalog)
 	if s.gitBindingRepositories == nil {
 		if resolver, ok := o.Builds.(GitBindingRepositoryResolver); ok {
@@ -376,6 +379,7 @@ func New(o Options) *Server {
 	mux.Handle("GET /v1/deployments/{id}", s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.deployment))))
 	mux.Handle("DELETE /v1/deployments/{id}", s.protect(s.requireAutomationScope(domain.AutomationScopeAppEdit, http.HandlerFunc(s.stopDeployment))))
 	mux.Handle("POST /v1/deployments/{id}/redeploy", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppEdit, http.HandlerFunc(s.redeployDeployment)))))
+	mux.Handle("POST /v1/deployments/{id}/source-build", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeBuildCreate, s.highRiskActor(buildCommandLimit, http.HandlerFunc(s.sourceDeployment))))))
 	mux.Handle("GET /v1/deployments/{id}/status", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.deploymentStatus)))))
 	mux.Handle("GET /v1/deployments/{id}/rollback-sources", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.deploymentRollbackSources(s.deploymentRollbacks, w, r) })))))
 	mux.Handle("POST /v1/deployments/{id}/rollback", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppEdit, s.highRiskActor(deploymentRollbackLimit, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.rollbackDeployment(s.deploymentRollbacks, w, r) }))))))
@@ -788,9 +792,9 @@ func mappedError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, store.ErrProjectDeletionBlocked):
 		writeProblem(w, r, 409, "ProjectDeletionBlocked", "Project still has resources", "Remove the Project's Environments, Apps, active service accounts, secrets, and other owned resources before deleting it.")
 	case errors.Is(err, store.ErrApplicationDeletionBlocked):
-		writeProblem(w, r, 409, "ApplicationDeletionBlocked", "App still has resources", "Disable and remove the App's deployments, build configuration, releases, bindings, and policies before deleting it.")
+		writeProblem(w, r, 409, "ApplicationDeletionBlocked", "App still has resources", "Stop the App or disable its Helm release, then remove its build configuration, releases, bindings, and policies before deleting it.")
 	case errors.Is(err, store.ErrEnvironmentDeletionBlocked):
-		writeProblem(w, r, 409, "EnvironmentDeletionBlocked", "Environment still has resources", "Stop the Environment's Apps and remove its releases, variables, certificates, and integrations before deleting it. Kuberploy removes the Environment-scoped Git binding with the clean Environment.")
+		writeProblem(w, r, 409, "EnvironmentDeletionBlocked", "Environment still has resources", "Stop the Environment's Apps, disable its Helm releases, and remove its releases, variables, certificates, and integrations before deleting it. Kuberploy removes the Environment-scoped Git binding with the clean Environment.")
 	case errors.Is(err, store.ErrConflict):
 		writeProblem(w, r, 409, "Conflict", "Conflict", "The request conflicts with existing state.")
 	case errors.Is(err, store.ErrForbidden):

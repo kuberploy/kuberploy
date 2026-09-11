@@ -364,12 +364,13 @@ export function ProjectsPage() {
             </form>
           ) : (
             <form
-              className="grid items-end gap-3 to-580:grid-cols-[1fr] grid-cols-[1fr_1fr_1fr_1fr_auto] to-1120:grid-cols-[1fr_1fr] to-1120:[&_[data-slot='button']]:w-max"
+              className="grid items-end gap-3 grid-cols-[minmax(0,_1fr)_minmax(0,_1fr)_minmax(0,_1fr)_auto] to-1120:grid-cols-[1fr_1fr] to-1120:[&_[data-slot='button']]:w-max to-580:grid-cols-[1fr]"
               onSubmit={environmentForm.handleSubmit(submitEnvironment)}
             >
               <Field
                 label="Project"
                 required
+                hint="Kuberploy assigns namespace and Argo CD ownership from this Project and Environment."
                 error={environmentForm.formState.errors.projectId?.message}
               >
                 <Select
@@ -401,11 +402,11 @@ export function ProjectsPage() {
                   })}
                 />
               </Field>
-              <div className="p-4 border border-dashed border-[var(--line)] rounded-lg text-ink-faint bg-surface-soft text-meta text-center">
-                Kuberploy assigns the namespace and Argo CD project from this
-                project and environment identity.
-              </div>
-              <Field label="Git publication" required>
+              <Field
+                label="Git publication"
+                required
+                hint="Protected uses pull-request review; Development commits directly. This cannot be changed later."
+              >
                 <Select
                   {...environmentForm.register("protectionPolicy")}
                   value={environmentForm.watch("protectionPolicy")}
@@ -418,12 +419,6 @@ export function ProjectsPage() {
                   </option>
                 </Select>
               </Field>
-              <div className="p-4 border border-dashed border-[var(--line)] rounded-lg text-ink-faint bg-surface-soft text-meta text-center">
-                This policy cannot be changed after creation. Protected
-                environments require a freshly verified branch policy and never
-                deploy a candidate before its pull request is merged and
-                indexed.
-              </div>
               <input type="hidden" {...environmentForm.register("slug")} />
               <Button type="submit" busy={createEnvironment.isPending}>
                 Create environment
