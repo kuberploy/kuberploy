@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Auto-deploy policies can be disabled after a successful deployment changes the live App generation.",
+  "summary": "Git operations stay reliable during extended worker uptime, and variable and builder settings keep usable desktop spacing.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.438"
+  "version": "0.1.0-rc.439"
 }
