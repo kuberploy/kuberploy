@@ -107,12 +107,38 @@ func (s *MemoryStore) DeleteDefinition(_ context.Context, actorID, serviceID, de
 			}
 		}
 	}
+	for _, intent := range s.sourceDeploymentIntents {
+		if intent.DefinitionID == definitionID && (intent.State == SourceDeploymentPending || intent.State == SourceDeploymentProcessing) {
+			return false, ErrDeletionBlocked
+		}
+	}
 	for attemptID, attempt := range s.attempts {
 		if attempt.DefinitionID != definitionID {
 			continue
 		}
 		delete(s.releaseProjections, attemptID)
 		delete(s.attempts, attemptID)
+	}
+	deployments := make(map[string]struct{})
+	for intentID, intent := range s.sourceDeploymentIntents {
+		if intent.DefinitionID != definitionID || intent.ApplicationID != serviceID {
+			continue
+		}
+		deployments[intent.DeploymentID] = struct{}{}
+		delete(s.sourceDeploymentIntents, intentID)
+	}
+	for deploymentID := range deployments {
+		var latest int64
+		for _, intent := range s.sourceDeploymentIntents {
+			if intent.DeploymentID == deploymentID && intent.Sequence > latest {
+				latest = intent.Sequence
+			}
+		}
+		if latest == 0 {
+			delete(s.sourceDeploymentLatest, deploymentID)
+		} else {
+			s.sourceDeploymentLatest[deploymentID] = latest
+		}
 	}
 	delete(s.definitions, definitionID)
 	s.apiIdempotency[idemKey] = memoryAPIIdempotency{fingerprint: fingerprint, resourceID: definitionID}

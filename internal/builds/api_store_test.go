@@ -217,6 +217,26 @@ func TestMemoryDeleteDefinitionBlocksActiveWorkAndCleansTerminalHistory(t *testi
 	attempt.State, attempt.FailureCode, attempt.CompletedAt, attempt.UpdatedAt = AttemptFailed, "build-failed", &completed, completed
 	store.attempts[attempt.ID] = cloneAttempt(attempt)
 	store.mu.Unlock()
+	sourceCommand := sourceCommand(t, definition, SourceDeploymentDeploy, "", completed.Add(time.Second))
+	source, err := store.AcceptSourceDeployment(ctx, sourceCommand)
+	if err != nil {
+		t.Fatalf("accept source deployment: %v", err)
+	}
+	sourceCompleted := sourceCommand.AcceptedAt.Add(time.Minute)
+	store.mu.Lock()
+	sourceAttempt := store.attempts[source.Attempt.ID]
+	sourceAttempt.State, sourceAttempt.CompletedAt, sourceAttempt.UpdatedAt = AttemptSucceeded, &sourceCompleted, sourceCompleted
+	store.attempts[source.Attempt.ID] = cloneAttempt(sourceAttempt)
+	store.releaseProjections[source.Attempt.ID] = memoryReleaseProjection{state: ReleaseProjectionSucceeded, releaseID: source.Attempt.ID}
+	store.mu.Unlock()
+	if _, err = store.DeleteDefinition(ctx, actorID, definition.ServiceID, definition.ID, "disconnect-source-active", fingerprint, "request-source-active", sourceCompleted.Add(time.Second)); !errors.Is(err, ErrDeletionBlocked) {
+		t.Fatalf("active source deployment did not block disconnect: %v", err)
+	}
+	store.mu.Lock()
+	sourceIntent := store.sourceDeploymentIntents[source.Intent.ID]
+	sourceIntent.State, sourceIntent.FailureCode, sourceIntent.CompletedAt, sourceIntent.UpdatedAt = SourceDeploymentFailed, "deployment-failed", &sourceCompleted, sourceCompleted
+	store.sourceDeploymentIntents[source.Intent.ID] = sourceIntent
+	store.mu.Unlock()
 	replay, err := store.DeleteDefinition(ctx, actorID, definition.ServiceID, definition.ID, "disconnect-terminal", fingerprint, "request-delete", completed)
 	if err != nil || replay {
 		t.Fatalf("disconnect replay=%v err=%v", replay, err)
@@ -226,6 +246,18 @@ func TestMemoryDeleteDefinitionBlocksActiveWorkAndCleansTerminalHistory(t *testi
 	}
 	if _, err = store.HistoricalAttempt(ctx, attempt.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("attempt survived disconnect: %v", err)
+	}
+	if _, err = store.HistoricalAttempt(ctx, source.Attempt.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("source deployment attempt survived disconnect: %v", err)
+	}
+	if _, ok := store.sourceDeploymentIntents[source.Intent.ID]; ok {
+		t.Fatal("source deployment intent survived disconnect")
+	}
+	if _, ok := store.sourceDeploymentLatest[source.Intent.DeploymentID]; ok {
+		t.Fatal("source deployment sequence survived disconnect")
+	}
+	if _, ok := store.apiIdempotency[apiMemoryKey(sourceCommand.ActorID, APICommandSourceDeployment, sourceCommand.DeploymentID, sourceCommand.IdempotencyKey)]; !ok {
+		t.Fatal("source deployment idempotency tombstone was deleted")
 	}
 	replay, err = store.DeleteDefinition(ctx, actorID, definition.ServiceID, definition.ID, "disconnect-terminal", fingerprint, "request-replay", completed.Add(time.Second))
 	if err != nil || !replay {

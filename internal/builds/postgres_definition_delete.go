@@ -44,6 +44,7 @@ func (s *PostgreSQLStore) DeleteDefinition(ctx context.Context, actorID, service
 	activeQueries := []string{
 		`SELECT state FROM build_attempts WHERE definition_id=$1 AND state NOT IN ('succeeded','failed','cancelled') FOR UPDATE`,
 		`SELECT p.state FROM build_release_projections p JOIN build_attempts a ON a.id=p.attempt_id WHERE a.definition_id=$1 AND p.state IN ('pending','processing') FOR UPDATE OF p`,
+		`SELECT state FROM source_deployment_intents WHERE definition_id=$1 AND state IN ('pending','processing') FOR UPDATE`,
 		`SELECT state FROM auto_deploy_runs WHERE definition_id=$1 AND state IN ('pending','processing') FOR UPDATE`,
 	}
 	for _, query := range activeQueries {
@@ -68,6 +69,7 @@ func (s *PostgreSQLStore) DeleteDefinition(ctx context.Context, actorID, service
 		{`DELETE FROM mutation_receipts WHERE receipt_kind='auto-deploy-policy' AND auto_deploy_policy_id IN (SELECT id FROM auto_deploy_policies WHERE application_id=$1)`, []any{serviceID}},
 		{`DELETE FROM auto_deploy_policy_revisions WHERE policy_id IN (SELECT id FROM auto_deploy_policies WHERE application_id=$1)`, []any{serviceID}},
 		{`DELETE FROM auto_deploy_policies WHERE application_id=$1`, []any{serviceID}},
+		{`DELETE FROM source_deployment_intents WHERE definition_id=$1 AND application_id=$2`, []any{definitionID, serviceID}},
 		{`DELETE FROM build_release_projections WHERE attempt_id IN (SELECT id FROM build_attempts WHERE definition_id=$1 AND service_id=$2)`, []any{definitionID, serviceID}},
 		{`DELETE FROM build_attempts WHERE definition_id=$1 AND service_id=$2`, []any{definitionID, serviceID}},
 		{`UPDATE applications SET build_source_id=NULL,build_source_kind=NULL,build_source_installation_id=NULL,

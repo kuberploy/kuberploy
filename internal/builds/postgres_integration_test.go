@@ -661,4 +661,52 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	if err != nil || !started.Intent.StartDraft || started.Intent.Sequence != 2 {
 		t.Fatalf("source draft acceptance=%+v err=%v", started, err)
 	}
+
+	// Disconnect waits for one-shot deployment work, then removes its build
+	// history before clearing the App-owned source. Immutable idempotency
+	// tombstones remain.
+	if _, err = pool.Exec(ctx, `UPDATE build_attempts SET state='failed',failure_code='fixture-failure',lease_owner=NULL,lease_until=NULL,
+		completed_at=$2,updated_at=$2 WHERE definition_id=$1 AND state NOT IN ('succeeded','failed','cancelled')`, definitionID, startDraft.AcceptedAt.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE build_release_projections SET state='failed',failure_code='fixture-failure',lease_owner=NULL,lease_until=NULL,
+		completed_at=$2,updated_at=$2 WHERE attempt_id IN (SELECT id FROM build_attempts WHERE definition_id=$1) AND state IN ('pending','processing')`, definitionID, startDraft.AcceptedAt.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE auto_deploy_runs SET state='failed',failure_code='fixture-failure',lease_owner=NULL,lease_until=NULL,
+		completed_at=$2,updated_at=$2 WHERE definition_id=$1 AND state IN ('pending','processing')`, definitionID, startDraft.AcceptedAt.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	disconnectFingerprint := "sha256:" + strings.Repeat("8", 64)
+	if _, err = store.DeleteDefinition(ctx, userID, serviceID, definitionID, "postgres-disconnect-source", disconnectFingerprint,
+		"postgres-disconnect-source-active", startDraft.AcceptedAt.Add(2*time.Minute)); !errors.Is(err, ErrDeletionBlocked) {
+		t.Fatalf("active source deployment did not block disconnect: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE source_deployment_intents SET state='failed',failure_code='fixture-failure',lease_owner=NULL,lease_until=NULL,
+		completed_at=$2,updated_at=$2 WHERE definition_id=$1 AND state IN ('pending','processing')`, definitionID, startDraft.AcceptedAt.Add(3*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	replay, err = store.DeleteDefinition(ctx, userID, serviceID, definitionID, "postgres-disconnect-source", disconnectFingerprint,
+		"postgres-disconnect-source-terminal", startDraft.AcceptedAt.Add(4*time.Minute))
+	if err != nil || replay {
+		t.Fatalf("disconnect replay=%v err=%v", replay, err)
+	}
+	var remainingIntents, remainingAttempts, remainingSourceReceipts int
+	var applicationSourceID *string
+	if err = pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM source_deployment_intents WHERE definition_id=$1),
+		(SELECT count(*) FROM build_attempts WHERE definition_id=$1),
+		(SELECT count(*) FROM mutation_receipts WHERE receipt_kind='build-api' AND namespace='deployment.source-build' AND resource_id IN ($2,$3)),
+		(SELECT build_source_id::text FROM applications WHERE id=$4)`, definitionID, accepted.Attempt.ID, started.Attempt.ID, serviceID).
+		Scan(&remainingIntents, &remainingAttempts, &remainingSourceReceipts, &applicationSourceID); err != nil {
+		t.Fatal(err)
+	}
+	if remainingIntents != 0 || remainingAttempts != 0 || remainingSourceReceipts != 2 || applicationSourceID != nil {
+		t.Fatalf("disconnect cleanup intents=%d attempts=%d receipts=%d source=%v", remainingIntents, remainingAttempts, remainingSourceReceipts, applicationSourceID)
+	}
+	replay, err = store.DeleteDefinition(ctx, userID, serviceID, definitionID, "postgres-disconnect-source", disconnectFingerprint,
+		"postgres-disconnect-source-replay", startDraft.AcceptedAt.Add(5*time.Minute))
+	if err != nil || !replay {
+		t.Fatalf("disconnect replay=%v err=%v", replay, err)
+	}
 }
