@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "User and team lifecycle flows preserve sessions, transfer GitHub App ownership safely, and keep access screens usable for ordinary members.",
+  "summary": "Stopped App drafts remain visible, registry cleanup ignores undeployed drafts, and Git SSH builds run correctly in the API image.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.443"
+  "version": "0.1.0-rc.444"
 }
