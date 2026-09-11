@@ -68,6 +68,11 @@ describe("builder platform settings", () => {
     renderPage();
 
     await screen.findByRole("heading", { name: "Source builders" });
+    expect(
+      screen
+        .getByRole("button", { name: "Save builder settings" })
+        .closest("form"),
+    ).toHaveClass("grid", "gap-6");
     const concurrency = screen.getByLabelText(/Maximum concurrent builders/);
     await user.clear(concurrency);
     await user.type(concurrency, "3");

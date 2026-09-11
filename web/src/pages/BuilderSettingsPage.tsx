@@ -174,7 +174,7 @@ export function BuilderSettingsPage() {
         }
       />
 
-      <form onSubmit={submit}>
+      <form className="grid gap-6" onSubmit={submit}>
         <Card>
           <CardHeader>
             <div>

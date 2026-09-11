@@ -27,6 +27,8 @@ const (
 	defaultMaxGitFiles = 100_000
 )
 
+// Automatic maintenance stays in the foreground so the worker waits for Git
+// instead of accumulating detached zombie processes when running as PID 1.
 const trustedBareConfig = `[core]
 	repositoryformatversion = 0
 	filemode = true
@@ -35,6 +37,10 @@ const trustedBareConfig = `[core]
 	ignorecase = false
 [http]
 	followRedirects = false
+[maintenance]
+	autoDetach = false
+[gc]
+	autoDetach = false
 `
 
 // MirrorManager owns bounded, disposable bare mirrors and detached worktrees.

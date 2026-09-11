@@ -234,10 +234,10 @@ function VariableSetEditor({
           </div>
         </Notice>
       ) : null}
-      <label className="flex min-w-0 flex-col gap-1.5 gap-2 [&_input]:w-full [&_input]:py-0 [&_input]:px-3 [&_input]:border [&_input]:border-line-strong [&_input]:outline-none [&_input]:text-ink [&_input]:bg-surface [&_input]:transition-[border-color,box-shadow] [&_input]:duration-(--motion-fast) [&_input]:ease-(--ease-standard) [&_input]:min-h-11 [&_input]:rounded-[9px] [&_input]:text-sm [&_select]:w-full [&_select]:py-0 [&_select]:px-3 [&_select]:border [&_select]:border-line-strong [&_select]:outline-none [&_select]:text-ink [&_select]:bg-surface [&_select]:transition-[border-color,box-shadow] [&_select]:duration-(--motion-fast) [&_select]:ease-(--ease-standard) [&_select]:min-h-11 [&_select]:rounded-[9px] [&_select]:text-sm [&_textarea]:w-full [&_textarea]:py-0 [&_textarea]:px-3 [&_textarea]:border [&_textarea]:border-line-strong [&_textarea]:outline-none [&_textarea]:text-ink [&_textarea]:bg-surface [&_textarea]:transition-[border-color,box-shadow] [&_textarea]:duration-(--motion-fast) [&_textarea]:ease-(--ease-standard) [&_textarea]:min-h-11 [&_textarea]:rounded-[9px] [&_textarea]:text-sm">
+      <label className="flex min-w-0 flex-col gap-2">
         <FieldLabel>{scopeLabel(snapshot.scope)} YAML</FieldLabel>
         <textarea
-          className="min-h-[320px] p-4 resize-y font-mono text-[11px] leading-[1.6]"
+          className="min-h-[320px] w-full resize-y rounded-[9px] border border-line-strong bg-surface p-4 font-mono text-[11px] leading-[1.6] text-ink outline-none focus-visible:border-mint focus-visible:ring-2 focus-visible:ring-ring/25"
           aria-label={`${scopeLabel(snapshot.scope)} YAML`}
           spellCheck={false}
           value={rawYaml}

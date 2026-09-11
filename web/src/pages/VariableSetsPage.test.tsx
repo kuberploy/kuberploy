@@ -124,9 +124,14 @@ describe("VariableSet management", () => {
     const card = heading.closest("section");
     if (!card) throw new Error("project variable card missing");
     const projectEditor = within(card);
-    expect(
-      projectEditor.getByRole("textbox", { name: "Project variables YAML" }),
-    ).toHaveValue(rawYaml);
+    const projectYaml = projectEditor.getByRole("textbox", {
+      name: "Project variables YAML",
+    });
+    expect(projectYaml).toHaveValue(rawYaml);
+    expect(projectYaml).toHaveClass("min-h-[320px]", "w-full", "p-4");
+    expect(projectYaml.closest("label")).not.toHaveClass(
+      "[&_textarea]:min-h-11",
+    );
     expect(screen.queryByRole("combobox")).toBeNull();
     expect(screen.getAllByText(/fixed by environment policy/i)).toHaveLength(2);
     expect(screen.getByText(/may affect every environment/i)).toBeVisible();

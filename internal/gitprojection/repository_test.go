@@ -210,6 +210,25 @@ func TestBindingCredentialModesAreExplicitAndMutuallyExclusive(t *testing.T) {
 	}
 }
 
+func TestMirrorManagerKeepsMaintenanceInForeground(t *testing.T) {
+	fixture := seedRepository(t, false)
+	manager := &gitprojection.MirrorManager{Root: t.TempDir(), AllowLocalTests: true, LocalRemote: fixture.remote}
+	for range 3 {
+		prepared, err := manager.Prepare(t.Context(), fixture.binding, verified(fixture.binding, fixture.head, "maintenance", time.Now()), operationID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, key := range []string{"maintenance.autoDetach", "gc.autoDetach"} {
+			if got := runGit(t, prepared.MirrorPath, "config", "--bool", "--get", key); got != "false" {
+				t.Fatalf("%s = %q: maintenance must remain a waited-for child", key, got)
+			}
+		}
+		if err := prepared.Close(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestMirrorManagerHardensSymlinksAndUsesNormalCASPush(t *testing.T) {
 	fixture := seedRepository(t, true)
 	manager := &gitprojection.MirrorManager{Root: filepath.Join(t.TempDir(), "cache"), AllowLocalTests: true, LocalRemote: fixture.remote, Timeout: 10 * time.Second}
