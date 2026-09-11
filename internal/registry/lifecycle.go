@@ -493,7 +493,7 @@ func BuildCleanupPlan(snapshot domain.RegistryLifecycleSnapshot, now time.Time, 
 		}
 	}
 
-	sortCleanupItems(items)
+	sortCleanupItems(items, graph)
 	summary := summarize(items, cacheBefore, cacheAfter, snapshot.Policy.CacheByteQuota)
 	if summary.GarbageCollectBlobs > maximumMaintenanceCandidates {
 		return domain.RegistryCleanupPlan{}, fmt.Errorf("%w: cleanup exceeds the bounded offline blob batch", store.ErrRegistryPolicyInvalid)
@@ -889,7 +889,34 @@ func summarize(items []domain.RegistryCleanupItem, cacheBefore, cacheAfter, quot
 	return summary
 }
 
-func sortCleanupItems(items []domain.RegistryCleanupItem) {
+func manifestDepths(graph lifecycleGraph) map[string]int {
+	parents := make(map[string][]string)
+	for parent, children := range graph.children {
+		for _, child := range children {
+			parents[child] = append(parents[child], parent)
+		}
+	}
+	depths := make(map[string]int, len(graph.manifests))
+	var depth func(string) int
+	depth = func(key string) int {
+		if value, found := depths[key]; found {
+			return value
+		}
+		value := 0
+		for _, parent := range parents[key] {
+			value = max(value, depth(parent)+1)
+		}
+		depths[key] = value
+		return value
+	}
+	for key := range graph.manifests {
+		depth(key)
+	}
+	return depths
+}
+
+func sortCleanupItems(items []domain.RegistryCleanupItem, graph lifecycleGraph) {
+	depths := manifestDepths(graph)
 	sort.Slice(items, func(i, j int) bool {
 		pi, pj := 0, 0
 		if items[i].ResourceKind == "blob" {
@@ -900,6 +927,13 @@ func sortCleanupItems(items []domain.RegistryCleanupItem) {
 		}
 		if pi != pj {
 			return pi < pj
+		}
+		if pi == 0 {
+			depthI := depths[nodeKey(items[i].Repository, items[i].Digest)]
+			depthJ := depths[nodeKey(items[j].Repository, items[j].Digest)]
+			if depthI != depthJ {
+				return depthI < depthJ
+			}
 		}
 		if items[i].Repository != items[j].Repository {
 			return items[i].Repository < items[j].Repository

@@ -216,6 +216,31 @@ func TestBuildCleanupPlanProtectsEveryAuthorityAndOCIReachability(t *testing.T) 
 	}
 }
 
+func TestBuildCleanupPlanDeletesParentsBeforeChildren(t *testing.T) {
+	now := time.Date(2026, 8, 9, 4, 0, 0, 0, time.UTC)
+	snapshot := fixtureSnapshot(now)
+	repository := snapshot.Policy.Repository
+	parentDigest := digest("f")
+	childDigest := digest("b")
+	snapshot.References = nil
+	snapshot.Releases = snapshot.Releases[1:]
+	snapshot.Manifests[0].Digest = parentDigest
+	snapshot.Children[0].ParentDigest = parentDigest
+
+	plan, err := BuildCleanupPlan(snapshot, now, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := findItem(t, plan, repository, parentDigest)
+	child := findItem(t, plan, repository, childDigest)
+	if parent.Disposition != domain.RegistryCleanupDelete || child.Disposition != domain.RegistryCleanupDelete {
+		t.Fatalf("parent=%#v child=%#v", parent, child)
+	}
+	if parent.Ordinal >= child.Ordinal {
+		t.Fatalf("parent ordinal=%d child ordinal=%d", parent.Ordinal, child.Ordinal)
+	}
+}
+
 func TestBuildCleanupPlanUsesObservedGraphForCacheBytes(t *testing.T) {
 	now := time.Date(2026, 8, 9, 4, 0, 0, 0, time.UTC)
 	snapshot := fixtureSnapshot(now)
