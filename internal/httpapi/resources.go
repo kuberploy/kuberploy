@@ -793,11 +793,15 @@ func (s *Server) stopDeployment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	bundle, err := s.gitProjection.Bundle(r.Context(), actor, deployment, "", 0)
-	if err != nil {
+	if err != nil && !errors.Is(err, gitprojection.ErrNotFound) {
 		mappedDeploymentGitError(w, r, err, false)
 		return
 	}
-	plan, err := s.gitProjection.PlanMutation(r.Context(), actor, deployment.EnvironmentID, deployment.ApplicationID, bundle.ETag)
+	expectedETag := ""
+	if err == nil {
+		expectedETag = bundle.ETag
+	}
+	plan, err := s.gitProjection.PlanMutation(r.Context(), actor, deployment.EnvironmentID, deployment.ApplicationID, expectedETag)
 	if err != nil {
 		mappedDeploymentGitError(w, r, err, false)
 		return

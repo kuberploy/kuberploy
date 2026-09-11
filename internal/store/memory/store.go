@@ -958,7 +958,7 @@ func (s *Store) StopDeployment(_ context.Context, actor, deploymentID, key, fp, 
 		return base.Result[domain.Operation]{}, err
 	}
 	if projection == nil || projection.EnvironmentID != d.EnvironmentID || projection.ApplicationID != d.ApplicationID ||
-		projection.Precondition != gitprojection.MutationMatchETag {
+		(projection.Precondition != gitprojection.MutationMatchETag && projection.Precondition != gitprojection.MutationCreateIfAbsent) {
 		return base.Result[domain.Operation]{}, base.ErrPreconditionFailed
 	}
 	if _, err := s.validateProjectionPlanLocked(projection); err != nil {
@@ -973,6 +973,23 @@ func (s *Store) StopDeployment(_ context.Context, actor, deploymentID, key, fp, 
 		}
 	}
 	d.Generation++
+	if projection.Precondition == gitprojection.MutationCreateIfAbsent {
+		finished := now
+		op := domain.Operation{ID: id.New(), Kind: "deployment.git-write", Status: "succeeded", TargetType: "deployment", TargetID: d.ID,
+			RequestID: requestID, Generation: d.Generation, Progress: []domain.ProgressStep{{Name: "git-write", Status: "succeeded", Detail: "desired AppConfig already absent", FinishedAt: &finished}}, CreatedAt: now, UpdatedAt: now, FinishedAt: &finished}
+		d.State, d.OperationID, d.UpdatedAt = "stopped", op.ID, now
+		s.deployments[d.ID] = d
+		s.deploymentInputs[op.ID] = d
+		s.operations[op.ID] = op
+		if placements := s.environmentAppPlacements[d.EnvironmentID]; placements != nil {
+			placement := placements[d.ApplicationID]
+			placement.State, placement.DesiredState, placement.UpdatedAt = domain.EnvironmentAppPlacementDraft, domain.EnvironmentAppPlacementStopped, now
+			placements[d.ApplicationID] = placement
+		}
+		s.idempotency[k] = idemRecord{fp, "deployment", d.ID, op.ID}
+		s.audits++
+		return base.Result[domain.Operation]{Value: op}, nil
+	}
 	op := domain.Operation{ID: id.New(), Kind: "deployment.git-write", Status: "queued", TargetType: "deployment", TargetID: d.ID,
 		RequestID: requestID, Generation: d.Generation, Progress: []domain.ProgressStep{{Name: "git-write", Status: "pending"}}, CreatedAt: now, UpdatedAt: now}
 	if err := s.putGitDeleteCommandLocked(actor, op.ID, d.ID, projection, d.ConfigRaw, "stop("+d.ApplicationID+"): remove App desired state", now); err != nil {

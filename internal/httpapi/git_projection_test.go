@@ -18,6 +18,7 @@ import (
 	"github.com/kuberploy/kuberploy/internal/httpapi"
 	"github.com/kuberploy/kuberploy/internal/ratelimit"
 	"github.com/kuberploy/kuberploy/internal/secrets"
+	"github.com/kuberploy/kuberploy/internal/store"
 	"github.com/kuberploy/kuberploy/internal/store/memory"
 )
 
@@ -335,6 +336,65 @@ func TestProjectionHTTPCreateReplayBundleAndCapabilityAreExact(t *testing.T) {
 		t.Fatalf("stale optional Git projection removed API readiness: status=%d", r.StatusCode)
 	}
 	r.Body.Close()
+}
+
+func TestProjectionHTTPStopReconcilesAlreadyAbsentAppConfig(t *testing.T) {
+	backend := &projectionHTTPBackend{}
+	f := newProjectionAPI(t, backend, &projectionHTTPReadiness{})
+	admin := f.bootstrap()
+	project, err := f.store.CreateProject(t.Context(), admin.ID, "absent-stop-project", "absent-stop-project",
+		domain.CreateProject{Name: "Absent stop", Slug: "absent-stop"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment, err := f.store.CreateEnvironment(t.Context(), admin.ID, "absent-stop-environment", "absent-stop-environment",
+		domain.CreateEnvironment{ProjectID: project.Value.ID, Name: "Production", Slug: "production"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	application, err := f.store.CreateApplication(t.Context(), admin.ID, "absent-stop-application", "absent-stop-application",
+		domain.CreateApplication{ProjectID: project.Value.ID, Name: "API", Slug: "api"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := projectedHTTPBinding(t, project.Value.ID, environment.Value.ID, time.Now().UTC().Add(-time.Minute))
+	if err = f.store.PutBinding(t.Context(), binding); err != nil {
+		t.Fatal(err)
+	}
+	backend.plan = gitprojection.WritePlan{BindingID: binding.ID, ProjectID: project.Value.ID, EnvironmentID: environment.Value.ID,
+		ApplicationID: application.Value.ID, BaseRevision: binding.IndexedRevision, Precondition: gitprojection.MutationCreateIfAbsent,
+		ChartDigest: "sha256:" + strings.Repeat("d", 64), PolicyVersion: "appconfig-v1alpha1"}
+	body := map[string]any{"environmentId": environment.Value.ID, "applicationId": application.Value.ID,
+		"image": "registry.example/api@sha256:" + strings.Repeat("a", 64), "runtime": domain.DefaultWorkloadRuntime(8080, nil)}
+	r := f.request(http.MethodPost, "/v1/deployments", "absent-stop-create", body)
+	created := decode[domain.Operation](t, r)
+	if r.StatusCode != http.StatusAccepted || created.TargetID == "" {
+		t.Fatalf("create status=%d operation=%#v", r.StatusCode, created)
+	}
+	outboxBefore := f.store.OutboxCount()
+	backend.bundleErr = gitprojection.ErrNotFound
+	r = f.request(http.MethodDelete, "/v1/deployments/"+created.TargetID, "absent-stop-reconcile", nil)
+	stopped := decode[domain.Operation](t, r)
+	if r.StatusCode != http.StatusAccepted || stopped.Status != "succeeded" || stopped.FinishedAt == nil || stopped.TargetID != created.TargetID {
+		t.Fatalf("reconciled stop status=%d operation=%#v", r.StatusCode, stopped)
+	}
+	if f.store.OutboxCount() != outboxBefore {
+		t.Fatalf("already-absent stop queued Git work: before=%d after=%d", outboxBefore, f.store.OutboxCount())
+	}
+	if _, err = f.store.AcceptedGitWriteCommand(stopped.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("already-absent stop created Git command: %v", err)
+	}
+	r = f.request(http.MethodGet, "/v1/deployments/"+created.TargetID, "", nil)
+	deployment := decode[domain.Deployment](t, r)
+	if r.StatusCode != http.StatusOK || deployment.State != "stopped" || deployment.OperationID != stopped.ID {
+		t.Fatalf("reconciled deployment status=%d deployment=%#v", r.StatusCode, deployment)
+	}
+	backend.planErr = gitprojection.ErrStale
+	r = f.request(http.MethodDelete, "/v1/deployments/"+created.TargetID, "absent-stop-reconcile", nil)
+	replayed := decode[domain.Operation](t, r)
+	if r.StatusCode != http.StatusAccepted || replayed.ID != stopped.ID || r.Header.Get("Idempotent-Replay") != "true" {
+		t.Fatalf("reconciled stop replay status=%d operation=%#v", r.StatusCode, replayed)
+	}
 }
 
 func TestCustomCertificatePreviewAndSaveRevalidateExactReference(t *testing.T) {

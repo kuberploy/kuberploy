@@ -769,4 +769,37 @@ func TestTeamAccessSQLPaths(t *testing.T) {
 	if err != nil || stopSnapshot.ID != deployment.Value.ID || !bytes.Equal(stopSnapshot.ConfigRaw, stopDeploymentInput.ConfigRaw) || stopSnapshot.Image != stopDeploymentInput.Image {
 		t.Fatalf("stop operation snapshot=%#v err=%v", stopSnapshot, err)
 	}
+
+	// A provider commit can remove desired state before local completion loses
+	// its compare-and-swap race. A retry against the freshly indexed absent path
+	// must finish the deployment locally without publishing another Git delete.
+	if _, err = st.pool.Exec(ctx, `DELETE FROM git_projected_documents WHERE binding_id=$1 AND generation=1 AND path=$2`, stopBinding.ID, stopDocument.Path); err != nil {
+		t.Fatal(err)
+	}
+	absentPlan := stopPlan
+	absentPlan.Precondition = gitprojection.MutationCreateIfAbsent
+	absentPlan.ExpectedETag = ""
+	reconciled, err := st.StopDeployment(ctx, admin.ID, deployment.Value.ID, "stop-already-absent", "stop-already-absent", "request", &absentPlan)
+	if err != nil || reconciled.Replay || reconciled.Value.Status != "succeeded" || reconciled.Value.FinishedAt == nil {
+		t.Fatalf("reconciled absent stop result=%#v err=%v", reconciled, err)
+	}
+	current, err := st.GetDeployment(ctx, deployment.Value.ID)
+	if err != nil || current.State != "stopped" || current.OperationID != reconciled.Value.ID {
+		t.Fatalf("reconciled deployment=%#v err=%v", current, err)
+	}
+	var commands, outbox int
+	if err = st.pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM git_write_commands WHERE operation_id=$1),
+		(SELECT count(*) FROM outbox WHERE operation_id=$1)`, reconciled.Value.ID).Scan(&commands, &outbox); err != nil || commands != 0 || outbox != 0 {
+		t.Fatalf("reconciled stop commands=%d outbox=%d err=%v", commands, outbox, err)
+	}
+	var placementState, desiredState string
+	if err = st.pool.QueryRow(ctx, `SELECT state,desired_state FROM environment_app_placements WHERE environment_id=$1 AND application_id=$2`,
+		environment.Value.ID, application.Value.ID).Scan(&placementState, &desiredState); err != nil || placementState != "draft" || desiredState != "stopped" {
+		t.Fatalf("reconciled placement=%s/%s err=%v", placementState, desiredState, err)
+	}
+	replayedAbsent, err := st.StopDeployment(ctx, admin.ID, deployment.Value.ID, "stop-already-absent", "stop-already-absent", "request", &gitprojection.WritePlan{})
+	if err != nil || !replayedAbsent.Replay || replayedAbsent.Value.ID != reconciled.Value.ID {
+		t.Fatalf("reconciled absent stop replay=%#v err=%v", replayedAbsent, err)
+	}
 }

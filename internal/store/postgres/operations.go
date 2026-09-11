@@ -293,7 +293,7 @@ func (s *Store) StopDeployment(ctx context.Context, actor, deploymentID, key, fi
 		return base.Result[domain.Operation]{}, err
 	}
 	if projection == nil || projection.EnvironmentID != d.EnvironmentID || projection.ApplicationID != d.ApplicationID ||
-		projection.Precondition != gitprojection.MutationMatchETag {
+		(projection.Precondition != gitprojection.MutationMatchETag && projection.Precondition != gitprojection.MutationCreateIfAbsent) {
 		return base.Result[domain.Operation]{}, base.ErrPreconditionFailed
 	}
 	if _, err = validateGitProjectionPlanTx(ctx, tx, projection); err != nil {
@@ -307,6 +307,43 @@ func (s *Store) StopDeployment(ctx context.Context, actor, deploymentID, key, fi
 	}
 	generation := d.Generation + 1
 	opID := id.New()
+	if projection.Precondition == gitprojection.MutationCreateIfAbsent {
+		finished := now
+		progress, _ := json.Marshal([]domain.ProgressStep{{Name: "git-write", Status: "succeeded", FinishedAt: &finished, Detail: "desired AppConfig already absent"}})
+		op := domain.Operation{ID: opID, Kind: "deployment.git-write", Status: "succeeded", TargetType: "deployment", TargetID: d.ID,
+			RequestID: requestID, Generation: generation, Progress: []domain.ProgressStep{{Name: "git-write", Status: "succeeded", FinishedAt: &finished, Detail: "desired AppConfig already absent"}}, CreatedAt: now, UpdatedAt: now, FinishedAt: &finished}
+		if _, err = tx.Exec(ctx, `INSERT INTO operations(id,kind,status,target_type,target_id,request_id,generation,progress,created_at,updated_at,finished_at)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$9)`, op.ID, op.Kind, op.Status, op.TargetType, op.TargetID, op.RequestID, op.Generation, progress, now); err != nil {
+			return base.Result[domain.Operation]{}, classify(err)
+		}
+		if _, err = tx.Exec(ctx, `UPDATE deployments SET state='stopped',operation_id=$2,generation=$3,updated_at=$4 WHERE id=$1`, d.ID, op.ID, generation, now); err != nil {
+			return base.Result[domain.Operation]{}, err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE environment_app_placements SET state='draft',desired_state='stopped',updated_at=$3
+			WHERE environment_id=$1 AND application_id=$2`, d.EnvironmentID, d.ApplicationID, now); err != nil {
+			return base.Result[domain.Operation]{}, err
+		}
+		environmentJSON, _ := json.Marshal(d.Environment)
+		runtimeJSON, _ := json.Marshal(d.Runtime)
+		var routeJSON []byte
+		if d.Route != nil {
+			routeJSON, _ = json.Marshal(d.Route)
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO deployment_operation_inputs(operation_id,deployment_id,image,replicas,port,environment,route,runtime,config_raw,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+			op.ID, d.ID, d.Image, d.Replicas, d.Port, environmentJSON, routeJSON, runtimeJSON, d.ConfigRaw, now); err != nil {
+			return base.Result[domain.Operation]{}, err
+		}
+		if err = audit(ctx, tx, actor, "deployment.stop.reconciled", "deployment", d.ID, requestID, map[string]any{"operationId": op.ID, "generation": generation}); err != nil {
+			return base.Result[domain.Operation]{}, err
+		}
+		if err = putIdem(ctx, tx, actor, scope, key, fingerprint, "deployment", d.ID, &opID); err != nil {
+			return base.Result[domain.Operation]{}, classify(err)
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return base.Result[domain.Operation]{}, err
+		}
+		return base.Result[domain.Operation]{Value: op}, nil
+	}
 	progress, _ := json.Marshal([]domain.ProgressStep{{Name: "git-write", Status: "pending"}})
 	op := domain.Operation{ID: opID, Kind: "deployment.git-write", Status: "queued", TargetType: "deployment", TargetID: d.ID,
 		RequestID: requestID, Generation: generation, Progress: []domain.ProgressStep{{Name: "git-write", Status: "pending"}}, CreatedAt: now, UpdatedAt: now}
