@@ -44,7 +44,9 @@ FROM docker.io/library/alpine:3.24
 RUN apk add --no-cache \
       ca-certificates=20260611-r0 \
       git=2.54.0-r0 \
-      openssh-client-default=10.3_p1-r1
+      openssh-client-default=10.3_p1-r1 \
+    && addgroup -S -g 65532 kuberploy \
+    && adduser -S -D -H -u 65532 -G kuberploy kuberploy
 
 ARG VERSION=dev
 ARG REVISION=unknown
@@ -62,5 +64,6 @@ COPY --from=build --chown=65532:65532 /out/kuberploy-bootstrap-token /kuberploy-
 COPY --from=helm-runtime --chown=65532:65532 /usr/bin/helm /usr/local/bin/helm
 COPY --chown=65532:65532 charts/kuberploy-runtime /opt/kuberploy/charts/kuberploy-runtime
 USER 65532:65532
+RUN ssh -V
 EXPOSE 8080
 ENTRYPOINT ["/kuberploy-api"]

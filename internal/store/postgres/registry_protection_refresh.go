@@ -81,7 +81,8 @@ func (s *Store) RefreshRegistryProtection(ctx context.Context, targetID, service
 }
 
 func registryProtectionDeployments(ctx context.Context, q registryDB, serviceID string) ([]registryProtectionDeployment, error) {
-	rows, err := q.Query(ctx, `SELECT id::text,environment_id::text FROM deployments WHERE application_id=$1 ORDER BY id`, serviceID)
+	rows, err := q.Query(ctx, `SELECT id::text,environment_id::text FROM deployments
+		WHERE application_id=$1 AND state<>'stopped' ORDER BY id`, serviceID)
 	if err != nil {
 		return nil, err
 	}

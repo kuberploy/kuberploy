@@ -26,8 +26,8 @@ func TestRefreshRegistryProtectionFromExactDurableSources(t *testing.T) {
 	defer st.Close()
 
 	now := databaseTime(time.Now())
-	projectID, environmentID, applicationID := id.New(), id.New(), id.New()
-	deploymentID, initialOperationID, activeOperationID := id.New(), id.New(), id.New()
+	projectID, environmentID, draftEnvironmentID, applicationID := id.New(), id.New(), id.New(), id.New()
+	deploymentID, draftDeploymentID, initialOperationID, draftOperationID, activeOperationID := id.New(), id.New(), id.New(), id.New(), id.New()
 	bindingID, targetID := id.New(), id.New()
 	repository := "integration/" + targetID + "/service"
 	configRevisionA, configRevisionB := strings.Repeat("a", 40), strings.Repeat("b", 40)
@@ -40,9 +40,12 @@ func TestRefreshRegistryProtectionFromExactDurableSources(t *testing.T) {
 	}{
 		{`INSERT INTO projects(id,name,slug,created_at) VALUES($1,$2,$3,$4)`, []any{projectID, "registry-protection-" + projectID, "rp-" + projectID, now}},
 		{`INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,'Dev','dev',$3,$4,$5)`, []any{environmentID, projectID, "kp-rp-" + environmentID, "kp-rp-" + environmentID, now}},
+		{`INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,'Draft','draft',$3,$4,$5)`, []any{draftEnvironmentID, projectID, "kp-rp-" + draftEnvironmentID, "kp-rp-" + draftEnvironmentID, now}},
 		{`INSERT INTO applications(id,project_id,name,slug,created_at) VALUES($1,$2,'API','api',$3)`, []any{applicationID, projectID, now}},
 		{`INSERT INTO operations(id,kind,status,target_type,target_id,request_id,generation,progress,git_revision,created_at,updated_at,finished_at) VALUES($1,'deployment.apply','succeeded','deployment',$2,$3,1,'[]',$4,$5,$5,$5)`, []any{initialOperationID, deploymentID, "rp-initial-" + deploymentID, configRevisionA, now}},
+		{`INSERT INTO operations(id,kind,status,target_type,target_id,request_id,generation,progress,git_revision,created_at,updated_at,finished_at) VALUES($1,'deployment.draft-create','succeeded','deployment',$2,$3,1,'[]','',$4,$4,$4)`, []any{draftOperationID, draftDeploymentID, "rp-draft-" + draftDeploymentID, now}},
 		{`INSERT INTO deployments(id,environment_id,application_id,image,replicas,port,environment,route,runtime,state,operation_id,desired_revision,observed_revision,generation,created_at,updated_at) VALUES($1,$2,$3,$4,1,8080,'{}',NULL,'{}','active',$5,$6,$6,1,$7,$7)`, []any{deploymentID, environmentID, applicationID, image(digestA), initialOperationID, configRevisionA, now}},
+		{`INSERT INTO deployments(id,environment_id,application_id,image,replicas,port,environment,route,runtime,state,operation_id,generation,created_at,updated_at) VALUES($1,$2,$3,$4,1,8080,'{}',NULL,'{}','stopped',$5,1,$6,$6)`, []any{draftDeploymentID, draftEnvironmentID, applicationID, image(digestB), draftOperationID, now}},
 		{`INSERT INTO operations(id,kind,status,target_type,target_id,request_id,generation,progress,git_revision,created_at,updated_at) VALUES($1,'deployment.apply','queued','deployment',$2,$3,2,'[]','',$4,$4)`, []any{activeOperationID, deploymentID, "rp-active-" + deploymentID, now}},
 		{`INSERT INTO deployment_operation_inputs(operation_id,deployment_id,image,replicas,port,environment,route,runtime,created_at) VALUES($1,$2,$3,1,8080,'{}',NULL,'{}',$4)`, []any{activeOperationID, deploymentID, image(digestC), now}},
 		{`INSERT INTO git_repository_bindings(id,kind,scope_id,project_id,environment_id,provider,installation_id,repository_id,repository_owner,repository_name,target_ref,path_prefix,credential_secret_name,state,target_head_revision,indexed_revision,projection_generation,parser_version,target_head_observed_at,indexed_at,created_at,updated_at) VALUES($1,'environment',$2,$3,$2,'github',1,1,'kuberploy','registry-protection','refs/heads/main',$4,'registry-protection','ready',$5,$5,1,'appconfig.v1',$6,$6,$6,$6)`, []any{bindingID, environmentID, projectID, "tenants/" + projectID + "/environments/" + environmentID, strings.Repeat("f", 40), now}},

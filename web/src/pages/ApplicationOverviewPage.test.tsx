@@ -198,7 +198,9 @@ describe("application source overview", () => {
       "aria-current",
       "page",
     );
-    expect(screen.getByText("No App instance yet")).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /Test.*Stopped.*Configure App/ }),
+    ).toBeVisible();
     expect(screen.queryByRole("link", { name: /Deploy App/i })).toBeNull();
     expect(screen.queryByRole("link", { name: /New deployment/i })).toBeNull();
 

@@ -69,6 +69,9 @@ const sourceKinds: ReadonlyArray<readonly [SourceKind, IconName, string]> = [
   ["helm", "layers", "Helm chart"],
 ];
 
+const instanceCardClass =
+  "focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[-3px] hover:border-line-strong hover:shadow-[0_3px_12px_rgba(24_24_27_0.07)] [&>div]:flex [&>div]:items-center [&>div]:justify-between [&>div]:gap-3 [&>span:last-child]:inline-flex [&>span:last-child]:items-center [&>span:last-child]:gap-1.5 [&>span:last-child]:text-ink [&>span:last-child]:font-medium [&>span:last-child]:self-end [&>span:last-child]:text-xs [&>span:last-child_svg]:w-[13px] grid min-h-[140px] gap-4 p-4 border border-line rounded-[10px] bg-surface [&>strong]:overflow-hidden [&>strong]:text-meta [&>strong]:text-ellipsis [&>strong]:whitespace-nowrap";
+
 function applicationSourceTab(kind: string): SourceKind {
   return kind === "oci"
     ? "image"
@@ -287,6 +290,12 @@ export function ApplicationOverviewPage() {
     deployments.data?.items.filter(
       (item) => item.applicationId === applicationId,
     ) ?? [];
+  const applicationInstances = applicationEnvironments.map((environment) => ({
+    environment,
+    deployment: applicationDeployments.find(
+      (item) => item.environmentId === environment.id,
+    ),
+  }));
   const selectedDeployment = applicationDeployments.find(
     (item) => item.environmentId === environmentId,
   );
@@ -568,7 +577,7 @@ export function ApplicationOverviewPage() {
               </span>
               <div>
                 <small>App instances</small>
-                <strong>{applicationDeployments.length}</strong>
+                <strong>{applicationInstances.length}</strong>
                 <span>Created from an Environment</span>
               </div>
             </Card>
@@ -585,32 +594,55 @@ export function ApplicationOverviewPage() {
                 </p>
               </div>
             </div>
-            {applicationDeployments.length ? (
+            {applicationInstances.length ? (
               <div className="grid grid-cols-[repeat(auto-fill,_minmax(min(100%,_300px),_1fr))] gap-4 mt-5">
-                {applicationDeployments.map((deployment) => {
-                  const environment = applicationEnvironments.find(
-                    (item) => item.id === deployment.environmentId,
+                {applicationInstances.map(({ environment, deployment }) => {
+                  const content = (
+                    <>
+                      <div>
+                        <span className="inline-flex items-center gap-1.5 text-xs font-medium [&_svg]:w-3.5">
+                          <Icon name="layers" />
+                          {environment.name}
+                        </span>
+                        <StatusPill value={deployment?.status ?? "stopped"} />
+                      </div>
+                      <strong title={deployment?.image ?? "Stopped draft"}>
+                        {compactImageReference(deployment?.image)}
+                      </strong>
+                      <span>
+                        {deployment ? "Open App" : "Configure App"}{" "}
+                        <Icon name="arrow" />
+                      </span>
+                    </>
                   );
-                  return (
+                  return deployment ? (
                     <Link
                       key={deployment.id}
                       to="/applications/$applicationId/deployments/$deploymentId"
                       params={{ applicationId, deploymentId: deployment.id }}
-                      className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[-3px] hover:border-line-strong hover:shadow-[0_3px_12px_rgba(24_24_27_0.07)] [&>div]:flex [&>div]:items-center [&>div]:justify-between [&>div]:gap-3 [&>span:last-child]:inline-flex [&>span:last-child]:items-center [&>span:last-child]:gap-1.5 [&>span:last-child]:text-ink [&>span:last-child]:font-medium [&>span:last-child]:self-end [&>span:last-child]:text-xs [&>span:last-child_svg]:w-[13px] grid min-h-[140px] gap-4 p-4 border border-line rounded-[10px] bg-surface [&>strong]:overflow-hidden [&>strong]:text-meta [&>strong]:text-ellipsis [&>strong]:whitespace-nowrap"
+                      className={instanceCardClass}
                     >
-                      <div>
-                        <span className="inline-flex items-center gap-1.5 text-xs font-medium [&_svg]:w-3.5">
-                          <Icon name="layers" />
-                          {environment?.name ?? "Environment"}
-                        </span>
-                        <StatusPill value={deployment.status ?? "pending"} />
-                      </div>
-                      <strong title={deployment.image}>
-                        {compactImageReference(deployment.image)}
-                      </strong>
-                      <span>
-                        Open App <Icon name="arrow" />
-                      </span>
+                      {content}
+                    </Link>
+                  ) : (
+                    <Link
+                      key={environment.id}
+                      to="/projects/$projectId/environments/$environmentId/apps/$applicationId"
+                      params={{
+                        projectId: project.id,
+                        environmentId: environment.id,
+                        applicationId,
+                      }}
+                      search={{
+                        tab: "source",
+                        source: applicationSourceTab(
+                          application.data.sourceKind ?? "oci",
+                        ),
+                        environmentId: environment.id,
+                      }}
+                      className={instanceCardClass}
+                    >
+                      {content}
                     </Link>
                   );
                 })}
