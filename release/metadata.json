@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Secret and certificate management forms keep clear, aligned desktop workflows without duplicate empty states.",
+  "summary": "Secret, certificate, and service-account forms keep clear desktop spacing without duplicate empty states.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.440"
+  "version": "0.1.0-rc.441"
 }
