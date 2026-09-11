@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Stopped App drafts remain visible, registry cleanup ignores undeployed drafts, and Git SSH builds run correctly in the API image.",
+  "summary": "Source disconnect waits for active deployment work and then removes completed build history without breaking durable idempotency.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.444"
+  "version": "0.1.0-rc.445"
 }
