@@ -25,3 +25,19 @@ func New() string {
 	hex.Encode(out[24:36], b[10:16])
 	return string(out[:])
 }
+
+// Valid reports whether value has the canonical UUID text shape used by IDs.
+func Valid(value string) bool {
+	if len(value) != 36 || value[8] != '-' || value[13] != '-' || value[18] != '-' || value[23] != '-' {
+		return false
+	}
+	var encoded [32]byte
+	copy(encoded[0:8], value[0:8])
+	copy(encoded[8:12], value[9:13])
+	copy(encoded[12:16], value[14:18])
+	copy(encoded[16:20], value[19:23])
+	copy(encoded[20:32], value[24:36])
+	var decoded [16]byte
+	_, err := hex.Decode(decoded[:], encoded[:])
+	return err == nil
+}

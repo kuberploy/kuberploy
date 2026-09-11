@@ -267,6 +267,12 @@ func (s *Store) CreateUserInvitation(ctx context.Context, actor, email string, t
 	if !admin {
 		return domain.UserInvitation{}, base.ErrForbidden
 	}
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "user-invitation:"+normalizeCredential(email)); err != nil {
+		return domain.UserInvitation{}, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE user_invitations SET expires_at=LEAST(expires_at,$2) WHERE lower(email)=lower($1) AND accepted_at IS NULL AND expires_at>$2`, email, now); err != nil {
+		return domain.UserInvitation{}, err
+	}
 	invitation := domain.UserInvitation{ID: id.New(), Email: email, ExpiresAt: expires.UTC()}
 	_, err = tx.Exec(ctx, `INSERT INTO user_invitations(id,token_hash,email,created_by,expires_at) VALUES($1,$2,$3,$4,$5)`, invitation.ID, tokenHash, email, actor, invitation.ExpiresAt)
 	if err != nil {
@@ -412,9 +418,7 @@ func (s *Store) DeleteUser(ctx context.Context, actor, userID, confirmationEmail
 		return false, base.ErrDeletionConfirmation
 	}
 	var blocked bool
-	err = tx.QueryRow(ctx, `SELECT
-		EXISTS(SELECT 1 FROM github_installations WHERE owner_user_id=$1) OR
-		EXISTS(SELECT 1 FROM team_memberships m WHERE m.user_id=$1 AND m.role='owner' AND (SELECT count(*) FROM team_memberships owners WHERE owners.team_id=m.team_id AND owners.role='owner')=1)`, userID).Scan(&blocked)
+	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM team_memberships m WHERE m.user_id=$1 AND m.role='owner' AND (SELECT count(*) FROM team_memberships owners WHERE owners.team_id=m.team_id AND owners.role='owner')=1)`, userID).Scan(&blocked)
 	if err != nil {
 		return false, err
 	}
@@ -433,6 +437,10 @@ func (s *Store) DeleteUser(ctx context.Context, actor, userID, confirmationEmail
 		if adminCount <= 1 {
 			return false, base.ErrUserDeletionBlocked
 		}
+	}
+	transferTag, err := tx.Exec(ctx, `UPDATE github_installations SET owner_user_id=$2,updated_at=now() WHERE owner_user_id=$1`, userID, actor)
+	if err != nil {
+		return false, err
 	}
 	if _, err = tx.Exec(ctx, `DELETE FROM sessions WHERE user_id=$1`, userID); err != nil {
 		return false, err
@@ -462,7 +470,7 @@ func (s *Store) DeleteUser(ctx context.Context, actor, userID, confirmationEmail
 	if tag.RowsAffected() != 1 {
 		return false, base.ErrConflict
 	}
-	if err = audit(ctx, tx, actor, "user.delete", "user", userID, requestID, map[string]any{"credentialRemoved": true, "sessionsRevoked": true}); err != nil {
+	if err = audit(ctx, tx, actor, "user.delete", "user", userID, requestID, map[string]any{"credentialRemoved": true, "sessionsRevoked": true, "githubInstallationsTransferred": transferTag.RowsAffected()}); err != nil {
 		return false, err
 	}
 	if err = putIdem(ctx, tx, actor, scope, key, fingerprint, "user", userID, nil); err != nil {
@@ -509,9 +517,6 @@ func (s *Store) CreateTeam(ctx context.Context, actor, key, fingerprint, request
 	}
 	if err = putIdem(ctx, tx, actor, "teams.create", key, fingerprint, "team", team.ID, nil); err != nil {
 		return base.Result[domain.Team]{}, classify(err)
-	}
-	if err = invalidateUsers(ctx, tx, map[string]struct{}{actor: {}}); err != nil {
-		return base.Result[domain.Team]{}, err
 	}
 	return base.Result[domain.Team]{Value: team}, tx.Commit(ctx)
 }

@@ -471,6 +471,30 @@ func TestInvitationTeamAndGitHubAccessContract(t *testing.T) {
 	}
 }
 
+func TestAccessRoutesRejectMalformedIDs(t *testing.T) {
+	f := newAPI(t)
+	admin := f.bootstrap()
+	for _, test := range []struct {
+		method string
+		path   string
+		key    string
+		body   any
+	}{
+		{http.MethodDelete, "/v1/users/not-a-uuid", "bad-user-id", map[string]string{"email": admin.Email}},
+		{http.MethodDelete, "/v1/teams/not-a-uuid", "bad-team-id", map[string]string{"name": "missing"}},
+		{http.MethodGet, "/v1/teams/not-a-uuid/members", "", nil},
+		{http.MethodPost, "/v1/teams/not-a-uuid/members", "bad-member-team-id", map[string]string{"userId": admin.ID, "role": "member"}},
+		{http.MethodDelete, "/v1/teams/not-a-uuid/members/also-bad", "", nil},
+		{http.MethodPatch, "/v1/github/installations/not-a-uuid/sharing", "bad-installation-id", map[string]string{"visibility": "private"}},
+	} {
+		response := f.request(test.method, test.path, test.key, test.body)
+		problem := decode[httpapi.Problem](t, response)
+		if response.StatusCode != http.StatusUnprocessableEntity || problem.Code != "ValidationFailed" {
+			t.Fatalf("%s %s status=%d problem=%#v", test.method, test.path, response.StatusCode, problem)
+		}
+	}
+}
+
 func TestInvitationAcceptanceSwitchesAndRevokesExistingSession(t *testing.T) {
 	f := newAPI(t)
 	f.bootstrap()

@@ -226,6 +226,12 @@ func (s *Store) CreateUserInvitation(_ context.Context, actor, email string, tok
 	if _, exists := s.invitations[key]; exists {
 		return domain.UserInvitation{}, base.ErrConflict
 	}
+	for token, record := range s.invitations {
+		if !record.accepted && strings.EqualFold(record.email, email) && record.invitation.ExpiresAt.After(now) {
+			record.invitation.ExpiresAt = now
+			s.invitations[token] = record
+		}
+	}
 	invitation := domain.UserInvitation{ID: id.New(), Email: email, ExpiresAt: expires.UTC()}
 	s.invitations[key] = invitationRecord{invitation: invitation, email: email}
 	s.audits++
@@ -333,11 +339,6 @@ func (s *Store) DeleteUser(_ context.Context, actor, userID, confirmationEmail, 
 	if !strings.EqualFold(strings.TrimSpace(confirmationEmail), strings.TrimSpace(user.Email)) {
 		return false, base.ErrDeletionConfirmation
 	}
-	for _, installation := range s.installations {
-		if installation.OwnerUserID == userID {
-			return false, base.ErrUserDeletionBlocked
-		}
-	}
 	for teamID, members := range s.memberships {
 		if member, ok := members[userID]; ok && member.Role == "owner" && s.ownerCountLocked(teamID) == 1 {
 			return false, base.ErrUserDeletionBlocked
@@ -345,6 +346,13 @@ func (s *Store) DeleteUser(_ context.Context, actor, userID, confirmationEmail, 
 	}
 	for teamID := range s.memberships {
 		delete(s.memberships[teamID], userID)
+	}
+	for installationID, installation := range s.installations {
+		if installation.OwnerUserID == userID {
+			installation.OwnerUserID = actor
+			installation.UpdatedAt = time.Now().UTC()
+			s.installations[installationID] = installation
+		}
 	}
 	for grantID, grant := range s.accessGrants {
 		if grant.SubjectUserID == userID {
@@ -392,7 +400,6 @@ func (s *Store) CreateTeam(_ context.Context, actor, key, fp, _ string, in domai
 	s.memberships[team.ID] = map[string]domain.TeamMember{actor: {TeamID: team.ID, UserID: actor, Role: "owner", CreatedAt: now}}
 	s.idempotency[idemKey] = idemRecord{fp, "team", team.ID, ""}
 	s.audits++
-	s.bumpGrantsLocked(map[string]struct{}{actor: {}})
 	return base.Result[domain.Team]{Value: team}, nil
 }
 
@@ -481,7 +488,8 @@ func (s *Store) AddTeamMember(_ context.Context, actor, teamID, key, fp, _ strin
 	if !s.canManageTeamLocked(actor, teamID) {
 		return base.Result[domain.TeamMember]{}, base.ErrForbidden
 	}
-	if _, exists := s.users[in.UserID]; !exists {
+	user, exists := s.users[in.UserID]
+	if !exists || user.Issuer == "kuberploy:deleted" {
 		return base.Result[domain.TeamMember]{}, base.ErrNotFound
 	}
 	if _, serviceAccount := s.serviceAccounts[in.UserID]; serviceAccount {

@@ -271,6 +271,9 @@ describe("GitHub App sharing confirmation", () => {
         "Only the installer and platform administrators can use it.",
       ),
     ).toBeInTheDocument();
+    const dialog = screen.getByRole("alertdialog");
+    expect(dialog).toHaveClass("max-w-none");
+    expect(dialog.className).not.toContain("_[&>.field]");
   });
 
   it("requires an exact team selection and acknowledgement before sharing", async () => {
@@ -319,7 +322,9 @@ describe("GitHub App sharing confirmation", () => {
     });
     vi.spyOn(api, "capabilities").mockResolvedValue({ capabilities: [] });
     vi.spyOn(api, "teams").mockResolvedValue({ items: teams });
-    vi.spyOn(api, "users").mockResolvedValue({ items: [] });
+    const usersRequest = vi
+      .spyOn(api, "users")
+      .mockRejectedValue(new Error("ordinary members cannot list users"));
     vi.spyOn(api, "githubInstallations").mockResolvedValue({
       items: [
         { ...privateInstallation, visibility: "team", teamId: "team_product" },
@@ -349,6 +354,7 @@ describe("GitHub App sharing confirmation", () => {
     expect(await screen.findAllByText("Product engineering")).not.toHaveLength(
       0,
     );
+    expect(usersRequest).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(
         screen.queryByRole("button", { name: "Change sharing" }),

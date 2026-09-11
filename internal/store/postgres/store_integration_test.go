@@ -121,6 +121,12 @@ func TestTeamAccessSQLPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err = st.CreateTeam(ctx, developer.ID, "developer-owned-team", "developer-owned-team", "request", domain.CreateTeam{Name: "Developer owned", Slug: "developer-owned"}); err != nil {
+		t.Fatal(err)
+	}
+	if current, sessionErr := st.UserBySession(ctx, developerSession[:], time.Now()); sessionErr != nil || current.ID != developer.ID {
+		t.Fatalf("team creator session user=%#v err=%v", current, sessionErr)
+	}
 	t.Run("local credential lookup rehash and session CAS", func(t *testing.T) {
 		credentialUser, storedHash, lookupErr := st.LocalCredential(ctx, "  DEVELOPER@INTEGRATION.TEST  ")
 		if lookupErr != nil || credentialUser.ID != developer.ID || storedHash != developerPasswordHash || storedHash == developerPassword {
@@ -645,6 +651,10 @@ func TestTeamAccessSQLPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	deletionInstallationID := id.New()
+	if _, err = st.pool.Exec(ctx, `INSERT INTO github_installations(id,github_installation_id,account_login,account_type,owner_user_id,visibility,repository_selection,repository_count) VALUES($1,919191,'deletion-fixture','Organization',$2,'private','selected',1)`, deletionInstallationID, deletionUser.ID); err != nil {
+		t.Fatal(err)
+	}
 	deletionTeam, err := st.CreateTeam(ctx, admin.ID, "deletion-team", "deletion-team", "request", domain.CreateTeam{Name: "Deletion team", Slug: "deletion-team"})
 	if err != nil {
 		t.Fatal(err)
@@ -681,6 +691,10 @@ func TestTeamAccessSQLPaths(t *testing.T) {
 	}
 	if replay, deleteErr := st.DeleteUser(ctx, admin.ID, deletionUser.ID, deletionEmail, "delete-user", "exact", "request"); deleteErr != nil || replay {
 		t.Fatalf("PostgreSQL user deletion replay=%v err=%v", replay, deleteErr)
+	}
+	var transferredOwner string
+	if err = st.pool.QueryRow(ctx, `SELECT owner_user_id FROM github_installations WHERE id=$1`, deletionInstallationID).Scan(&transferredOwner); err != nil || transferredOwner != admin.ID {
+		t.Fatalf("transferred installation owner=%q err=%v", transferredOwner, err)
 	}
 	if replay, deleteErr := st.DeleteUser(ctx, admin.ID, deletionUser.ID, deletionEmail, "delete-user", "exact", "request"); deleteErr != nil || !replay {
 		t.Fatalf("PostgreSQL user deletion replay replay=%v err=%v", replay, deleteErr)

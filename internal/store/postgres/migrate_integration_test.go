@@ -37,7 +37,7 @@ func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO _prisma_migrations(
 		id,checksum,migration_name,logs,started_at,rolled_back_at,applied_steps_count
 		) SELECT $1,checksum,'999_unexpected_rollback','failed',started_at-interval '2 seconds',started_at-interval '1 second',0
-			FROM _prisma_migrations WHERE finished_at IS NOT NULL`, rolledBackHistoryID); err != nil {
+			FROM _prisma_migrations WHERE finished_at IS NOT NULL ORDER BY started_at LIMIT 1`, rolledBackHistoryID); err != nil {
 		t.Fatal(err)
 	}
 	if err = VerifySchema(ctx, pool); !errors.Is(err, ErrMigrationMismatch) {
@@ -56,16 +56,16 @@ func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	var baselineChecksum string
-	if err = pool.QueryRow(ctx, `SELECT checksum FROM _prisma_migrations WHERE finished_at IS NOT NULL`).Scan(&baselineChecksum); err != nil {
+	if err = pool.QueryRow(ctx, `SELECT checksum FROM _prisma_migrations WHERE migration_name='001_initial' AND finished_at IS NOT NULL`).Scan(&baselineChecksum); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, `UPDATE _prisma_migrations SET checksum=repeat('0',64) WHERE finished_at IS NOT NULL`); err != nil {
+	if _, err = pool.Exec(ctx, `UPDATE _prisma_migrations SET checksum=repeat('0',64) WHERE migration_name='001_initial' AND finished_at IS NOT NULL`); err != nil {
 		t.Fatal(err)
 	}
 	if err = VerifySchema(ctx, pool); !errors.Is(err, ErrMigrationMismatch) {
 		t.Fatalf("tampered baseline checksum err=%v", err)
 	}
-	if _, err = pool.Exec(ctx, `UPDATE _prisma_migrations SET checksum=$1 WHERE finished_at IS NOT NULL`, baselineChecksum); err != nil {
+	if _, err = pool.Exec(ctx, `UPDATE _prisma_migrations SET checksum=$1 WHERE migration_name='001_initial' AND finished_at IS NOT NULL`, baselineChecksum); err != nil {
 		t.Fatal(err)
 	}
 	if err = VerifySchema(ctx, pool); err != nil {

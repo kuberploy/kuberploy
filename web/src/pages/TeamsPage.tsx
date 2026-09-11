@@ -72,7 +72,14 @@ export function TeamsPage() {
   )
     ? teamChoice
     : (teams.data?.items[0]?.id ?? "");
-  const users = useQuery({ queryKey: ["users"], queryFn: api.users });
+  const canListUsers =
+    me.data?.role === "platform-admin" ||
+    capabilities.data?.actions?.includes("team-members:write") === true;
+  const users = useQuery({
+    queryKey: ["users"],
+    queryFn: api.users,
+    enabled: canListUsers,
+  });
   const installations = useQuery({
     queryKey: ["github-installations"],
     queryFn: api.githubInstallations,
@@ -1295,7 +1302,7 @@ export function InstallationSharingConfirmation({
       }}
     >
       <DialogContent
-        className="grid w-[min(480px,_100%)] gap-5 p-6 border border-line rounded-overlay bg-surface shadow-overlay [&_h2]:m-0 [&_h2]:text-[19px] [&_h2]:font-semibold [&_h2]:tracking-[-0.025em] [&_h2]:leading-[1.25] to-580:p-5 w-[min(560px,_[&>.field]:mb-4_max-w-none"
+        className="grid w-[min(480px,_100%)] max-w-none gap-5 border border-line rounded-overlay bg-surface p-6 shadow-overlay [&_h2]:m-0 [&_h2]:text-[19px] [&_h2]:font-semibold [&_h2]:tracking-[-0.025em] [&_h2]:leading-[1.25] [&>.field]:mb-4 to-580:p-5"
         role="alertdialog"
         showCloseButton={false}
       >

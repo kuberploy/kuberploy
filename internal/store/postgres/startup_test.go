@@ -11,7 +11,15 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	base "github.com/kuberploy/kuberploy/internal/store"
 )
+
+func TestClassifyInvalidUUIDAsNotFound(t *testing.T) {
+	err := classify(&pgconn.PgError{Code: "22P02", Message: "invalid input syntax for type uuid"})
+	if !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("classify invalid UUID = %v", err)
+	}
+}
 
 func TestPostgresStartupRetryPolicyIsBounded(t *testing.T) {
 	if startupPingTimeout != 30*time.Second {

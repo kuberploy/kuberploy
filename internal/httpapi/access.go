@@ -11,6 +11,7 @@ import (
 
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/emailaddr"
+	"github.com/kuberploy/kuberploy/internal/id"
 	"github.com/kuberploy/kuberploy/internal/passwordauth"
 	"github.com/kuberploy/kuberploy/internal/store"
 )
@@ -137,8 +138,8 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userID := strings.TrimSpace(r.PathValue("id"))
-	if userID == "" {
-		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "user id is required.")
+	if !id.Valid(userID) {
+		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "user id must be a valid UUID.")
 		return
 	}
 	var in deleteUserRequest
@@ -217,8 +218,8 @@ func (s *Server) deleteTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	teamID := strings.TrimSpace(r.PathValue("id"))
-	if teamID == "" {
-		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "team id is required.")
+	if !id.Valid(teamID) {
+		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "team id must be a valid UUID.")
 		return
 	}
 	var in deleteTeamRequest
@@ -265,7 +266,11 @@ func safeTeamMember(member domain.TeamMember) teamMemberView {
 
 func (s *Server) teamMembers(w http.ResponseWriter, r *http.Request) {
 	actor := currentUser(r.Context())
-	teamID := r.PathValue("id")
+	teamID := strings.TrimSpace(r.PathValue("id"))
+	if !id.Valid(teamID) {
+		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "team id must be a valid UUID.")
+		return
+	}
 	if r.Method == http.MethodGet {
 		items, err := s.store.ListTeamMembersForActor(r.Context(), actor.ID, teamID)
 		if err != nil {
@@ -288,7 +293,7 @@ func (s *Server) teamMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.UserID = strings.TrimSpace(in.UserID)
-	if in.UserID == "" || in.Role != "owner" && in.Role != "member" {
+	if !id.Valid(in.UserID) || in.Role != "owner" && in.Role != "member" {
 		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "userId and role owner|member are required.")
 		return
 	}
@@ -307,7 +312,7 @@ func (s *Server) removeTeamMember(w http.ResponseWriter, r *http.Request) {
 	actor := currentUser(r.Context())
 	teamID := strings.TrimSpace(r.PathValue("teamId"))
 	userID := strings.TrimSpace(r.PathValue("userId"))
-	if teamID == "" || userID == "" {
+	if !id.Valid(teamID) || !id.Valid(userID) {
 		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "teamId and userId are required.")
 		return
 	}
@@ -378,11 +383,12 @@ func (s *Server) githubInstallationSharing(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	in.TeamID = strings.TrimSpace(in.TeamID)
-	if in.Visibility != "private" && in.Visibility != "team" || in.Visibility == "private" && in.TeamID != "" || in.Visibility == "team" && in.TeamID == "" {
+	installationID := strings.TrimSpace(r.PathValue("id"))
+	if !id.Valid(installationID) || in.Visibility != "private" && in.Visibility != "team" || in.Visibility == "private" && in.TeamID != "" || in.Visibility == "team" && !id.Valid(in.TeamID) {
 		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "private visibility must omit teamId; team visibility requires teamId.")
 		return
 	}
-	result, err := s.store.UpdateGitHubInstallationSharing(r.Context(), currentUser(r.Context()).ID, r.PathValue("id"), key, fingerprint(in), requestID(r.Context()), domain.UpdateGitHubInstallationSharing{Visibility: in.Visibility, TeamID: in.TeamID})
+	result, err := s.store.UpdateGitHubInstallationSharing(r.Context(), currentUser(r.Context()).ID, installationID, key, fingerprint(in), requestID(r.Context()), domain.UpdateGitHubInstallationSharing{Visibility: in.Visibility, TeamID: in.TeamID})
 	if err != nil {
 		mappedError(w, r, err)
 		return

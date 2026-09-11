@@ -782,7 +782,7 @@ func mappedError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, store.ErrSelfDeletion):
 		writeProblem(w, r, 409, "SelfDeletionBlocked", "Current user cannot be deleted", "Sign in as another platform administrator before deleting this user.")
 	case errors.Is(err, store.ErrUserDeletionBlocked):
-		writeProblem(w, r, 409, "UserDeletionBlocked", "User still owns required access", "Transfer owned GitHub installations and final team or platform administrator roles before deleting this user.")
+		writeProblem(w, r, 409, "UserDeletionBlocked", "User still owns a final administrator role", "Assign another owner for every team and keep another platform administrator before deleting this user.")
 	case errors.Is(err, store.ErrTeamDeletionBlocked):
 		writeProblem(w, r, 409, "TeamDeletionBlocked", "Team still owns resources", "Move or remove the team's projects, GitHub sharing, setup handoffs, and secret bindings before deleting it.")
 	case errors.Is(err, store.ErrProjectDeletionBlocked):

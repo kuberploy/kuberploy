@@ -100,6 +100,40 @@ func TestInvitationIsHashedSingleUseAndMembershipRevokesSession(t *testing.T) {
 	}
 }
 
+func TestCreateTeamKeepsCreatorSession(t *testing.T) {
+	ctx := context.Background()
+	store := New()
+	admin := bootstrapAccessAdmin(t, store)
+	member, session := invitedUser(t, store, admin, "Developer", "team-creator")
+	if _, err := store.CreateTeam(ctx, member.ID, "member-team", "member-team", "request", domain.CreateTeam{Name: "Member team", Slug: "member-team"}); err != nil {
+		t.Fatal(err)
+	}
+	if current, err := store.UserBySession(ctx, session[:], time.Now()); err != nil || current.ID != member.ID {
+		t.Fatalf("team creator session user=%#v err=%v", current, err)
+	}
+}
+
+func TestNewInvitationRevokesPreviousLiveLink(t *testing.T) {
+	ctx := context.Background()
+	store := New()
+	admin := bootstrapAccessAdmin(t, store)
+	first := sha256Bytes("first-invitation")
+	second := sha256Bytes("second-invitation")
+	email := "retry@example.test"
+	if _, err := store.CreateUserInvitation(ctx, admin.ID, email, first, time.Now().Add(time.Hour), "first"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateUserInvitation(ctx, admin.ID, email, second, time.Now().Add(time.Hour), "second"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AcceptUserInvitation(ctx, first, "Old", strings.Repeat("h", 64), sha256Bytes("old-session"), nil, time.Now().Add(time.Hour)); !errors.Is(err, base.ErrInvitationInvalid) {
+		t.Fatalf("superseded invitation err=%v", err)
+	}
+	if _, err := store.AcceptUserInvitation(ctx, second, "Current", strings.Repeat("h", 64), sha256Bytes("current-session"), nil, time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("replacement invitation err=%v", err)
+	}
+}
+
 func TestInvitationAcceptanceRevokesPreviousSessionAtomically(t *testing.T) {
 	ctx := context.Background()
 	store := New()
@@ -198,6 +232,15 @@ func TestDeleteUserRevokesAccessAndPreservesReusableEmail(t *testing.T) {
 	store := New()
 	admin := bootstrapAccessAdmin(t, store)
 	member, session := invitedUser(t, store, admin, "Developer", "delete-user")
+	installation, err := store.CreateGitHubInstallation(ctx, admin.ID, "deletion-installation", "deletion-installation", "request", domain.CreateGitHubInstallation{GitHubInstallationID: 919191, AccountLogin: "deletion-fixture", AccountType: "Organization", RepositorySelection: "selected", RepositoryCount: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	ownedInstallation := store.installations[installation.Value.ID]
+	ownedInstallation.OwnerUserID = member.ID
+	store.installations[installation.Value.ID] = ownedInstallation
+	store.mu.Unlock()
 
 	if _, err := store.DeleteUser(ctx, admin.ID, member.ID, "wrong@example.test", "delete-user-wrong", "wrong", "request"); !errors.Is(err, base.ErrConflict) {
 		t.Fatalf("wrong confirmation err=%v", err)
@@ -218,6 +261,16 @@ func TestDeleteUserRevokesAccessAndPreservesReusableEmail(t *testing.T) {
 	}
 	if _, _, err = store.LocalCredential(ctx, member.Email); !errors.Is(err, base.ErrNotFound) {
 		t.Fatalf("deleted user retained login credential: %v", err)
+	}
+	if transferred := store.installations[installation.Value.ID]; transferred.OwnerUserID != admin.ID {
+		t.Fatalf("installation owner after deletion=%q", transferred.OwnerUserID)
+	}
+	team, err := store.CreateTeam(ctx, admin.ID, "deleted-member-team", "deleted-member-team", "request", domain.CreateTeam{Name: "Deleted member test", Slug: "deleted-member-test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.AddTeamMember(ctx, admin.ID, team.Value.ID, "deleted-member", "deleted-member", "request", domain.AddTeamMember{UserID: member.ID, Role: "member"}); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("adding deleted user err=%v", err)
 	}
 	users, err := store.ListUsersForActor(ctx, admin.ID)
 	if err != nil {
