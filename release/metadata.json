@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Managed registry cleanup deletes OCI parent manifests before their children so interrupted cleanup cannot leave dangling image indexes.",
+  "summary": "App stop retries converge when desired state was already removed, without publishing duplicate Git work.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.446"
+  "version": "0.1.0-rc.447"
 }
