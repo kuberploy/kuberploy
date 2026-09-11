@@ -277,6 +277,9 @@ describe("runtime-secret management panel", () => {
     await user.click(
       await screen.findByRole("button", { name: "New binding" }),
     );
+    expect(
+      screen.queryByText("No runtime-secret bindings"),
+    ).not.toBeInTheDocument();
     await fillCreate(user, secretValue);
     await user.click(
       screen.getByRole("button", { name: "Ingest write-only values" }),
@@ -469,6 +472,11 @@ describe("runtime-secret management panel", () => {
     const confirmation = screen.getByRole("textbox", {
       name: "Exact runtime secret binding name confirmation",
     });
+    expect(confirmation.closest("fieldset")).toHaveClass(
+      "grid",
+      "grid-cols-[minmax(240px,_1fr)_minmax(190px,_0.7fr)_auto]",
+      "gap-3",
+    );
     await user.type(confirmation, "wrong-name");
     await user.click(screen.getByRole("button", { name: "Delete binding" }));
     expect(remove).not.toHaveBeenCalled();

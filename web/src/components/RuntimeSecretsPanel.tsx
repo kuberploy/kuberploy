@@ -829,10 +829,13 @@ function SecretBindingDetailPanel({
 
       {canDelete ? (
         <form
-          className="p-5 border-t border-t-line grid grid-cols-[minmax(240px,_1fr)_minmax(190px,_0.7fr)_auto] items-end gap-3 bg-tone-bad-surface [&_h4]:m-0 [&_h4]:text-[11px] [&_p]:mt-1 [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-ink-soft [&_p]:text-xs [&_p]:leading-[1.55] [&_[data-slot='notice']]:col-[1_/_-1] [&>[data-slot='placeholder-badge']]:col-[1_/_-1] to-820:grid-cols-[1fr_auto] to-820:[&>div:first-child]:col-[1_/_-1] to-580:grid-cols-[1fr] to-580:[&>div:first-child]:row-[auto] to-580:[&>div:first-child]:col-[auto]"
+          className="p-5 border-t border-t-line bg-tone-bad-surface [&_h4]:m-0 [&_h4]:text-[11px] [&_p]:mt-1 [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-ink-soft [&_p]:text-xs [&_p]:leading-[1.55]"
           onSubmit={remove}
         >
-          <fieldset disabled={deleteBusy}>
+          <fieldset
+            className="grid grid-cols-[minmax(240px,_1fr)_minmax(190px,_0.7fr)_auto] items-end gap-3 [&_[data-slot='notice']]:col-[1_/_-1] [&>[data-slot='placeholder-badge']]:col-[1_/_-1] to-820:grid-cols-[1fr_auto] to-820:[&>div:first-child]:col-[1_/_-1] to-580:grid-cols-[1fr] to-580:[&>div:first-child]:row-[auto] to-580:[&>div:first-child]:col-[auto]"
+            disabled={deleteBusy}
+          >
             <div>
               <Eyebrow>Exact destructive confirmation</Eyebrow>
               <h4>Delete unreferenced binding</h4>
@@ -1180,7 +1183,7 @@ export function RuntimeSecretsPanel({
             )}
           </div>
         </div>
-      ) : list.data ? (
+      ) : list.data && !creating ? (
         <EmptyState
           icon="code"
           title="No runtime-secret bindings"

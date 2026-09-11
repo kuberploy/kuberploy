@@ -184,6 +184,9 @@ describe("certificate management panel", () => {
     await user.click(
       await screen.findByRole("button", { name: "New certificate" }),
     );
+    expect(
+      screen.queryByText("No custom certificates"),
+    ).not.toBeInTheDocument();
     await user.type(
       screen.getByRole("textbox", { name: "Certificate binding name" }),
       detail.name,
@@ -313,6 +316,11 @@ describe("certificate management panel", () => {
     const confirmation = screen.getByRole("textbox", {
       name: "Exact certificate binding name confirmation",
     });
+    expect(confirmation.closest("fieldset")).toHaveClass(
+      "grid",
+      "grid-cols-[minmax(240px,_1fr)_minmax(190px,_0.7fr)_auto]",
+      "gap-3",
+    );
     await user.type(confirmation, "wrong-name");
     await user.click(
       screen.getByRole("button", { name: "Delete certificate" }),
