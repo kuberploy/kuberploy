@@ -371,7 +371,11 @@ func (s *Store) DeleteProject(ctx context.Context, actor, projectID, confirmatio
 	if _, err = tx.Exec(ctx, `DELETE FROM git_ssh_key_revisions WHERE scope='project' AND owner_id=$1`, projectID); err != nil {
 		return false, err
 	}
-	if _, err = tx.Exec(ctx, `DELETE FROM users WHERE id IN (SELECT id FROM service_accounts WHERE project_id=$1 AND disabled_at IS NOT NULL)`, projectID); err != nil {
+	if _, err = tx.Exec(ctx, `WITH removed_accounts AS (
+		DELETE FROM service_accounts WHERE project_id=$1 AND disabled_at IS NOT NULL RETURNING id
+	)
+	UPDATE users SET email=NULL,display_name='Deleted service account',issuer='kuberploy:deleted',grant_revision=grant_revision+1
+	WHERE id IN (SELECT id FROM removed_accounts)`, projectID); err != nil {
 		return false, err
 	}
 	if _, err = tx.Exec(ctx, `DELETE FROM access_grants WHERE scope_type='project' AND scope_id=$1::text`, projectID); err != nil {

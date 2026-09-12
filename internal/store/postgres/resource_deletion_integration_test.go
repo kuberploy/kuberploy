@@ -332,6 +332,10 @@ func TestPostgreSQLApplicationAndEnvironmentDeletion(t *testing.T) {
 	if _, err = store.DisableServiceAccount(ctx, actorID, account.Value.ID, "disable-project-account-"+suffix, "disable-project-account", "request-disable-project-account-"+suffix); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = store.pool.Exec(ctx, `INSERT INTO audit_events(id,actor_id,action,target_type,target_id,request_id,created_at)
+		VALUES($1,$2,'service-account.test','project',$3,$4,$5)`, id.New(), account.Value.ID, project.Value.ID, "service-account-audit-"+suffix, now); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = store.DeleteProject(ctx, actorID, project.Value.ID, "Wrong", "delete-project-wrong-"+suffix, "delete-project-wrong", "request-project-wrong-"+suffix); !errors.Is(err, base.ErrDeletionConfirmation) {
 		t.Fatalf("wrong Project confirmation err=%v", err)
 	}
@@ -346,9 +350,10 @@ func TestPostgreSQLApplicationAndEnvironmentDeletion(t *testing.T) {
 	if _, err = store.GetProject(ctx, project.Value.ID); !errors.Is(err, base.ErrNotFound) {
 		t.Fatalf("deleted Project err=%v", err)
 	}
-	var accountExists bool
-	if err = store.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1)`, account.Value.ID).Scan(&accountExists); err != nil || accountExists {
-		t.Fatalf("disabled service-account identity remained after Project deletion exists=%t err=%v", accountExists, err)
+	var serviceAccountExists bool
+	var tombstoneIssuer string
+	if err = store.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM service_accounts WHERE id=$1),issuer FROM users WHERE id=$1`, account.Value.ID).Scan(&serviceAccountExists, &tombstoneIssuer); err != nil || serviceAccountExists || tombstoneIssuer != "kuberploy:deleted" {
+		t.Fatalf("disabled service-account cleanup exists=%t issuer=%q err=%v", serviceAccountExists, tombstoneIssuer, err)
 	}
 }
 

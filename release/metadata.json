@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Managed registry retention cleans large build histories through bounded checkpoint batches and one offline garbage-collection sweep.",
+  "summary": "Project cleanup removes disabled service accounts while preserving their audit history through deleted-identity tombstones.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.454"
+  "version": "0.1.0-rc.455"
 }
