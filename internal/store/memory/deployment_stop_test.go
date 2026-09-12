@@ -99,11 +99,17 @@ func TestStopDeploymentPublishesDeleteAndAllowsAppDeletion(t *testing.T) {
 	if err != nil || deployment.State != "stopped" || deployment.DesiredRevision != stopRevision {
 		t.Fatalf("deployment=%#v err=%v", deployment, err)
 	}
+	store.registryPolicies[registryScopeKey("managed-target", application.Value.ID)] = domain.ServiceRegistryPolicy{
+		RegistryTargetID: "managed-target", ServiceID: application.Value.ID, Repository: "owned/api",
+	}
 	placements, err := store.ListEnvironmentAppPlacementsForActor(ctx, admin.ID, environment.Value.ID)
 	if err != nil || len(placements) != 1 || placements[0].DesiredState != domain.EnvironmentAppPlacementStopped {
 		t.Fatalf("placements=%#v err=%v", placements, err)
 	}
 	if replay, err := store.DeleteApplication(ctx, admin.ID, application.Value.ID, application.Value.Name, "delete", "delete", "request-delete"); err != nil || replay {
 		t.Fatalf("delete replay=%t err=%v", replay, err)
+	}
+	if _, exists := store.registryPolicies[registryScopeKey("managed-target", application.Value.ID)]; exists {
+		t.Fatal("App deletion retained registry policy")
 	}
 }

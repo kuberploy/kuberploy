@@ -838,6 +838,20 @@ func (s *Store) deleteNamedResource(ctx context.Context, actor, table, resourceT
 		if _, err = tx.Exec(ctx, `DELETE FROM deployments WHERE application_id=$1 AND state='stopped'`, resourceID); err != nil {
 			return false, classify(err)
 		}
+		// Registry lifecycle records are App-scoped. Once active workloads and
+		// build operations are gone, deleting the App must release its policy,
+		// artifact protection, cache, and release records as one transaction.
+		for _, statement := range []string{
+			`DELETE FROM registry_artifact_references WHERE service_id=$1`,
+			`DELETE FROM registry_authority_observations WHERE service_id=$1`,
+			`DELETE FROM registry_cache_generations WHERE service_id=$1`,
+			`DELETE FROM registry_releases WHERE service_id=$1`,
+			`DELETE FROM service_registry_policies WHERE service_id=$1`,
+		} {
+			if _, err = tx.Exec(ctx, statement, resourceID); err != nil {
+				return false, classify(err)
+			}
+		}
 	}
 	if resourceType == "environment" {
 		var running bool

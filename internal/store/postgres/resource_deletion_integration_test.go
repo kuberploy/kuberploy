@@ -203,6 +203,12 @@ func TestPostgreSQLApplicationAndEnvironmentDeletion(t *testing.T) {
 		definitionID, installationID, repositoryID, registryID, "sha256:"+strings.Repeat("9", 64), now, application.Value.ID); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = store.pool.Exec(ctx, `INSERT INTO service_registry_policies(
+		registry_target_id,service_id,repository,keep_last_successful,minimum_safety_age_seconds,
+		cache_unused_expiry_seconds,cache_byte_quota,created_at,updated_at)
+		VALUES($1,$2,'apps/disposable',1,60,60,1048576,$3,$3)`, registryID, application.Value.ID, now); err != nil {
+		t.Fatal(err)
+	}
 	buildStore, err := builds.NewPostgreSQLStore(store.pool)
 	if err != nil {
 		t.Fatal(err)
@@ -223,6 +229,15 @@ func TestPostgreSQLApplicationAndEnvironmentDeletion(t *testing.T) {
 	}
 	if _, err = store.GetApplication(ctx, application.Value.ID); !errors.Is(err, base.ErrNotFound) {
 		t.Fatalf("deleted App err=%v", err)
+	}
+	var registryRows int
+	if err = store.pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM service_registry_policies WHERE service_id=$1) +
+		(SELECT count(*) FROM registry_artifact_references WHERE service_id=$1) +
+		(SELECT count(*) FROM registry_authority_observations WHERE service_id=$1) +
+		(SELECT count(*) FROM registry_cache_generations WHERE service_id=$1) +
+		(SELECT count(*) FROM registry_releases WHERE service_id=$1)`, application.Value.ID).Scan(&registryRows); err != nil || registryRows != 0 {
+		t.Fatalf("deleted App retained registry lifecycle rows=%d err=%v", registryRows, err)
 	}
 	var deletedBindingExists bool
 	if err = store.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM secret_bindings WHERE id=$1)`, deletedBindingID).Scan(&deletedBindingExists); err != nil || deletedBindingExists {

@@ -773,6 +773,31 @@ func (s *Store) DeleteApplication(_ context.Context, actor, applicationID, confi
 		delete(placements, applicationID)
 		s.environmentAppPlacements[environmentID] = placements
 	}
+	for key, policy := range s.registryPolicies {
+		if policy.ServiceID == applicationID {
+			delete(s.registryPolicies, key)
+		}
+	}
+	for key, reference := range s.registryPins {
+		if reference.ServiceID == applicationID {
+			delete(s.registryPins, key)
+		}
+	}
+	for key, snapshot := range s.registryAuthorities {
+		if snapshot.Observation.ServiceID == applicationID {
+			delete(s.registryAuthorities, key)
+		}
+	}
+	for key, release := range s.registryReleases {
+		if release.ServiceID == applicationID {
+			delete(s.registryReleases, key)
+		}
+	}
+	for key, generation := range s.registryCaches {
+		if generation.ServiceID == applicationID {
+			delete(s.registryCaches, key)
+		}
+	}
 	for grantID, grant := range s.accessGrants {
 		if grant.ScopeType == domain.ScopeApplication && grant.ScopeID == applicationID {
 			delete(s.accessGrants, grantID)
