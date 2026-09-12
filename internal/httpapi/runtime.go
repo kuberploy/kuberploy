@@ -385,8 +385,8 @@ func parseRuntimeLogQuery(w http.ResponseWriter, r *http.Request, follow bool) (
 	}
 	if value := query.Get("tailLines"); value != "" {
 		parsed, err := strconv.Atoi(value)
-		if err != nil || parsed < 1 || parsed > 2_000 || strconv.Itoa(parsed) != value {
-			return invalidRuntimeQuery(w, r, "tailLines", "Use an integer from 1 through 2000.")
+		if err != nil || parsed < 1 || parsed > 5_000 || strconv.Itoa(parsed) != value {
+			return invalidRuntimeQuery(w, r, "tailLines", "Use an integer from 1 through 5000.")
 		}
 		options.TailLines = int64(parsed)
 	}

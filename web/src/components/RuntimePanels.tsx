@@ -23,7 +23,8 @@ import type {
   MetricSample,
 } from "../api/types";
 
-const boundedLogOptions = { tailLines: 200, limitBytes: 1_048_576 } as const;
+const runtimeLogTailChoices = [200, 500, 1_000, 5_000] as const;
+const runtimeLogByteLimit = 1_048_576;
 const boundedEventOptions = { limit: 50 } as const;
 const runtimeViewRetryDelay = 1_000;
 const runtimeViewRetryLimit = 180;
@@ -200,6 +201,7 @@ export function LogsPanel({
   applicationId: string;
   deploymentId: string;
 }) {
+  const [tailLines, setTailLines] = useState<number>(200);
   const workloads = useQuery({
     queryKey: ["workloads", applicationId],
     queryFn: () => api.workloads(applicationId),
@@ -218,6 +220,10 @@ export function LogsPanel({
     storedFilters.deploymentId === deploymentId
       ? storedFilters
       : { pod: "", revision: "", container: "" };
+  const boundedLogOptions = {
+    tailLines,
+    limitBytes: runtimeLogByteLimit,
+  };
   const mergedLogs = useQuery({
     queryKey: ["workload-logs", workload?.id, boundedLogOptions],
     queryFn: () => api.workloadLogs(workload!.id, boundedLogOptions),
@@ -332,6 +338,27 @@ export function LogsPanel({
             filters={filters}
             onChange={updateFilter}
           />
+
+          <div
+            className="grid grid-cols-[minmax(120px,_160px)_minmax(0,_1fr)] items-end gap-3 to-580:grid-cols-[1fr]"
+            aria-label="Runtime log selectors"
+          >
+            <Field label="Tail lines">
+              <Select
+                value={tailLines}
+                onChange={(event) => setTailLines(Number(event.target.value))}
+              >
+                {runtimeLogTailChoices.map((value) => (
+                  <option key={value} value={value}>
+                    {value.toLocaleString()}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <span className="pb-2 text-ink-faint text-xs">
+              Default 200 lines. Every snapshot remains limited to 1 MiB.
+            </span>
+          </div>
 
           <section className="grid gap-3" aria-labelledby="log-lines-title">
             <div className="flex items-end justify-between gap-4 [&_h3]:mt-0.5 [&_h3]:mx-0 [&_h3]:mb-0 [&_h3]:text-meta [&>span]:text-ink-faint [&>span]:text-xs to-580:items-start to-580:flex-col">

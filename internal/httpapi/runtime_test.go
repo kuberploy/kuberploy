@@ -193,6 +193,27 @@ func TestRuntimeSnapshotEventsAndWorkloadsAreScopedAuditedAndNoStore(t *testing.
 	}
 }
 
+func TestRuntimeLogTailLimitSupportsFiveThousand(t *testing.T) {
+	runtime := &fakeRuntimeView{snapshot: runtimeview.LogSnapshot{ObservedAt: time.Now().UTC()}}
+	fixture := newRuntimeAPI(t, runtime)
+	_, deployment := createRuntimeDeployment(t, fixture)
+
+	response := fixture.request(http.MethodGet, "/v1/workloads/"+deployment.ID+"/logs?tailLines=5000", "", nil)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("maximum tail status=%d", response.StatusCode)
+	}
+	request, ok := runtime.requests[0].(runtimeview.SnapshotRequest)
+	if !ok || request.Options.TailLines != 5_000 {
+		t.Fatalf("maximum tail request=%#v", runtime.requests[0])
+	}
+
+	response = fixture.request(http.MethodGet, "/v1/workloads/"+deployment.ID+"/logs?tailLines=5001", "", nil)
+	problem := decode[httpapi.Problem](t, response)
+	if response.StatusCode != http.StatusUnprocessableEntity || problem.Code != "ValidationFailed" || len(runtime.requests) != 1 {
+		t.Fatalf("oversized tail status=%d problem=%#v requests=%d", response.StatusCode, problem, len(runtime.requests))
+	}
+}
+
 func TestDeploymentStatusIncludesExactBoundedKubernetesRollout(t *testing.T) {
 	now := time.Date(2026, 8, 13, 1, 2, 3, 0, time.UTC)
 	runtime := &fakeRuntimeView{rollout: runtimeview.RolloutStatus{DesiredReplicas: 3, ReadyReplicas: 2, ObservedAt: now,

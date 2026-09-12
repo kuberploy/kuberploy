@@ -7,7 +7,6 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import type { PropsWithChildren } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, ApiError } from "../api/client";
@@ -112,7 +111,6 @@ function panel() {
 
 describe("deployment runtime panel", () => {
   it("selects the exact deployment and presents nested log source identity and events", async () => {
-    const user = userEvent.setup();
     vi.spyOn(api, "workloads").mockResolvedValue({
       items: [otherWorkload, targetWorkload],
     });
@@ -147,6 +145,16 @@ describe("deployment runtime panel", () => {
     });
     expect(events).toHaveBeenCalledWith(targetWorkload.id, { limit: 50 });
 
+    const tailLines = screen.getByRole("combobox", { name: "Tail lines" });
+    expect(tailLines).toHaveTextContent("200");
+    await selectOption(tailLines, "5000");
+    await waitFor(() =>
+      expect(logs).toHaveBeenLastCalledWith(targetWorkload.id, {
+        tailLines: 5_000,
+        limitBytes: 1_048_576,
+      }),
+    );
+
     await selectOption(
       screen.getByRole("combobox", { name: "Pod" }),
       source.podName,
@@ -163,7 +171,7 @@ describe("deployment runtime panel", () => {
     expect(screen.getByText("Exact Pod snapshot")).toBeInTheDocument();
     await waitFor(() =>
       expect(logs).toHaveBeenLastCalledWith(targetWorkload.id, {
-        tailLines: 200,
+        tailLines: 5_000,
         limitBytes: 1_048_576,
         pod: source.podName,
         revision: source.revision,

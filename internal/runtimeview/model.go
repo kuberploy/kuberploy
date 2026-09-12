@@ -229,7 +229,7 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		DefaultTailLines:     200,
-		MaxTailLines:         2_000,
+		MaxTailLines:         5_000,
 		DefaultLimitBytes:    1 << 20,
 		MaxSourceBytes:       5 << 20,
 		MaxSnapshotBytes:     20 << 20,

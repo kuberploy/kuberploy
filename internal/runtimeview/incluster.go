@@ -200,7 +200,7 @@ func (c *InClusterClient) GetPod(ctx context.Context, namespace, name string) (P
 
 func (c *InClusterClient) OpenPodLogs(ctx context.Context, request PodLogRequest) (io.ReadCloser, error) {
 	if !validKubeObject(request.Namespace, request.PodName) || !uidPattern.MatchString(request.PodUID) || !containerPattern.MatchString(request.Options.Container) ||
-		request.Options.TailLines < 1 || request.Options.TailLines > 2_000 || request.Options.LimitBytes < 1 || request.Options.LimitBytes > 5<<20 {
+		request.Options.TailLines < 1 || request.Options.TailLines > 5_000 || request.Options.LimitBytes < 1 || request.Options.LimitBytes > 5<<20 {
 		return nil, ErrInvalidRequest
 	}
 	// Bind the subresource request to the exact Pod instance immediately before

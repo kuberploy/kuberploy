@@ -35,7 +35,7 @@ func TestServiceRejectsInsecureClientAndUnboundedOptions(t *testing.T) {
 	service := newTestService(resolver, client, testConfig())
 	now := time.Now().UTC()
 	for name, options := range map[string]LogOptions{
-		"tail too large":   {TailLines: 2_001},
+		"tail too large":   {TailLines: 5_001},
 		"body too large":   {LimitBytes: 5<<20 + 1},
 		"lookback too old": {SinceTime: timePointer(now.Add(-25 * time.Hour))},
 		"future":           {SinceTime: timePointer(now.Add(2 * time.Minute))},
@@ -49,6 +49,9 @@ func TestServiceRejectsInsecureClientAndUnboundedOptions(t *testing.T) {
 				t.Fatalf("expected invalid request, got %v", err)
 			}
 		})
+	}
+	if _, err := service.Snapshot(context.Background(), SnapshotRequest{Target: testTargetRef, Options: LogOptions{TailLines: 5_000}}); err != nil {
+		t.Fatalf("maximum bounded tail was rejected: %v", err)
 	}
 	client.mu.Lock()
 	client.security.InsecureSkipTLSVerify = true
