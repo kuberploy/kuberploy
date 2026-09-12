@@ -185,7 +185,7 @@ func TestMaintenanceJobAdoptionRejectsMutation(t *testing.T) {
 	request := maintenanceHelperRequest{Version: 1, Mode: "checkpoint", TargetID: config.TargetID,
 		PlanID: "11111111-2222-4333-8444-555555555555", PlanDigest: "sha256:" + repeatHex("3", 64),
 		ExecutionKey: "sha256:" + repeatHex("4", 64), CandidateSetDigest: candidateDigest,
-		CandidateDigests: ordered, NotBefore: time.Now().UTC().Add(-time.Minute)}
+		CandidateCount: len(ordered), CandidateDigests: ordered, NotBefore: time.Now().UTC().Add(-time.Minute)}
 	expected, inputDigest, err := registryMaintenanceJob(config, request)
 	if err != nil {
 		t.Fatal(err)
@@ -246,7 +246,7 @@ func TestGCMaintenanceJobUsesCanonicalWritableMounts(t *testing.T) {
 	request := maintenanceHelperRequest{Version: 1, Mode: "gc", TargetID: config.TargetID,
 		PlanID: "11111111-2222-4333-8444-555555555555", PlanDigest: "sha256:" + repeatHex("3", 64),
 		ExecutionKey: "sha256:" + repeatHex("4", 64), CandidateSetDigest: candidateDigest,
-		CandidateDigests: ordered, CheckpointRevision: "physical-checkpoint", NotBefore: time.Now().UTC().Add(-time.Minute)}
+		CandidateCount: len(ordered), CheckpointRevision: "physical-checkpoint", NotBefore: time.Now().UTC().Add(-time.Minute)}
 	expected, inputDigest, err := registryMaintenanceJob(config, request)
 	if err != nil {
 		t.Fatal(err)

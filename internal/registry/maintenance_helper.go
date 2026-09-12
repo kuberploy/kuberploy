@@ -34,7 +34,8 @@ type maintenanceHelperRequest struct {
 	PlanDigest         string    `json:"planDigest"`
 	ExecutionKey       string    `json:"executionKey"`
 	CandidateSetDigest string    `json:"candidateSetDigest"`
-	CandidateDigests   []string  `json:"candidateDigests"`
+	CandidateCount     int       `json:"candidateCount"`
+	CandidateDigests   []string  `json:"candidateDigests,omitempty"`
 	CheckpointRevision string    `json:"checkpointRevision,omitempty"`
 	NotBefore          time.Time `json:"notBefore"`
 }
@@ -65,17 +66,24 @@ type maintenanceHelperResult struct {
 func (r maintenanceHelperRequest) validate(expectedMode string) error {
 	if r.Version != 1 || r.Mode != expectedMode || !validSafeIdentity(r.TargetID) || !validSafeIdentity(r.PlanID) ||
 		!validDigest(r.PlanDigest) || !validDigest(r.ExecutionKey) || !validDigest(r.CandidateSetDigest) ||
-		r.NotBefore.IsZero() || len(r.CandidateDigests) < 1 || len(r.CandidateDigests) > maximumMaintenanceCandidates {
+		r.NotBefore.IsZero() || r.CandidateCount < 1 {
 		return ErrRegistryMaintenanceInvalid
 	}
-	digest, ordered, err := cleanupCandidateSetDigest(r.CandidateDigests)
-	if err != nil || digest != r.CandidateSetDigest {
-		return ErrRegistryMaintenanceInvalid
-	}
-	for index := range ordered {
-		if ordered[index] != r.CandidateDigests[index] {
+	if expectedMode == "checkpoint" {
+		if len(r.CandidateDigests) != r.CandidateCount || len(r.CandidateDigests) > maximumMaintenanceCandidates {
 			return ErrRegistryMaintenanceInvalid
 		}
+		digest, ordered, err := cleanupCandidateSetDigest(r.CandidateDigests)
+		if err != nil || digest != r.CandidateSetDigest {
+			return ErrRegistryMaintenanceInvalid
+		}
+		for index := range ordered {
+			if ordered[index] != r.CandidateDigests[index] {
+				return ErrRegistryMaintenanceInvalid
+			}
+		}
+	} else if len(r.CandidateDigests) != 0 {
+		return ErrRegistryMaintenanceInvalid
 	}
 	if expectedMode == "gc" && !validSafeIdentity(r.CheckpointRevision) || expectedMode == "checkpoint" && r.CheckpointRevision != "" {
 		return ErrRegistryMaintenanceInvalid

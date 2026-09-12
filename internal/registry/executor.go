@@ -351,7 +351,6 @@ func (e *CleanupExecutor) validatePlan(plan domain.RegistryCleanupPlan) error {
 	progressed := false
 	seen := make(map[string]struct{}, len(plan.Items))
 	seenBlob := false
-	deleteBlobs := 0
 	for index, item := range plan.Items {
 		if item.Ordinal != index || !validDigest(item.Digest) || item.EstimatedBytes < 0 {
 			return ErrRegistryExecutionInvalid
@@ -363,12 +362,6 @@ func (e *CleanupExecutor) validatePlan(plan domain.RegistryCleanupPlan) error {
 		seen[key] = struct{}{}
 		if item.ResourceKind == "blob" {
 			seenBlob = true
-			if item.Disposition == domain.RegistryCleanupDelete {
-				deleteBlobs++
-				if deleteBlobs > maximumMaintenanceCandidates {
-					return ErrRegistryExecutionInvalid
-				}
-			}
 			if item.Repository != "*" {
 				return ErrRegistryExecutionInvalid
 			}

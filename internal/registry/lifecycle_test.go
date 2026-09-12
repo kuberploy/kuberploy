@@ -378,7 +378,7 @@ func TestBuildCleanupPlanFailsClosedAndNeverPlansExternalLifecycle(t *testing.T)
 	}
 }
 
-func TestBuildCleanupPlanRejectsOversizedOfflineBlobBatch(t *testing.T) {
+func TestBuildCleanupPlanAllowsCheckpointBatchedBlobCleanup(t *testing.T) {
 	now := time.Date(2026, 8, 9, 4, 0, 0, 0, time.UTC)
 	snapshot := fixtureSnapshot(now)
 	old := now.Add(-30 * 24 * time.Hour)
@@ -394,8 +394,12 @@ func TestBuildCleanupPlanRejectsOversizedOfflineBlobBatch(t *testing.T) {
 			snapshot.CatalogObservations[i].BlobCount += maximumMaintenanceCandidates + 1
 		}
 	}
-	if _, err := BuildCleanupPlan(snapshot, now, time.Hour); !errors.Is(err, store.ErrRegistryPolicyInvalid) {
-		t.Fatalf("err = %v", err)
+	plan, err := BuildCleanupPlan(snapshot, now, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Summary.GarbageCollectBlobs <= maximumMaintenanceCandidates {
+		t.Fatalf("garbage collect blobs = %d", plan.Summary.GarbageCollectBlobs)
 	}
 }
 

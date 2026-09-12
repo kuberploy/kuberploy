@@ -2,6 +2,8 @@ package registry
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -118,7 +120,7 @@ func (a *KubernetesMaintenanceAdapter) Acquire(ctx context.Context, request Main
 		return nil, store.ErrRegistrySnapshotStale
 	}
 	candidates := cleanupBlobItems(plan.Items)
-	if len(candidates) < 1 || len(candidates) > maximumMaintenanceCandidates {
+	if len(candidates) < 1 {
 		return nil, ErrRegistryMaintenanceInvalid
 	}
 	digests := make([]string, 0, len(candidates))
@@ -329,15 +331,40 @@ func (s *kubernetesMaintenanceSession) capture(ctx context.Context, request Reac
 			lease.State = "swept"
 		}
 	}
-	helperRequest := maintenanceHelperRequest{Version: 1, Mode: "checkpoint", TargetID: request.TargetID, PlanID: request.PlanID,
-		PlanDigest: request.PlanDigest, ExecutionKey: request.ExecutionKey, CandidateSetDigest: request.CandidateSetDigest,
-		CandidateDigests: append([]string(nil), request.CandidateDigests...), NotBefore: proof.ObservedAt}
-	physical, evidence, err := s.adapter.workloads.Checkpoint(ctx, s.adapter.runtime, helperRequest)
-	if err != nil {
-		return RegistryReachabilityCheckpoint{}, checkpointCaptureFailure("physical-scan")
+	physical := physicalReachabilityCheckpoint{
+		TargetID: request.TargetID, PlanID: request.PlanID, PlanDigest: request.PlanDigest,
+		ExecutionKey: request.ExecutionKey, CandidateSetDigest: request.CandidateSetDigest,
+		RegistryWide: true, InventoryComplete: true, ReachabilityComplete: true,
 	}
-	if validatePhysicalCheckpoint(physical, helperRequest, s.adapter.now()) != nil {
-		return RegistryReachabilityCheckpoint{}, checkpointCaptureFailure("physical-proof")
+	helperRequests, err := checkpointHelperRequests(request, proof.ObservedAt)
+	if err != nil {
+		return RegistryReachabilityCheckpoint{}, checkpointCaptureFailure("physical-request")
+	}
+	var evidence RegistryMaintenanceJobEvidence
+	for _, helperRequest := range helperRequests {
+		batchPhysical, batchEvidence, checkpointErr := s.adapter.workloads.Checkpoint(ctx, s.adapter.runtime, helperRequest)
+		if checkpointErr != nil {
+			return RegistryReachabilityCheckpoint{}, checkpointCaptureFailure("physical-scan")
+		}
+		if validatePhysicalCheckpoint(batchPhysical, helperRequest, s.adapter.now()) != nil {
+			return RegistryReachabilityCheckpoint{}, checkpointCaptureFailure("physical-proof")
+		}
+		_ = s.adapter.workloads.DeleteJob(context.WithoutCancel(ctx), s.adapter.runtime, batchEvidence)
+		if physical.Revision == "" {
+			physical.Revision, physical.InventoryRevision = batchPhysical.Revision, batchPhysical.InventoryRevision
+			physical.StartedAt, physical.ObservedAt = batchPhysical.StartedAt, batchPhysical.ObservedAt
+		} else if physical.Revision != batchPhysical.Revision || physical.InventoryRevision != batchPhysical.InventoryRevision {
+			return RegistryReachabilityCheckpoint{}, checkpointCaptureFailure("physical-changed")
+		} else {
+			if batchPhysical.StartedAt.Before(physical.StartedAt) {
+				physical.StartedAt = batchPhysical.StartedAt
+			}
+			if batchPhysical.ObservedAt.After(physical.ObservedAt) {
+				physical.ObservedAt = batchPhysical.ObservedAt
+			}
+		}
+		physical.Blobs = append(physical.Blobs, batchPhysical.Blobs...)
+		evidence = batchEvidence
 	}
 	plan, err := s.adapter.registry.RegistryCleanupPlan(ctx, s.plan.ID)
 	if err != nil {
@@ -377,7 +404,6 @@ func (s *kubernetesMaintenanceSession) capture(ctx context.Context, request Reac
 	s.lease = lease
 	s.checkpointJob = evidence
 	s.mu.Unlock()
-	_ = s.adapter.workloads.DeleteJob(context.WithoutCancel(ctx), s.adapter.runtime, evidence)
 	return checkpoint, nil
 }
 
@@ -450,7 +476,7 @@ func (s *kubernetesMaintenanceSession) GarbageCollect(ctx context.Context, reque
 	}
 	helperRequest := maintenanceHelperRequest{Version: 1, Mode: "gc", TargetID: request.TargetID, PlanID: request.PlanID,
 		PlanDigest: s.plan.PlanDigest, ExecutionKey: request.ExecutionKey, CandidateSetDigest: request.CandidateSetDigest,
-		CandidateDigests: append([]string(nil), request.CandidateDigests...), CheckpointRevision: request.Checkpoint.Revision,
+		CandidateCount: len(request.CandidateDigests), CheckpointRevision: request.Checkpoint.Revision,
 		NotBefore: request.Checkpoint.ObservedAt}
 	jobName := maintenanceJobName("gc", request.ExecutionKey)
 	_, replay, err := s.adapter.store.BeginRegistryGCSweep(ctx, lease, jobName, s.adapter.now())
@@ -545,15 +571,33 @@ func sameRecoveredSweepIdentity(oldRequest maintenanceHelperRequest, sweep GCSwe
 		oldRequest.ExecutionKey != request.ExecutionKey || oldRequest.CandidateSetDigest != request.CandidateSetDigest ||
 		sweep.TargetID != request.TargetID || sweep.ExecutionKey != request.ExecutionKey ||
 		sweep.CandidateSetDigest != request.CandidateSetDigest || sweep.CheckpointRevision != oldRequest.CheckpointRevision ||
-		sweep.StartedAt.Before(oldRequest.NotBefore) || !sweep.Complete || len(oldRequest.CandidateDigests) != len(request.CandidateDigests) {
+		sweep.StartedAt.Before(oldRequest.NotBefore) || !sweep.Complete || oldRequest.CandidateCount != len(request.CandidateDigests) {
 		return false
 	}
-	for index := range request.CandidateDigests {
-		if oldRequest.CandidateDigests[index] != request.CandidateDigests[index] {
-			return false
-		}
-	}
 	return true
+}
+
+func checkpointBatchExecutionKey(executionKey, candidateSetDigest string) string {
+	sum := sha256.Sum256([]byte(executionKey + "\ncheckpoint\n" + candidateSetDigest))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func checkpointHelperRequests(request ReachabilityCheckpointRequest, notBefore time.Time) ([]maintenanceHelperRequest, error) {
+	if len(request.CandidateDigests) == 0 || notBefore.IsZero() {
+		return nil, ErrRegistryMaintenanceInvalid
+	}
+	requests := make([]maintenanceHelperRequest, 0, (len(request.CandidateDigests)+maximumMaintenanceCandidates-1)/maximumMaintenanceCandidates)
+	for start := 0; start < len(request.CandidateDigests); start += maximumMaintenanceCandidates {
+		end := min(start+maximumMaintenanceCandidates, len(request.CandidateDigests))
+		batchDigest, ordered, err := cleanupCandidateSetDigest(request.CandidateDigests[start:end])
+		if err != nil {
+			return nil, err
+		}
+		requests = append(requests, maintenanceHelperRequest{Version: 1, Mode: "checkpoint", TargetID: request.TargetID, PlanID: request.PlanID,
+			PlanDigest: request.PlanDigest, ExecutionKey: checkpointBatchExecutionKey(request.ExecutionKey, batchDigest), CandidateSetDigest: batchDigest,
+			CandidateCount: len(ordered), CandidateDigests: ordered, NotBefore: notBefore})
+	}
+	return requests, nil
 }
 
 func sweepReceipt(lease store.RegistryMaintenanceLease, sweep GCSweepResult, evidence RegistryMaintenanceJobEvidence) store.RegistryGCSweepReceipt {

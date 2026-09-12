@@ -43,7 +43,7 @@ func TestPhysicalRegistryCheckpointProvesExplicitReachability(t *testing.T) {
 	request := maintenanceHelperRequest{Version: 1, Mode: "checkpoint", TargetID: "11111111-1111-4111-8111-111111111111",
 		PlanID: "22222222-2222-4222-8222-222222222222", PlanDigest: "sha256:" + repeatHex("a", 64),
 		ExecutionKey: "sha256:" + repeatHex("b", 64), CandidateSetDigest: candidateDigest,
-		CandidateDigests: candidates, NotBefore: time.Now().UTC().Add(-time.Minute)}
+		CandidateCount: len(candidates), CandidateDigests: candidates, NotBefore: time.Now().UTC().Add(-time.Minute)}
 	checkpoint, err := scanRegistryStorageAt(context.Background(), root, request)
 	if err != nil || !checkpoint.RegistryWide || !checkpoint.InventoryComplete || !checkpoint.ReachabilityComplete || len(checkpoint.Blobs) != 2 {
 		t.Fatalf("checkpoint=%+v err=%v", checkpoint, err)
@@ -95,7 +95,7 @@ func TestPhysicalRegistryCheckpointAcceptsOCIManifestWithoutTopLevelMediaType(t 
 	request := maintenanceHelperRequest{Version: 1, Mode: "checkpoint", TargetID: "11111111-1111-4111-8111-111111111111",
 		PlanID: "22222222-2222-4222-8222-222222222222", PlanDigest: "sha256:" + repeatHex("a", 64),
 		ExecutionKey: "sha256:" + repeatHex("b", 64), CandidateSetDigest: candidateDigest,
-		CandidateDigests: candidates, NotBefore: time.Now().UTC().Add(-time.Minute)}
+		CandidateCount: len(candidates), CandidateDigests: candidates, NotBefore: time.Now().UTC().Add(-time.Minute)}
 	checkpoint, err := scanRegistryStorageAt(context.Background(), root, request)
 	if err != nil || len(checkpoint.Blobs) != 1 || !checkpoint.Blobs[0].Present || !checkpoint.Blobs[0].Reachable {
 		t.Fatalf("checkpoint=%+v err=%v", checkpoint, err)

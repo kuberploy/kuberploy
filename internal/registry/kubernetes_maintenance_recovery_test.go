@@ -3,6 +3,8 @@ package registry
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -94,7 +96,7 @@ func TestRecoveredSweepRequiresExactImmutableIdentity(t *testing.T) {
 		CandidateSetDigest: candidateSetDigest, CandidateDigests: ordered, Checkpoint: RegistryReachabilityCheckpoint{Revision: "physical-current"}}
 	oldRequest := maintenanceHelperRequest{Version: 1, Mode: "gc", TargetID: request.TargetID, PlanID: request.PlanID,
 		PlanDigest: plan.PlanDigest, ExecutionKey: request.ExecutionKey, CandidateSetDigest: candidateSetDigest,
-		CandidateDigests: append([]string(nil), ordered...), CheckpointRevision: "physical-prior", NotBefore: now.Add(-time.Minute)}
+		CandidateCount: len(ordered), CheckpointRevision: "physical-prior", NotBefore: now.Add(-time.Minute)}
 	sweep := GCSweepResult{TargetID: request.TargetID, ExecutionKey: request.ExecutionKey, CandidateSetDigest: candidateSetDigest,
 		CheckpointRevision: oldRequest.CheckpointRevision, ProviderSweepID: "gc-proof", Complete: true, StartedAt: now.Add(-time.Minute), CompletedAt: now.Add(-time.Minute + time.Second)}
 	if !sameRecoveredSweepIdentity(oldRequest, sweep, plan, request) {
@@ -105,7 +107,7 @@ func TestRecoveredSweepRequiresExactImmutableIdentity(t *testing.T) {
 			value.PlanDigest = "sha256:" + repeatHex("f", 64)
 		},
 		func(value *maintenanceHelperRequest, _ *GCSweepResult, _ *domain.RegistryCleanupPlan, _ *GCSweepRequest) {
-			value.CandidateDigests[0] = "sha256:" + repeatHex("f", 64)
+			value.CandidateCount++
 		},
 		func(_ *maintenanceHelperRequest, value *GCSweepResult, _ *domain.RegistryCleanupPlan, _ *GCSweepRequest) {
 			value.ExecutionKey = "sha256:" + repeatHex("f", 64)
@@ -122,12 +124,47 @@ func TestRecoveredSweepRequiresExactImmutableIdentity(t *testing.T) {
 	}
 	for index, mutate := range mutations {
 		changedRequest := oldRequest
-		changedRequest.CandidateDigests = append([]string(nil), oldRequest.CandidateDigests...)
 		changedSweep, changedPlan, changedGCRequest := sweep, plan, request
 		mutate(&changedRequest, &changedSweep, &changedPlan, &changedGCRequest)
 		if sameRecoveredSweepIdentity(changedRequest, changedSweep, changedPlan, changedGCRequest) {
 			t.Fatalf("recovered sweep mutation %d accepted", index)
 		}
+	}
+}
+
+func TestCheckpointHelperRequestsBatchEveryCandidate(t *testing.T) {
+	digests := make([]string, maximumMaintenanceCandidates+1)
+	for index := range digests {
+		digests[index] = "sha256:" + fmt.Sprintf("%064x", index+1)
+	}
+	setDigest, ordered, err := cleanupCandidateSetDigest(digests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := ReachabilityCheckpointRequest{
+		TargetID: "11111111-1111-4111-8111-111111111111", PlanID: "22222222-2222-4222-8222-222222222222",
+		PlanDigest: "sha256:" + repeatHex("a", 64), ExecutionKey: "sha256:" + repeatHex("b", 64),
+		CandidateSetDigest: setDigest, CandidateDigests: ordered,
+	}
+	notBefore := time.Now().UTC()
+	batches, err := checkpointHelperRequests(request, notBefore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(batches) != 2 || batches[0].CandidateCount != maximumMaintenanceCandidates || batches[1].CandidateCount != 1 {
+		t.Fatalf("batches = %+v", batches)
+	}
+	var rebuilt []string
+	seenKeys := map[string]bool{}
+	for _, batch := range batches {
+		if batch.validate("checkpoint") != nil || seenKeys[batch.ExecutionKey] {
+			t.Fatalf("invalid or duplicate batch: %+v", batch)
+		}
+		seenKeys[batch.ExecutionKey] = true
+		rebuilt = append(rebuilt, batch.CandidateDigests...)
+	}
+	if !slices.Equal(rebuilt, ordered) {
+		t.Fatalf("rebuilt candidates = %#v", rebuilt)
 	}
 }
 
