@@ -356,7 +356,7 @@ export function LogsPanel({
               </Select>
             </Field>
             <span className="pb-2 text-ink-faint text-xs">
-              Default 200 lines. Every snapshot remains limited to 1 MiB.
+              Default 200 lines. Every snapshot includes at most 1 MiB of log text.
             </span>
           </div>
 

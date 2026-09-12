@@ -78,15 +78,25 @@ func (s *Service) Snapshot(ctx context.Context, request SnapshotRequest) (LogSna
 	}
 	snapshot := LogSnapshot{Lines: []LogLine{}, Sources: make([]LogSource, 0, len(sources)), Statuses: []SourceStatus{}, ObservedAt: s.now()}
 	for _, binding := range sources {
-		if snapshot.Bytes >= s.config.MaxSnapshotBytes {
-			snapshot.Truncated = true
-			break
-		}
 		snapshot.Sources = append(snapshot.Sources, binding.source)
+	}
+	if len(sources) == 0 {
+		return snapshot, nil
+	}
+	snapshotLimit := options.LimitBytes
+	if snapshotLimit > s.config.MaxSnapshotBytes {
+		snapshotLimit = s.config.MaxSnapshotBytes
+	}
+	perSourceReadLimit := s.config.MaxSnapshotBytes / int64(len(sources))
+	if perSourceReadLimit < 1 {
+		perSourceReadLimit = 1
+	}
+	if perSourceReadLimit > options.LimitBytes {
+		perSourceReadLimit = options.LimitBytes
+	}
+	for _, binding := range sources {
 		sourceOptions := options
-		if remaining := s.config.MaxSnapshotBytes - snapshot.Bytes; sourceOptions.LimitBytes > remaining {
-			sourceOptions.LimitBytes = remaining
-		}
+		sourceOptions.LimitBytes = perSourceReadLimit
 		reader, openErr := s.openSource(ctx, binding, sourceOptions, false)
 		if openErr != nil {
 			if errors.Is(openErr, ErrScopeViolation) || errors.Is(openErr, ErrContainerNotFound) ||
@@ -101,25 +111,63 @@ func (s *Service) Snapshot(ctx context.Context, request SnapshotRequest) (LogSna
 			snapshot.Statuses = append(snapshot.Statuses, SourceStatus{Source: binding.source, State: state, Reason: reason})
 			continue
 		}
-		lines, bytesRead, truncated, readErr := s.readLines(reader, binding.source, sourceOptions, false, sourceOptions.TailLines)
+		lines, _, truncated, readErr := s.readLines(reader, binding.source, sourceOptions, false, sourceOptions.TailLines)
 		_ = reader.Close()
 		if readErr != nil && !errors.Is(readErr, io.EOF) {
 			snapshot.Statuses = append(snapshot.Statuses, SourceStatus{Source: binding.source, State: "error", Reason: "LogsUnavailable"})
 		}
 		snapshot.Lines = append(snapshot.Lines, lines...)
-		snapshot.Bytes += bytesRead
 		snapshot.Truncated = snapshot.Truncated || truncated
+		var trimmed bool
+		snapshot.Lines, trimmed = latestLogLines(snapshot.Lines, options.TailLines)
+		snapshot.Truncated = snapshot.Truncated || trimmed
 	}
-	// Kubernetes preserves order per source. This merge is explicitly only
-	// best-effort chronological when timestamps are present.
-	sort.SliceStable(snapshot.Lines, func(i, j int) bool {
-		left, right := snapshot.Lines[i].Timestamp, snapshot.Lines[j].Timestamp
+	boundedLines, boundedBytes, truncated := boundLogLineBytes(snapshot.Lines, snapshotLimit)
+	snapshot.Lines = boundedLines
+	snapshot.Bytes = boundedBytes
+	snapshot.Truncated = snapshot.Truncated || truncated
+	return snapshot, nil
+}
+
+// latestLogLines bounds the merged candidate set after each source. Kubernetes
+// preserves order per source; timestamps make the cross-source merge
+// best-effort chronological.
+func latestLogLines(lines []LogLine, limit int64) ([]LogLine, bool) {
+	sort.SliceStable(lines, func(i, j int) bool {
+		left, right := lines[i].Timestamp, lines[j].Timestamp
 		if left == nil || right == nil || left.Equal(*right) {
 			return false
 		}
 		return left.Before(*right)
 	})
-	return snapshot, nil
+	if int64(len(lines)) <= limit {
+		return lines, false
+	}
+	return append([]LogLine(nil), lines[len(lines)-int(limit):]...), true
+}
+
+func boundLogLineBytes(lines []LogLine, limit int64) ([]LogLine, int64, bool) {
+	var total int64
+	for _, line := range lines {
+		total += int64(len(line.Message))
+	}
+	if total <= limit {
+		return lines, total, false
+	}
+
+	remaining := limit
+	first := len(lines)
+	for index := len(lines) - 1; index >= 0 && remaining > 0; index-- {
+		messageBytes := int64(len(lines[index].Message))
+		if messageBytes > remaining {
+			lines[index].Message = truncateUTF8(lines[index].Message, int(remaining))
+			lines[index].Truncated = true
+			messageBytes = int64(len(lines[index].Message))
+		}
+		remaining -= messageBytes
+		first = index
+	}
+	return append([]LogLine(nil), lines[first:]...), limit - remaining, true
 }
 
 func (s *Service) readLines(reader io.Reader, source LogSource, options LogOptions, forceTimestamp bool, maxLines int64) ([]LogLine, int64, bool, error) {

@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Runtime log snapshots offer 200, 500, 1,000, or 5,000 lines while retaining the one-mebibyte response bound.",
+  "summary": "Runtime log snapshots offer 200, 500, 1,000, or 5,000 lines with aggregate line and one-mebibyte log-content bounds across all Pods.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.452"
+  "version": "0.1.0-rc.453"
 }

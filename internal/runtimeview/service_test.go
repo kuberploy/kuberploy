@@ -205,6 +205,60 @@ func TestSnapshotBoundsLinesBodiesAndAppliesDefenseInDepthRedaction(t *testing.T
 	}
 }
 
+func TestSnapshotAppliesLineAndByteLimitsAcrossAllSources(t *testing.T) {
+	newFixture := func() (*fakeResolver, *fakeKubernetes) {
+		resolver, client := baseFixture()
+		pod := clonePod(client.pods[0])
+		pod.Name = "payments-web-7f9-second"
+		pod.UID = "pod-uid-second"
+		client.pods = append(client.pods, pod)
+		client.currentPods[pod.Name] = pod
+		return resolver, client
+	}
+
+	t.Run("lines", func(t *testing.T) {
+		resolver, client := newFixture()
+		client.openFn = func(request PodLogRequest, _ int) (io.ReadCloser, error) {
+			if request.PodName == client.pods[0].Name {
+				return io.NopCloser(strings.NewReader("2026-09-12T00:00:00Z zero\n2026-09-12T00:02:00Z two\n2026-09-12T00:04:00Z four\n")), nil
+			}
+			return io.NopCloser(strings.NewReader("2026-09-12T00:01:00Z one\n2026-09-12T00:03:00Z three\n2026-09-12T00:05:00Z five\n")), nil
+		}
+		service := newTestService(resolver, client, testConfig())
+		snapshot, err := service.Snapshot(t.Context(), SnapshotRequest{Target: testTargetRef, Options: LogOptions{TailLines: 4, Timestamps: true}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		requests := client.requests()
+		messages := make([]string, 0, len(snapshot.Lines))
+		for _, line := range snapshot.Lines {
+			messages = append(messages, line.Message)
+		}
+		if len(snapshot.Sources) != 2 || len(snapshot.Lines) != 4 || !snapshot.Truncated || len(requests) != 2 || requests[0].Options.TailLines != 4 || requests[1].Options.TailLines != 4 || !reflect.DeepEqual(messages, []string{"two", "three", "four", "five"}) {
+			t.Fatalf("aggregate line bound failed: snapshot=%#v requests=%#v", snapshot, requests)
+		}
+	})
+
+	t.Run("bytes", func(t *testing.T) {
+		resolver, client := newFixture()
+		client.openFn = func(PodLogRequest, int) (io.ReadCloser, error) {
+			return io.NopCloser(strings.NewReader("2026-09-12T00:00:00Z " + strings.Repeat("a", 40) + "\n")), nil
+		}
+		service := newTestService(resolver, client, testConfig())
+		snapshot, err := service.Snapshot(t.Context(), SnapshotRequest{Target: testTargetRef, Options: LogOptions{LimitBytes: 60, Timestamps: true}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		requests := client.requests()
+		if len(snapshot.Sources) != 2 || len(snapshot.Lines) != 2 || snapshot.Bytes > 60 || !snapshot.Truncated || len(requests) != 2 || requests[0].Options.LimitBytes != 60 || requests[1].Options.LimitBytes != 60 {
+			t.Fatalf("aggregate byte bound failed: snapshot=%#v requests=%#v", snapshot, requests)
+		}
+		if snapshot.Lines[0].Cursor == nil || snapshot.Lines[0].Cursor.Fingerprint != lineFingerprint(snapshot.Lines[0].Source, *snapshot.Lines[0].Timestamp, strings.Repeat("a", 39)) {
+			t.Fatalf("aggregate truncation changed source cursor: %#v", snapshot.Lines[0])
+		}
+	})
+}
+
 func TestEventsUseExactUIDScopeAndSanitizeUntrustedFields(t *testing.T) {
 	resolver, client := baseFixture()
 	client.events = []KubernetesEvent{{
