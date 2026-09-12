@@ -148,6 +148,24 @@ describe("application stop lifecycle", () => {
     });
   });
 
+  it("does not poll operations while viewing another App section", async () => {
+    const user = userEvent.setup();
+    renderApplication({ features: {}, capabilities: [] });
+
+    await waitFor(() => expect(api.operations).toHaveBeenCalledOnce());
+    await user.click(
+      await screen.findByRole("button", { name: "Configuration" }),
+    );
+    vi.mocked(api.operations).mockClear();
+    vi.useFakeTimers();
+    try {
+      vi.advanceTimersByTime(15_000);
+      expect(api.operations).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each([
     [
       "stopped",

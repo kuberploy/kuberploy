@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "App deletion cleans registry lifecycle state, and failed runtime-secret bindings can be deleted after provider staging errors.",
+  "summary": "App runtime operation polling is limited to the Overview section, while runtime and build logs stay bounded.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.449"
+  "version": "0.1.0-rc.450"
 }

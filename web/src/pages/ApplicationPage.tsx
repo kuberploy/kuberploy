@@ -71,6 +71,7 @@ export function ApplicationPage() {
   const operations = useQuery({
     queryKey: ["operations"],
     queryFn: api.operations,
+    enabled: tabChoice === "overview",
     refetchInterval: 5_000,
   });
   const capabilities = useQuery({

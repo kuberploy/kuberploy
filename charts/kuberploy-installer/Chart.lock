@@ -1,9 +1,9 @@
 dependencies:
 - name: kuberploy-valkey
   repository: file://../kuberploy-valkey
-  version: 0.1.0-rc.449
+  version: 0.1.0-rc.450
 - name: kuberploy-argocd
   repository: file://../kuberploy-argocd
-  version: 0.1.0-rc.449
-digest: sha256:82a07eb694eab608834d3f34cd729800599e8183c848bf7a9e3c8c4e83865506
+  version: 0.1.0-rc.450
+digest: sha256:ba8fa990bd25108cd5ecc11033316905ef2c59ffa0aaf6facd4c1ed7c8ffbb23
 generated: "2026-08-14T13:37:13Z"
