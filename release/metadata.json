@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "App stop retries converge when desired state was already removed, without publishing duplicate Git work.",
+  "summary": "Deleting an App now removes its registry lifecycle state so cleanup can finish without orphaned records.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.447"
+  "version": "0.1.0-rc.448"
 }
