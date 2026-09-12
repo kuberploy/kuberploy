@@ -2,6 +2,7 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   Navigate,
   redirect,
 } from "@tanstack/react-router";
@@ -10,35 +11,125 @@ import { useLayoutEffect, useState } from "react";
 import { api, isUnauthorized } from "./api/client";
 import { AppShell } from "./components/AppShell";
 import { AuthScreen } from "./components/AuthScreen";
-import { DashboardPage } from "./pages/DashboardPage";
-import { ProjectsPage } from "./pages/ProjectsPage";
-import { ProjectPage } from "./pages/ProjectPage";
-import { EnvironmentPage } from "./pages/EnvironmentPage";
-import { AddAppPage } from "./pages/AddAppPage";
-import { NewDeploymentPage } from "./pages/NewDeploymentPage";
-import { ApplicationPage } from "./pages/ApplicationPage";
-import { ApplicationOverviewPage } from "./pages/ApplicationOverviewPage";
-import { OperationPage } from "./pages/OperationPage";
-import { SetupPage } from "./pages/SetupPage";
-import { UpgradePage } from "./pages/UpgradePage";
-import { TeamsPage } from "./pages/TeamsPage";
-import { MonitoringPage } from "./pages/MonitoringPage";
-import { RegistryTargetsPage } from "./pages/RegistryTargetsPage";
-import { ExternalDNSPage } from "./pages/ExternalDNSPage";
-import { SourceBuildsPage } from "./pages/SourceBuildsPage";
-import { BuildDetailPage } from "./pages/BuildDetailPage";
-import { GitHubSetupCompletePage } from "./pages/GitHubSetupCompletePage";
-import { PlatformArgoGitBindingPage } from "./pages/PlatformArgoGitBindingPage";
-import { MiddlewareProfilesPage } from "./pages/MiddlewareProfilesPage";
-import { VariableSetsPage } from "./pages/VariableSetsPage";
-import { CertificateIssuersPage } from "./pages/CertificateIssuersPage";
-import { AuditPage } from "./pages/AuditPage";
-import { BuilderSettingsPage } from "./pages/BuilderSettingsPage";
+import { Page, Skeleton } from "./components/ui";
 import { NotFoundPage, RouteErrorPage } from "./pages/NotFoundPage";
 import {
   clearInvitationFragment,
   invitationTokenFromHash,
 } from "./lib/invitationLink";
+
+const DashboardPage = lazyRouteComponent(
+  () => import("./pages/DashboardPage"),
+  "DashboardPage",
+);
+const ProjectsPage = lazyRouteComponent(
+  () => import("./pages/ProjectsPage"),
+  "ProjectsPage",
+);
+const ProjectPage = lazyRouteComponent(
+  () => import("./pages/ProjectPage"),
+  "ProjectPage",
+);
+const EnvironmentPage = lazyRouteComponent(
+  () => import("./pages/EnvironmentPage"),
+  "EnvironmentPage",
+);
+const AddAppPage = lazyRouteComponent(
+  () => import("./pages/AddAppPage"),
+  "AddAppPage",
+);
+const NewDeploymentPage = lazyRouteComponent(
+  () => import("./pages/NewDeploymentPage"),
+  "NewDeploymentPage",
+);
+const ApplicationPage = lazyRouteComponent(
+  () => import("./pages/ApplicationPage"),
+  "ApplicationPage",
+);
+const ApplicationOverviewPage = lazyRouteComponent(
+  () => import("./pages/ApplicationOverviewPage"),
+  "ApplicationOverviewPage",
+);
+const OperationPage = lazyRouteComponent(
+  () => import("./pages/OperationPage"),
+  "OperationPage",
+);
+const SetupPage = lazyRouteComponent(
+  () => import("./pages/SetupPage"),
+  "SetupPage",
+);
+const UpgradePage = lazyRouteComponent(
+  () => import("./pages/UpgradePage"),
+  "UpgradePage",
+);
+const TeamsPage = lazyRouteComponent(
+  () => import("./pages/TeamsPage"),
+  "TeamsPage",
+);
+const MonitoringPage = lazyRouteComponent(
+  () => import("./pages/MonitoringPage"),
+  "MonitoringPage",
+);
+const RegistryTargetsPage = lazyRouteComponent(
+  () => import("./pages/RegistryTargetsPage"),
+  "RegistryTargetsPage",
+);
+const ExternalDNSPage = lazyRouteComponent(
+  () => import("./pages/ExternalDNSPage"),
+  "ExternalDNSPage",
+);
+const SourceBuildsPage = lazyRouteComponent(
+  () => import("./pages/SourceBuildsPage"),
+  "SourceBuildsPage",
+);
+const BuildDetailPage = lazyRouteComponent(
+  () => import("./pages/BuildDetailPage"),
+  "BuildDetailPage",
+);
+const GitHubSetupCompletePage = lazyRouteComponent(
+  () => import("./pages/GitHubSetupCompletePage"),
+  "GitHubSetupCompletePage",
+);
+const PlatformArgoGitBindingPage = lazyRouteComponent(
+  () => import("./pages/PlatformArgoGitBindingPage"),
+  "PlatformArgoGitBindingPage",
+);
+const MiddlewareProfilesPage = lazyRouteComponent(
+  () => import("./pages/MiddlewareProfilesPage"),
+  "MiddlewareProfilesPage",
+);
+const VariableSetsPage = lazyRouteComponent(
+  () => import("./pages/VariableSetsPage"),
+  "VariableSetsPage",
+);
+const CertificateIssuersPage = lazyRouteComponent(
+  () => import("./pages/CertificateIssuersPage"),
+  "CertificateIssuersPage",
+);
+const AuditPage = lazyRouteComponent(
+  () => import("./pages/AuditPage"),
+  "AuditPage",
+);
+const BuilderSettingsPage = lazyRouteComponent(
+  () => import("./pages/BuilderSettingsPage"),
+  "BuilderSettingsPage",
+);
+
+function RoutePendingPage() {
+  return (
+    <Page narrow className="min-h-[calc(100vh-68px)] place-content-center">
+      <section
+        className="grid gap-4 rounded-[16px] border border-line bg-surface p-6"
+        role="status"
+        aria-label="Loading page"
+        aria-busy="true"
+      >
+        <strong className="text-sm text-ink">Loading page</strong>
+        <Skeleton lines={5} />
+      </section>
+    </Page>
+  );
+}
 
 export function RootComponent() {
   const [invitationToken, setInvitationToken] = useState(() =>
@@ -307,6 +398,9 @@ const routeTree = rootRoute.addChildren([
 export const router = createRouter({
   routeTree,
   defaultPreload: "intent",
+  defaultPendingComponent: RoutePendingPage,
+  defaultPendingMs: 150,
+  defaultPendingMinMs: 250,
   scrollRestoration: true,
 });
 

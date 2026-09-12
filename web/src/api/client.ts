@@ -3035,16 +3035,20 @@ export const api = {
       body: change,
     }).then(normalizeOperation),
 
-  operations: () =>
-    request<Collection<OperationWire> | OperationWire[]>("/v1/operations").then(
-      (value) => {
-        const collection = asCollection(value);
-        return {
-          ...collection,
-          items: collection.items.map(normalizeOperation),
-        };
-      },
-    ),
+  operations: (requestedLimit = 50) => {
+    const limit = boundedRegistryLimit(requestedLimit);
+    return request<Collection<OperationWire> | OperationWire[]>(
+      `/v1/operations?limit=${encodeURIComponent(String(limit))}`,
+    ).then((value) => {
+      const collection = asCollection(value);
+      return {
+        ...collection,
+        items: collection.items.slice(0, limit).map(normalizeOperation),
+        truncated:
+          collection.truncated === true || collection.items.length > limit,
+      };
+    });
+  },
   operation: (id: string) =>
     request<OperationWire>(`/v1/operations/${encodeURIComponent(id)}`).then(
       normalizeOperation,

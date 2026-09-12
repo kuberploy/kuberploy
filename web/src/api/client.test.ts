@@ -656,6 +656,22 @@ describe("typed API client", () => {
     expect(asCollection({ items: null })).toEqual({ items: [] });
   });
 
+  it("bounds the recent operations request and preserves truncation", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ items: [], truncated: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.operations(500)).resolves.toEqual({
+      items: [],
+      truncated: true,
+    });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/v1/operations?limit=100");
+  });
+
   it("builds only the named scoped metrics query contract", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(

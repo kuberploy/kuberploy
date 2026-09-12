@@ -913,6 +913,17 @@ func (s *Store) ListOperationsForActor(_ context.Context, actor string) ([]domai
 	return out, nil
 }
 
+func (s *Store) ListRecentOperationsForActor(ctx context.Context, actor string, limit int) ([]domain.Operation, error) {
+	items, err := s.ListOperationsForActor(ctx, actor)
+	if err != nil {
+		return nil, err
+	}
+	if limit < len(items) {
+		items = items[:limit]
+	}
+	return items, nil
+}
+
 func (s *Store) GetOperationForActor(_ context.Context, actor, operationID string) (domain.Operation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

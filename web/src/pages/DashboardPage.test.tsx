@@ -19,7 +19,10 @@ describe("dashboard platform health", () => {
     vi.spyOn(api, "projects").mockResolvedValue({ items: [] });
     vi.spyOn(api, "applications").mockResolvedValue({ items: [] });
     vi.spyOn(api, "deployments").mockResolvedValue({ items: [] });
-    vi.spyOn(api, "operations").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "operations").mockResolvedValue({
+      items: [],
+      truncated: false,
+    });
     vi.spyOn(api, "capabilities").mockResolvedValue({
       actions: [],
       features: {},
@@ -48,6 +51,7 @@ describe("dashboard platform health", () => {
     const health = await screen.findByRole("region", {
       name: "Platform health",
     });
+    expect(api.operations).toHaveBeenCalledWith(50);
     expect(screen.getByText("App instances")).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "Recent Apps" }),
@@ -66,7 +70,10 @@ describe("dashboard platform health", () => {
     vi.spyOn(api, "projects").mockResolvedValue({ items: [] });
     vi.spyOn(api, "applications").mockResolvedValue({ items: [] });
     vi.spyOn(api, "deployments").mockResolvedValue({ items: [] });
-    vi.spyOn(api, "operations").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "operations").mockResolvedValue({
+      items: [],
+      truncated: false,
+    });
     vi.spyOn(api, "capabilities").mockResolvedValue({
       actions: [],
       features: { gitops: true, argoCD: false, edge: false },

@@ -1243,6 +1243,69 @@ func (s *Store) ListOperationsForActor(ctx context.Context, actor string) ([]dom
 	return out, nil
 }
 
+func (s *Store) ListRecentOperationsForActor(ctx context.Context, actor string, limit int) ([]domain.Operation, error) {
+	bindings, err := effectiveBindings(ctx, s.pool, actor)
+	if err != nil {
+		return nil, err
+	}
+	if limit < 1 {
+		return []domain.Operation{}, nil
+	}
+
+	const batchSize = 100
+	out := make([]domain.Operation, 0, limit)
+	offset := 0
+	for len(out) < limit {
+		rows, queryErr := s.pool.Query(ctx, `SELECT id FROM operations ORDER BY created_at DESC,id LIMIT $1 OFFSET $2`, batchSize, offset)
+		if queryErr != nil {
+			return nil, queryErr
+		}
+		ids := make([]string, 0, batchSize)
+		for rows.Next() {
+			var operationID string
+			if scanErr := rows.Scan(&operationID); scanErr != nil {
+				rows.Close()
+				return nil, scanErr
+			}
+			ids = append(ids, operationID)
+		}
+		rowsErr := rows.Err()
+		rows.Close()
+		if rowsErr != nil {
+			return nil, rowsErr
+		}
+		if len(ids) == 0 {
+			break
+		}
+		offset += len(ids)
+
+		for _, operationID := range ids {
+			target, targetErr := resolveAccessTarget(ctx, s.pool, domain.AccessTarget{Type: "operation", ID: operationID})
+			if targetErr != nil {
+				if errors.Is(targetErr, base.ErrNotFound) {
+					continue
+				}
+				return nil, targetErr
+			}
+			if !accesspolicy.HasPermission(bindings, target, domain.PermissionOperationsRead) {
+				continue
+			}
+			item, getErr := s.GetOperation(ctx, operationID)
+			if getErr != nil {
+				return nil, getErr
+			}
+			out = append(out, item)
+			if len(out) == limit {
+				break
+			}
+		}
+		if len(ids) < batchSize {
+			break
+		}
+	}
+	return out, nil
+}
+
 func (s *Store) GetOperationForActor(ctx context.Context, actor, operationID string) (domain.Operation, error) {
 	if err := authorizeWith(ctx, s.pool, actor, domain.PermissionOperationsRead, domain.AccessTarget{Type: "operation", ID: operationID}); err != nil {
 		return domain.Operation{}, err

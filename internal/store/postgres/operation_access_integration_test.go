@@ -46,18 +46,18 @@ func TestPostgreSQLOperationAccessUsesStoredVariableSetScope(t *testing.T) {
 		VALUES($1,$2,'project-admin','project',$3,'explicit',$4,$5)`, id.New(), ownerID, projectID, adminID, now); err != nil {
 		t.Fatal(err)
 	}
-	insertOperation := func(operationID, targetType, targetID string) {
+	insertOperation := func(operationID, targetType, targetID string, createdAt time.Time) {
 		t.Helper()
 		if _, execErr := store.pool.Exec(ctx, `INSERT INTO operations(id,kind,status,target_type,target_id,request_id,generation,progress,created_at,updated_at)
-			VALUES($1,'variable-set.git-write','queued',$2,$3,$4,1,'[]'::jsonb,$5,$5)`, operationID, targetType, targetID, operationID, now); execErr != nil {
+			VALUES($1,'variable-set.git-write','queued',$2,$3,$4,1,'[]'::jsonb,$5,$5)`, operationID, targetType, targetID, operationID, createdAt); execErr != nil {
 			t.Fatal(execErr)
 		}
 	}
-	insertOperation(projectOperationID, "project", projectID)
-	insertOperation(environmentOperationID, "environment", environmentID)
-	insertOperation(otherOperationID, "project", otherProjectID)
+	insertOperation(projectOperationID, "project", projectID, now)
+	insertOperation(environmentOperationID, "environment", environmentID, now.Add(time.Second))
+	insertOperation(otherOperationID, "project", otherProjectID, now.Add(2*time.Second))
 	unknownOperationID := id.New()
-	insertOperation(unknownOperationID, "future-scope", projectID)
+	insertOperation(unknownOperationID, "future-scope", projectID, now.Add(3*time.Second))
 
 	for _, operationID := range []string{projectOperationID, environmentOperationID} {
 		operation, getErr := store.GetOperationForActor(ctx, ownerID, operationID)
@@ -68,6 +68,10 @@ func TestPostgreSQLOperationAccessUsesStoredVariableSetScope(t *testing.T) {
 	operations, err := store.ListOperationsForActor(ctx, ownerID)
 	if err != nil || len(operations) != 2 {
 		t.Fatalf("scoped operation list=%#v err=%v", operations, err)
+	}
+	recent, err := store.ListRecentOperationsForActor(ctx, ownerID, 1)
+	if err != nil || len(recent) != 1 || recent[0].ID != environmentOperationID {
+		t.Fatalf("bounded operation list=%#v err=%v", recent, err)
 	}
 	if _, err = store.GetOperationForActor(ctx, ownerID, unknownOperationID); !errors.Is(err, base.ErrNotFound) {
 		t.Fatalf("unknown-scope operation was visible: %v", err)

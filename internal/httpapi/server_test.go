@@ -616,6 +616,26 @@ func TestImageDeploymentWalkingSliceAndIdempotency(t *testing.T) {
 	if stable.ID != op.TargetID || stable.Generation != 2 || stable.Image != request["image"] {
 		t.Fatalf("stable deployment was replaced or stale: %#v", stable)
 	}
+	r = f.request("GET", "/v1/operations?limit=1", "", nil)
+	recent := decode[struct {
+		Items     []domain.Operation `json:"items"`
+		Truncated bool               `json:"truncated"`
+	}](t, r)
+	if r.StatusCode != http.StatusOK || len(recent.Items) != 1 || recent.Items[0].ID != second.ID || !recent.Truncated {
+		t.Fatalf("bounded operations: status=%d response=%#v", r.StatusCode, recent)
+	}
+	for _, path := range []string{
+		"/v1/operations?limit=0",
+		"/v1/operations?limit=01",
+		"/v1/operations?limit=1&limit=2",
+		"/v1/operations?cursor=next",
+	} {
+		invalid := f.request("GET", path, "", nil)
+		problem := decode[httpapi.Problem](t, invalid)
+		if invalid.StatusCode != http.StatusUnprocessableEntity || problem.Code != "ValidationFailed" {
+			t.Fatalf("invalid operations query %q: status=%d problem=%#v", path, invalid.StatusCode, problem)
+		}
+	}
 }
 
 func TestProjectApplicationAndEnvironmentDeletionLifecycle(t *testing.T) {
@@ -871,7 +891,7 @@ func TestReleaseCheckReportsMissingStableRelease(t *testing.T) {
 func newUpgradeAPIWithReleaseError(t *testing.T, releaseErr error) *apiFixture {
 	t.Helper()
 	st := memory.New()
-	srv := httptest.NewServer(httpapi.New(httpapi.Options{Store: st, BootstrapToken: "one-time-secret", Version: "0.1.0-rc.450", Releases: staticReleaseService{err: releaseErr}, HighRiskLimiter: ratelimit.NewMemoryLimiter(10_000)}))
+	srv := httptest.NewServer(httpapi.New(httpapi.Options{Store: st, BootstrapToken: "one-time-secret", Version: "0.1.0-rc.451", Releases: staticReleaseService{err: releaseErr}, HighRiskLimiter: ratelimit.NewMemoryLimiter(10_000)}))
 	jar, _ := cookiejar.New(nil)
 	f := &apiFixture{t: t, server: srv, client: &http.Client{Jar: jar}, store: st}
 	t.Cleanup(srv.Close)

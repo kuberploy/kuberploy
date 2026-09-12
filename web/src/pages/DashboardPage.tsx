@@ -26,8 +26,8 @@ export function DashboardPage() {
     refetchInterval: 15_000,
   });
   const operations = useQuery({
-    queryKey: ["operations"],
-    queryFn: api.operations,
+    queryKey: ["operations", 50],
+    queryFn: () => api.operations(50),
     refetchInterval: 5_000,
   });
   const capabilities = useQuery({

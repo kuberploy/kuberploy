@@ -256,6 +256,7 @@ type Store interface {
 	ListOperations(context.Context) ([]domain.Operation, error)
 	GetOperationForActor(context.Context, string, string) (domain.Operation, error)
 	ListOperationsForActor(context.Context, string) ([]domain.Operation, error)
+	ListRecentOperationsForActor(context.Context, string, int) ([]domain.Operation, error)
 	PendingOutbox(context.Context, int) ([]domain.WorkMessage, error)
 	MarkOutboxPublished(context.Context, string) error
 	MarkOutboxFailure(context.Context, string, string) error

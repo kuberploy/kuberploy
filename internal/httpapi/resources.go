@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -845,13 +846,46 @@ func (s *Server) deploymentStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, v)
 }
 func (s *Server) operations(w http.ResponseWriter, r *http.Request) {
-	items, err := s.store.ListOperationsForActor(r.Context(), currentUser(r.Context()).ID)
+	limit, ok := parseOperationListLimit(w, r)
+	if !ok {
+		return
+	}
+	items, err := s.store.ListRecentOperationsForActor(r.Context(), currentUser(r.Context()).ID, limit+1)
 	if err != nil {
 		mappedError(w, r, err)
 		return
 	}
-	collection(w, items)
+	truncated := len(items) > limit
+	if truncated {
+		items = items[:limit]
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Items     []domain.Operation `json:"items"`
+		Truncated bool               `json:"truncated"`
+	}{Items: items, Truncated: truncated})
 }
+
+func parseOperationListLimit(w http.ResponseWriter, r *http.Request) (int, bool) {
+	const defaultLimit = 50
+	query := r.URL.Query()
+	for key, values := range query {
+		if key != "limit" || len(values) != 1 || values[0] == "" {
+			writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "Use only one bounded limit query parameter.")
+			return 0, false
+		}
+	}
+	raw := query.Get("limit")
+	if raw == "" {
+		return defaultLimit, true
+	}
+	limit, err := strconv.Atoi(raw)
+	if err != nil || limit < 1 || limit > 100 || strconv.Itoa(limit) != raw {
+		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "limit must be a canonical integer from 1 through 100.")
+		return 0, false
+	}
+	return limit, true
+}
+
 func (s *Server) operation(w http.ResponseWriter, r *http.Request) {
 	actor := currentUser(r.Context()).ID
 	operationID := r.PathValue("id")

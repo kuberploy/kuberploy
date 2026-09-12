@@ -63,7 +63,10 @@ beforeEach(() => {
     freshness: "fresh",
     documents: [],
   } as ConfigBundle);
-  vi.spyOn(api, "operations").mockResolvedValue({ items: [] });
+  vi.spyOn(api, "operations").mockResolvedValue({
+    items: [],
+    truncated: false,
+  });
   vi.spyOn(api, "environments").mockResolvedValue({
     items: [
       {
@@ -152,7 +155,7 @@ describe("application stop lifecycle", () => {
     const user = userEvent.setup();
     renderApplication({ features: {}, capabilities: [] });
 
-    await waitFor(() => expect(api.operations).toHaveBeenCalledOnce());
+    await waitFor(() => expect(api.operations).toHaveBeenCalledWith(100));
     await user.click(
       await screen.findByRole("button", { name: "Configuration" }),
     );
@@ -353,6 +356,7 @@ describe("application rollout truth", () => {
           },
         },
       ],
+      truncated: false,
     });
     renderApplication({ features: {}, capabilities: [] });
     expect(
@@ -658,9 +662,7 @@ describe("application Helm navigation", () => {
       capabilities: [helmCapability],
     });
 
-    expect(
-      await screen.findByRole("button", { name: "Helm" }),
-    ).toBeVisible();
+    expect(await screen.findByRole("button", { name: "Helm" })).toBeVisible();
   });
 });
 

@@ -549,6 +549,10 @@ func TestVariableSetOperationAccessUsesStoredScope(t *testing.T) {
 	if err != nil || len(listed) != 2 {
 		t.Fatalf("scoped operation list=%#v err=%v", listed, err)
 	}
+	recent, err := store.ListRecentOperationsForActor(ctx, owner.ID, 1)
+	if err != nil || len(recent) != 1 || recent[0].ID != environmentOperation.ID {
+		t.Fatalf("bounded operation list=%#v err=%v", recent, err)
+	}
 	if _, err = store.GetOperationForActor(ctx, owner.ID, unknownOperation.ID); !errors.Is(err, base.ErrNotFound) {
 		t.Fatalf("unknown-scope operation was visible: %v", err)
 	}

@@ -1,6 +1,7 @@
 export type Collection<T> = {
   items: T[];
   nextCursor?: string | null;
+  truncated?: boolean;
 };
 
 export type ProblemDetail = {

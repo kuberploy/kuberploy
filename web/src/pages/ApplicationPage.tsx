@@ -69,8 +69,8 @@ export function ApplicationPage() {
     retry: false,
   });
   const operations = useQuery({
-    queryKey: ["operations"],
-    queryFn: api.operations,
+    queryKey: ["operations", 100],
+    queryFn: () => api.operations(100),
     enabled: tabChoice === "overview",
     refetchInterval: 5_000,
   });

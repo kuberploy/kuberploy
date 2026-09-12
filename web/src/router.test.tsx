@@ -356,6 +356,33 @@ describe("app-centric routes", () => {
     }
   });
 
+  it("loads page modules on route demand", () => {
+    const lazyPaths = [
+      "/",
+      "/projects",
+      "/projects/$projectId",
+      "/projects/$projectId/environments/$environmentId",
+      "/projects/$projectId/environments/$environmentId/apps/new",
+      "/projects/$projectId/environments/$environmentId/apps/$applicationId",
+      "/applications/$applicationId",
+      "/applications/$applicationId/deployments/$deploymentId",
+      "/builds/$buildId",
+      "/monitoring",
+      "/audit",
+      "/registry",
+      "/git",
+      "/setup",
+      "/settings/releases",
+    ] as const;
+
+    for (const path of lazyPaths) {
+      const component = router.routesByPath[path].options.component as {
+        preload?: () => Promise<unknown>;
+      };
+      expect(component.preload, path).toEqual(expect.any(Function));
+    }
+  });
+
   it("redirects the OCI compatibility route unless Add App supplied exact scope", () => {
     expect(() => requireScopedDeploySearch({})).toThrow();
     expect(() =>

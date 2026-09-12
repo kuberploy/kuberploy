@@ -49,29 +49,29 @@ components:
     enabled: true
     mode: managed
     adoptionConfirmed: false
-    expectedPackageVersion: 0.1.0-rc.450
+    expectedPackageVersion: 0.1.0-rc.451
     valueFiles: []
   valkey:
     enabled: true
     mode: managed
     adoptionConfirmed: false
-    expectedPackageVersion: 0.1.0-rc.450
+    expectedPackageVersion: 0.1.0-rc.451
     valueFiles: []
   edge:
     enabled: true
     mode: managed
     adoptionConfirmed: false
-    expectedPackageVersion: 0.1.0-rc.450
+    expectedPackageVersion: 0.1.0-rc.451
     valueFiles: []
   certManager:
     enabled: true
     mode: managed
     adoptionConfirmed: false
-    expectedPackageVersion: 0.1.0-rc.450
+    expectedPackageVersion: 0.1.0-rc.451
     valueFiles: []
   registry:
     enabled: true
     mode: managed
     adoptionConfirmed: false
-    expectedPackageVersion: 0.1.0-rc.450
+    expectedPackageVersion: 0.1.0-rc.451
     valueFiles: []
