@@ -522,6 +522,25 @@ func TestProviderRedirectFailsClosedAndPersistsOnlySafeFailure(t *testing.T) {
 	}
 }
 
+func TestFailedBindingCanBeDeletedAndRetried(t *testing.T) {
+	store := NewMemoryStore()
+	provider := &fakeProviders{mismatchStage: true}
+	service := testService(store, provider)
+	created, err := service.Create(context.Background(), createRequest(t, ProviderSealedSecrets, "failed-delete-value", "failed-delete-create-0001"))
+	if !errors.Is(err, ErrProviderMismatch) || created.Binding.State != BindingFailed || created.Version.State != VersionFailed {
+		t.Fatalf("created=%#v err=%v", created, err)
+	}
+
+	deleted, err := service.DeleteWithIdempotency(context.Background(), testActor, created.Binding.ID, "failed-delete-binding-0001", "failed-delete-request")
+	if err != nil || deleted.State != BindingDeleted {
+		t.Fatalf("deleted=%#v err=%v", deleted, err)
+	}
+	replayed, err := service.DeleteWithIdempotency(context.Background(), testActor, created.Binding.ID, "failed-delete-binding-0001", "failed-delete-retry")
+	if err != nil || replayed.State != BindingDeleted {
+		t.Fatalf("replayed=%#v err=%v", replayed, err)
+	}
+}
+
 func TestAdversarialDeliveryAndMaterialValidation(t *testing.T) {
 	invalidDeliveries := []Delivery{
 		{SourceKey: "password", Kind: DeliveryFile, FilePath: "/etc/shadow", FileMode: 0o400},

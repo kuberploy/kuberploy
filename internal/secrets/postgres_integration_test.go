@@ -85,6 +85,21 @@ func TestPostgreSQLRuntimeSecretContract(t *testing.T) {
 	if err != nil || created.Version.State != VersionAwaitingReadiness {
 		t.Fatalf("created=%#v err=%v", created, err)
 	}
+	failedService := testService(store, &fakeProviders{mismatchStage: true})
+	failedRequest := createRequest(t, ProviderSealedSecrets, "pg-failed-delete-value", "postgres-failed-delete-create-01")
+	failedRequest.Name, failedRequest.RequestID = "faileddelete", "postgres-failed-delete-create"
+	failedCreated, failedCreateErr := failedService.Create(ctx, failedRequest)
+	if !errors.Is(failedCreateErr, ErrProviderMismatch) || failedCreated.Binding.State != BindingFailed || failedCreated.Version.State != VersionFailed {
+		t.Fatalf("failed binding=%#v err=%v", failedCreated, failedCreateErr)
+	}
+	failedDeleted, failedDeleteErr := failedService.DeleteWithIdempotency(ctx, testActor, failedCreated.Binding.ID, "postgres-failed-delete-0001", "postgres-failed-delete")
+	if failedDeleteErr != nil || failedDeleted.State != BindingDeleted {
+		t.Fatalf("failed delete=%#v err=%v", failedDeleted, failedDeleteErr)
+	}
+	failedReplay, failedReplayErr := failedService.DeleteWithIdempotency(ctx, testActor, failedCreated.Binding.ID, "postgres-failed-delete-0001", "postgres-failed-delete-retry")
+	if failedReplayErr != nil || failedReplay.State != BindingDeleted {
+		t.Fatalf("failed delete replay=%#v err=%v", failedReplay, failedReplayErr)
+	}
 	if _, err = pool.Exec(ctx, `INSERT INTO secret_bindings(
 		id,organization_id,project_id,environment_id,application_id,target_namespace,name,provider,purpose,state,active_version,created_by,created_at,updated_at)
 		SELECT '10000000-0000-4000-8000-000000000017',NULL,project_id,environment_id,application_id,target_namespace,'forged-personal',provider,purpose,state,active_version,created_by,created_at,updated_at
