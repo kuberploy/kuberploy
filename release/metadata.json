@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Deleting an App now removes its registry lifecycle state so cleanup can finish without orphaned records.",
+  "summary": "App deletion cleans registry lifecycle state, and failed runtime-secret bindings can be deleted after provider staging errors.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.448"
+  "version": "0.1.0-rc.449"
 }
