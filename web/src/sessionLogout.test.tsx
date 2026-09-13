@@ -58,6 +58,7 @@ function sessionClient() {
 
 beforeEach(() => {
   window.history.replaceState({}, "", "/teams");
+  vi.spyOn(api, "session").mockResolvedValue(null);
   vi.spyOn(api, "meta").mockResolvedValue({ bootstrapRequired: false });
   vi.spyOn(api, "capabilities").mockResolvedValue({});
   vi.spyOn(api, "projects").mockResolvedValue({ items: [] });
@@ -111,7 +112,8 @@ describe("confirmed browser sign-out", () => {
     expect(me).toHaveBeenCalledTimes(previousReads);
 
     await user.click(screen.getByRole("button", { name: "Retry session" }));
-    await waitFor(() => expect(me).toHaveBeenCalledTimes(previousReads + 1));
+    await waitFor(() => expect(api.session).toHaveBeenCalledTimes(1));
+    expect(me).toHaveBeenCalledTimes(previousReads);
     await waitFor(() => expect(client.isFetching()).toBe(0));
     await screen.findByText("Sign in to continue");
     me.mockResolvedValue({ ...principal, id: "another-user" });

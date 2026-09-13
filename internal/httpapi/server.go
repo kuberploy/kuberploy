@@ -253,6 +253,7 @@ func New(o Options) *Server {
 	mux.HandleFunc("GET /openapi-agent.json", s.openapiAgentJSON)
 	mux.HandleFunc("GET /arazzo.yaml", s.arazzoYAML)
 	mux.HandleFunc("GET /v1/meta", s.meta)
+	mux.HandleFunc("GET /v1/auth/session", s.sessionDiscovery)
 	mux.Handle("POST /v1/auth/bootstrap", s.highRiskRemote(bootstrapLimit, http.HandlerFunc(s.bootstrap)))
 	mux.Handle("POST /v1/auth/login", s.highRiskRemote(loginLimit, http.HandlerFunc(s.login)))
 	mux.Handle("POST /v1/auth/invitations/accept", s.highRiskRemote(invitationAcceptLimit, http.HandlerFunc(s.acceptInvitation)))

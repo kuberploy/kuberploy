@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Helm App overview shows the actual release state and chart revision. GitHub installation token requests recover from transient repository-selector failures while preserving repository and permission checks. Signing out clears the browser session and tenant cache without requesting a revoked session.",
+  "summary": "Browser session discovery handles signed-out pages without an expected authorization error while protected APIs retain their existing authentication requirements. The API contract includes the email field already returned in principal responses. DNS guidance distinguishes a ready integration from an unavailable platform prerequisite.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.459"
+  "version": "0.1.0-rc.460"
 }

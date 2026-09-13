@@ -10,6 +10,37 @@ import type { OperationWire } from "./types";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("typed API client", () => {
+  it("discovers nullable browser sessions while keeping me protected", async () => {
+    const principal = {
+      id: "user-1",
+      role: "developer",
+      authentication: { kind: "session" },
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ principal: null }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ principal }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(principal), { status: 200 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await api.session()).toBeNull();
+    expect(await api.session()).toEqual(principal);
+    expect(await api.me()).toEqual(principal);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/v1/auth/session",
+      "/v1/auth/session",
+      "/v1/me",
+    ]);
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      credentials: "same-origin",
+    });
+  });
+
   it("fences a configuration refresh to the accepted operation's published revision", async () => {
     const fetchMock = vi
       .fn()

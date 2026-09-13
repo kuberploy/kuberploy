@@ -147,9 +147,9 @@ export function RootComponent() {
   }, []);
   const me = useQuery<Principal | null>({
     queryKey: ["me"],
-    queryFn: api.me,
+    queryFn: api.session,
     retry: false,
-    // A successful logout sets null; only an explicit session retry or a new
+    // Discovery or a successful logout sets null; only an explicit retry or a new
     // login should replace that known state during this page's lifetime.
     staleTime: (query) => (query.state.data === null ? Infinity : 60_000),
     refetchOnMount: (query) => query.state.data !== null,

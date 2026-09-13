@@ -269,6 +269,74 @@ describe("guided External DNS catalog", () => {
     ).toBeDisabled();
   });
 
+  it("distinguishes a ready DNS revision from an unavailable platform prerequisite", () => {
+    const initial = {
+      ...guidedConfigFromYaml(defaultConfigYaml({ name: "api" })),
+      host: "api.example.com",
+      dnsMode: "externalDns" as const,
+      dnsIntegrationRef: "public-dns",
+    };
+    const readyCatalog = {
+      ...catalog,
+      items: catalog.items.map((item) => ({
+        ...item,
+        runtimeAvailable: true,
+      })),
+      controllerReadiness: "ready" as const,
+      runtimeAvailable: true,
+    };
+    const { rerender } = render(
+      <GuidedConfigForm
+        initial={initial}
+        onChange={vi.fn()}
+        externalDNSCatalog={readyCatalog}
+        externalDNSRuntimeEnabled={false}
+      />,
+    );
+
+    expect(
+      screen.getByText("Automatic DNS changes are temporarily unavailable"),
+    ).toBeVisible();
+    expect(
+      screen.getByText(
+        /selected DNS integration is ready, but a required platform service is unavailable/i,
+      ),
+    ).toBeVisible();
+    expect(screen.getByLabelText(/^DNS integration/)).toHaveValue("public-dns");
+    expect(screen.getByLabelText(/^DNS integration/)).toBeDisabled();
+    expect(
+      screen.queryByText(
+        /until the exact integration revision is freshly observed ready/i,
+      ),
+    ).toBeNull();
+
+    rerender(
+      <GuidedConfigForm
+        initial={initial}
+        onChange={vi.fn()}
+        externalDNSCatalog={catalog}
+        externalDNSRuntimeEnabled={false}
+      />,
+    );
+    expect(screen.getByText("External DNS runtime is not ready")).toBeVisible();
+    expect(
+      screen.queryByText("Automatic DNS changes are temporarily unavailable"),
+    ).toBeNull();
+    expect(screen.getByLabelText(/^DNS integration/)).toBeDisabled();
+
+    rerender(
+      <GuidedConfigForm
+        initial={initial}
+        onChange={vi.fn()}
+        externalDNSCatalog={readyCatalog}
+        externalDNSRuntimeEnabled
+      />,
+    );
+    expect(screen.getByText("External DNS revision is ready")).toBeVisible();
+    expect(screen.getByLabelText(/^DNS integration/)).toBeEnabled();
+    expect(screen.getByLabelText(/^DNS integration/)).toHaveValue("public-dns");
+  });
+
   it("preserves an unavailable existing slug and reports catalog errors safely", () => {
     const initial = {
       ...guidedConfigFromYaml(defaultConfigYaml({ name: "api" })),

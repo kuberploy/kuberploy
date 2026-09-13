@@ -28,9 +28,59 @@ afterEach(() => {
 });
 
 describe("root invitation boundary", () => {
+  it("shows a discovery outage and retries it without treating the failure as signed out", async () => {
+    const session = vi
+      .spyOn(api, "session")
+      .mockRejectedValue(new ApiError(503));
+    const me = vi.spyOn(api, "me");
+    vi.spyOn(api, "meta").mockResolvedValue({ bootstrapRequired: false });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <RootComponent />
+      </QueryClientProvider>,
+    );
+    await screen.findByRole("heading", { name: "Control plane unavailable" });
+    expect(client.getQueryData(["me"])).toBeUndefined();
+    expect(
+      screen.queryByRole("button", { name: /^sign in/i }),
+    ).not.toBeInTheDocument();
+    session.mockResolvedValue(null);
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "Retry session" }));
+    await screen.findByRole("heading", { name: "Sign in to continue" });
+    expect(session).toHaveBeenCalledTimes(2);
+    expect(me).not.toHaveBeenCalled();
+  });
+
+  it("discovers a fresh anonymous session without calling protected me", async () => {
+    const session = vi.spyOn(api, "session").mockResolvedValue(null);
+    const me = vi
+      .spyOn(api, "me")
+      .mockRejectedValue(
+        new Error("Protected request must not be used for anonymous discovery"),
+      );
+    vi.spyOn(api, "meta").mockResolvedValue({ bootstrapRequired: false });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <RootComponent />
+      </QueryClientProvider>,
+    );
+    await screen.findByText("Sign in to continue");
+    expect(session).toHaveBeenCalledTimes(1);
+    expect(me).not.toHaveBeenCalled();
+    expect(client.getQueryData(["me"])).toBeNull();
+  });
+
   it("preserves and prefills an invitation from the initial URL", async () => {
     window.history.replaceState({}, "", "/#invite=kp_initial_mount_invite");
-    vi.spyOn(api, "me").mockRejectedValue(new ApiError(401));
+    vi.spyOn(api, "session").mockResolvedValue(null);
     vi.spyOn(api, "meta").mockResolvedValue({ bootstrapRequired: false });
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
@@ -51,7 +101,7 @@ describe("root invitation boundary", () => {
   });
 
   it("enters invitation mode when a link changes the hash after root mount", async () => {
-    vi.spyOn(api, "me").mockResolvedValue({
+    vi.spyOn(api, "session").mockResolvedValue({
       id: "user_existing",
       displayName: "Existing administrator",
       role: "platform-admin",
@@ -79,7 +129,7 @@ describe("root invitation boundary", () => {
   });
 
   it("keeps the incoming invitation when routing clears the fragment first", async () => {
-    vi.spyOn(api, "me").mockResolvedValue({
+    vi.spyOn(api, "session").mockResolvedValue({
       id: "user_existing",
       displayName: "Existing administrator",
       role: "platform-admin",
@@ -114,7 +164,7 @@ describe("root invitation boundary", () => {
   });
 
   it("renders the application after a successful login", async () => {
-    vi.spyOn(api, "me").mockRejectedValue(new ApiError(401));
+    vi.spyOn(api, "session").mockResolvedValue(null);
     vi.spyOn(api, "meta").mockResolvedValue({ bootstrapRequired: false });
     vi.spyOn(api, "login").mockResolvedValue({
       id: "user_admin",
@@ -144,7 +194,7 @@ describe("root invitation boundary", () => {
   });
 
   it("keeps unauthenticated form data when the window regains focus", async () => {
-    const me = vi.spyOn(api, "me").mockRejectedValue(new ApiError(401));
+    const me = vi.spyOn(api, "session").mockResolvedValue(null);
     vi.spyOn(api, "meta").mockResolvedValue({ bootstrapRequired: false });
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
@@ -172,7 +222,7 @@ describe("root invitation boundary", () => {
       "",
       "/#invite=kp_existing_session_invite",
     );
-    vi.spyOn(api, "me").mockResolvedValue({
+    vi.spyOn(api, "session").mockResolvedValue({
       id: "user_existing",
       displayName: "Existing administrator",
       role: "platform-admin",
@@ -212,7 +262,7 @@ describe("root invitation boundary", () => {
 
   it("accepts an invitation and switches away from an existing session", async () => {
     window.history.replaceState({}, "", "/#invite=kp_switch_account_invite");
-    vi.spyOn(api, "me").mockResolvedValue({
+    vi.spyOn(api, "session").mockResolvedValue({
       id: "user_existing",
       displayName: "Existing administrator",
       role: "platform-admin",
@@ -263,7 +313,7 @@ describe("root invitation boundary", () => {
 
   it("clears an invalid invitation fragment for an existing session", async () => {
     window.history.replaceState({}, "", "/#invite=not%20a%20token");
-    vi.spyOn(api, "me").mockResolvedValue({
+    vi.spyOn(api, "session").mockResolvedValue({
       id: "user_existing",
       displayName: "Existing User",
       role: "platform-admin",

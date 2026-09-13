@@ -1725,6 +1725,10 @@ function helmMutation(
 export const api = {
   meta: () => request<ApiMeta>("/v1/meta"),
   me: () => request<Principal>("/v1/me"),
+  session: () =>
+    request<{ principal: Principal | null }>("/v1/auth/session").then(
+      ({ principal }) => principal,
+    ),
   capabilities: () => request<Capabilities>("/v1/capabilities"),
   auditEvents: (
     query: {

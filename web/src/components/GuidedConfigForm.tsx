@@ -526,6 +526,12 @@ export function GuidedConfigForm({
   const selectedDNSIntegrationReady =
     automaticDNSRuntimeReady &&
     selectedDNSIntegration?.runtimeAvailable === true;
+  const automaticDNSPrerequisiteUnavailable =
+    !externalDNSCatalogPending &&
+    !externalDNSCatalogError &&
+    !externalDNSRuntimeEnabled &&
+    externalDNSCatalog?.runtimeAvailable === true &&
+    selectedDNSIntegration?.runtimeAvailable === true;
   const dnsIntegrationError =
     dnsMode !== "externalDns" || externalDNSCatalogPending
       ? undefined
@@ -1266,14 +1272,18 @@ export function GuidedConfigForm({
                         ? "Select an External DNS integration"
                         : selectedDNSIntegrationReady
                           ? "External DNS revision is ready"
-                          : "External DNS runtime is not ready"}
+                          : automaticDNSPrerequisiteUnavailable
+                            ? "Automatic DNS changes are temporarily unavailable"
+                            : "External DNS runtime is not ready"}
                     </strong>
                     <p>
                       {!selectedDNSIntegration
                         ? "Choose one authorized integration before previewing or saving automatic DNS."
                         : selectedDNSIntegrationReady
                           ? "The selected revision is protected-Git materialized and freshly observed. Preview and save revalidate this exact slug, hostname, and runtime boundary."
-                          : "Existing configuration remains visible, but a new automatic-DNS selection cannot be previewed or saved until the exact integration revision is freshly observed ready."}
+                          : automaticDNSPrerequisiteUnavailable
+                            ? "The selected DNS integration is ready, but a required platform service is unavailable. Try again after that service recovers."
+                            : "Existing configuration remains visible, but a new automatic-DNS selection cannot be previewed or saved until the exact integration revision is freshly observed ready."}
                     </p>
                   </div>
                 </Notice>
