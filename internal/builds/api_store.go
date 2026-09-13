@@ -34,6 +34,10 @@ type APIStore interface {
 	RetryAttempt(context.Context, string, string, string, ExecutionSettings, time.Time) (BuildAttempt, bool, error)
 	EnqueueManualAttempt(context.Context, string, string, string, ExecutionSettings, time.Time) (BuildAttempt, bool, error)
 	AcceptSourceDeployment(context.Context, SourceDeploymentCommand) (SourceDeploymentAcceptance, error)
+	// SourceDeploymentReceipt reads immutable caller identity without changing
+	// historical fingerprints. Callers must authorize current deployment access
+	// and compare the original mode/selected attempt before returning a replay.
+	SourceDeploymentReceipt(context.Context, string, string, string) (SourceDeploymentAcceptance, error)
 }
 
 func APICommandClaimKey(actorID, operation, scopeID, idempotencyKey string) string {

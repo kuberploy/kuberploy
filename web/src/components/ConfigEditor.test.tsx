@@ -170,6 +170,97 @@ describe("configuration publication tracking", () => {
     };
   }
 
+  it("requires a new preview after PreviewInvalid without replacing the draft or its original base", async () => {
+    const f = await fixture();
+    f.save.mockRejectedValueOnce(
+      new ApiError(409, {
+        status: 409,
+        code: "PreviewInvalid",
+        detail:
+          "The preview token is not valid for this actor, deployment, ETag, or draft.",
+      }),
+    );
+    await f.submit();
+    expect(f.commitButton).toBeDisabled();
+    expect(f.previewButton).toBeEnabled();
+    const guidance =
+      "This preview expired or the repository or configuration changed. Review your draft, then choose Preview configuration again. Your edits are preserved.";
+    expect(screen.getByText(guidance)).toBeVisible();
+    expect(f.editor).toHaveValue(f.submitted);
+    expect(f.save).toHaveBeenCalledTimes(1);
+    expect(f.configuration).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      f.client.setQueryData(["deployment-config", f.operation.targetId], {
+        ...f.initial,
+        etag: `"sha256:${"d".repeat(64)}"`,
+        documents: [
+          { id: "app.yaml", rawYaml: "# newer server configuration" },
+        ],
+      });
+    });
+    const oldPreview = await f.preview.mock.results[0]!.value;
+    f.preview.mockResolvedValue({
+      ...oldPreview,
+      previewToken: "q".repeat(43),
+    });
+    await act(() => vi.advanceTimersByTimeAsync(20_000));
+    expect(f.preview).toHaveBeenCalledTimes(1);
+    expect(f.save).toHaveBeenCalledTimes(1);
+    expect(f.editor).toHaveValue(f.submitted);
+    fireEvent.click(f.previewButton);
+    await act(() => vi.advanceTimersByTimeAsync(20));
+    expect(f.preview).toHaveBeenLastCalledWith(
+      f.operation.targetId,
+      f.save.mock.calls[0]![1],
+      f.initial.etag,
+    );
+    expect(f.commitButton).toBeEnabled();
+    expect(screen.queryByText(guidance)).not.toBeInTheDocument();
+    expect(f.save).toHaveBeenCalledTimes(1);
+    fireEvent.click(f.commitButton);
+    await act(() => vi.advanceTimersByTimeAsync(20));
+    expect(f.save).toHaveBeenCalledTimes(2);
+    expect(f.save.mock.calls[1]?.slice(0, 4)).toEqual([
+      f.operation.targetId,
+      f.save.mock.calls[0]![1],
+      f.initial.etag,
+      "q".repeat(43),
+    ]);
+    expect(f.save.mock.calls[1]?.[4]).not.toBe(f.save.mock.calls[0]?.[4]);
+    expect(f.editor).toHaveValue(f.submitted);
+  });
+
+  it.each([
+    [403, "PreviewInvalid"],
+    [409, "AccessDenied"],
+    [503, "PreviewInvalid"],
+  ])(
+    "preserves the original error and preview for HTTP %s %s",
+    async (status, code) => {
+      const f = await fixture();
+      f.save.mockRejectedValue(
+        new ApiError(status, {
+          status,
+          code,
+          detail: "The original failure remains actionable.",
+        }),
+      );
+      await f.submit();
+      expect(
+        screen.getByText("The original failure remains actionable."),
+      ).toBeVisible();
+      expect(f.commitButton).toBeEnabled();
+      expect(f.editor).toHaveValue(f.submitted);
+      await act(() => vi.advanceTimersByTimeAsync(20_000));
+      expect(f.save).toHaveBeenCalledTimes(1);
+      fireEvent.click(f.commitButton);
+      await act(() => vi.advanceTimersByTimeAsync(20));
+      expect(f.save).toHaveBeenCalledTimes(2);
+      expect(f.save.mock.calls[1]).toEqual(f.save.mock.calls[0]);
+    },
+  );
+
   it.each([false, true])(
     "waits for publication, refreshes its base, and preserves a newer draft: %s",
     async (editWhilePending) => {

@@ -3,14 +3,92 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/edge"
 	"github.com/kuberploy/kuberploy/internal/externaldns"
+	"github.com/kuberploy/kuberploy/internal/githubapp"
 )
+
+type failingExternalDNSRuntimeSource struct {
+	externalDNSRecoverySource
+	err   error
+	mu    sync.Mutex
+	calls []time.Time
+}
+
+func (s *failingExternalDNSRuntimeSource) ListExternalDNSIntegrationsForRuntime(context.Context, int) ([]domain.ExternalDNSIntegration, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls = append(s.calls, time.Now())
+	return nil, s.err
+}
+
+func (s *failingExternalDNSRuntimeSource) attempts() []time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]time.Time(nil), s.calls...)
+}
+
+func TestExternalDNSRunHonorsProviderRetryAndCancellation(t *testing.T) {
+	const poll = 5 * time.Second
+	for _, test := range []struct {
+		name  string
+		class githubapp.APIErrorClass
+		hint  time.Duration
+		want  time.Duration
+	}{
+		{name: "primary rate reset", class: githubapp.APIErrorRateLimit, hint: 12 * time.Minute, want: 12 * time.Minute},
+		{name: "transient retry after", class: githubapp.APIErrorTransient, hint: time.Minute, want: time.Minute},
+		{name: "expired retry hint", class: githubapp.APIErrorRateLimit, hint: -time.Second, want: poll},
+		{name: "minimum poll", class: githubapp.APIErrorRateLimit, hint: time.Second, want: poll},
+		{name: "non retryable", class: githubapp.APIErrorForbidden, hint: time.Hour, want: poll},
+		{name: "bounded retry hint", class: githubapp.APIErrorRateLimit, hint: 8 * 24 * time.Hour, want: 7 * 24 * time.Hour},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				started := time.Now()
+				source := &failingExternalDNSRuntimeSource{err: fmt.Errorf("provider head: %w", &githubapp.APIError{Class: test.class, RetryAt: started.Add(test.hint)})}
+				runtime := &externalDNSOperationalRuntime{source: source, config: externaldns.OperationalConfig{PollInterval: poll}}
+				ctx, cancel := context.WithCancel(t.Context())
+				done := make(chan error, 1)
+				go func() { done <- runtime.Run(ctx) }()
+				defer func() {
+					cancel()
+					if err := <-done; !errors.Is(err, context.Canceled) {
+						t.Errorf("cancelled provider wait: %v", err)
+					}
+				}()
+				synctest.Wait()
+				if calls := source.attempts(); len(calls) != 1 {
+					t.Fatalf("initial provider attempts=%d", len(calls))
+				}
+				firstWindow := min(test.want-time.Nanosecond, poll+time.Nanosecond)
+				time.Sleep(firstWindow)
+				synctest.Wait()
+				if calls := source.attempts(); len(calls) != 1 {
+					t.Fatalf("provider retried before permitted delay %s: attempts=%d", test.want, len(calls))
+				}
+				time.Sleep(test.want - time.Nanosecond - firstWindow)
+				synctest.Wait()
+				if calls := source.attempts(); len(calls) != 1 {
+					t.Fatalf("provider retried before the exact retry time: attempts=%d", len(calls))
+				}
+				time.Sleep(time.Nanosecond)
+				synctest.Wait()
+				if calls := source.attempts(); len(calls) != 2 || calls[1].Sub(started) != test.want {
+					t.Fatalf("retry attempts=%v want second call after %s", calls, test.want)
+				}
+			})
+		})
+	}
+}
 
 type externalDNSRecoverySource struct {
 	item     domain.ExternalDNSIntegration

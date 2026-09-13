@@ -7,6 +7,25 @@ import (
 	"time"
 )
 
+func (s *MemoryStore) SourceDeploymentReceipt(_ context.Context, actorID, deploymentID, key string) (SourceDeploymentAcceptance, error) {
+	if !uuidRE.MatchString(actorID) || !uuidRE.MatchString(deploymentID) || !setupIdempotencyRE.MatchString(key) {
+		return SourceDeploymentAcceptance{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	receipt, found := s.apiIdempotency[apiMemoryKey(actorID, APICommandSourceDeployment, deploymentID, key)]
+	if !found {
+		return SourceDeploymentAcceptance{}, ErrNotFound
+	}
+	attempt, attemptOK := s.attempts[receipt.resourceID]
+	intent, intentOK := s.sourceDeploymentIntents[SourceDeploymentIntentID(receipt.resourceID, deploymentID)]
+	if !attemptOK || !intentOK || intent.ActorID != actorID || intent.DeploymentID != deploymentID ||
+		intent.AttemptID != attempt.ID || intent.ProjectID != attempt.ProjectID || intent.ApplicationID != attempt.ServiceID {
+		return SourceDeploymentAcceptance{}, ErrConflict
+	}
+	return SourceDeploymentAcceptance{Attempt: cloneAttempt(attempt), Intent: cloneSourceDeploymentIntent(intent), Replay: true}, nil
+}
+
 func (s *MemoryStore) AcceptSourceDeployment(_ context.Context, command SourceDeploymentCommand) (SourceDeploymentAcceptance, error) {
 	if command.validate() != nil {
 		return SourceDeploymentAcceptance{}, ErrInvalid

@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/kuberploy/kuberploy/internal/domain"
+	"github.com/kuberploy/kuberploy/internal/registry"
 	base "github.com/kuberploy/kuberploy/internal/store"
 )
 
@@ -164,7 +165,7 @@ func registryCleanupPlan(ctx context.Context, q registryDB, planID string) (doma
 	return plan, rows.Err()
 }
 
-func (s *Store) ClaimRegistryCleanupPlan(ctx context.Context, planID, owner string, now time.Time, leaseDuration time.Duration) (domain.RegistryCleanupPlan, bool, error) {
+func (s *Store) ClaimRegistryCleanupPlan(ctx context.Context, planID, owner string, now time.Time, leaseDuration, maxObservationAge time.Duration) (domain.RegistryCleanupPlan, bool, error) {
 	if owner == "" || leaseDuration <= 0 {
 		return domain.RegistryCleanupPlan{}, false, base.ErrRegistryPolicyInvalid
 	}
@@ -267,6 +268,12 @@ func (s *Store) ClaimRegistryCleanupPlan(ctx context.Context, planID, owner stri
 			return domain.RegistryCleanupPlan{}, false, err
 		}
 		return domain.RegistryCleanupPlan{}, false, base.ErrRegistrySnapshotStale
+	}
+	// Validate freshness and the complete graph inside the same lock/transaction
+	// as the semantic token check. Legacy executing/offline recovery returned
+	// above and keeps its original immutable checkpoint authorization.
+	if _, err = registry.BuildCleanupPlan(snapshot, now, maxObservationAge); err != nil {
+		return domain.RegistryCleanupPlan{}, false, err
 	}
 	if err = acquireRegistryCleanupLeases(ctx, tx, plan, owner, now, leaseDuration); err != nil {
 		return domain.RegistryCleanupPlan{}, false, err
@@ -395,7 +402,7 @@ func (s *Store) AuthorizeRegistryCleanupItem(ctx context.Context, planID string,
 	if err != nil {
 		return domain.RegistryCleanupItem{}, err
 	}
-	if base.RegistryAuthorityToken(snapshot) != plan.AuthorityToken {
+	if base.RegistryAuthorityTokenForPlan(snapshot, plan) != plan.AuthorityToken {
 		return domain.RegistryCleanupItem{}, base.ErrRegistrySnapshotStale
 	}
 	tag, err := tx.Exec(ctx, `UPDATE registry_cleanup_items SET state='deleting',updated_at=$3
@@ -487,7 +494,7 @@ func (s *Store) RecordRegistryCleanupItemResult(ctx context.Context, planID stri
 	if err != nil {
 		return err
 	}
-	authorityToken := base.RegistryAuthorityToken(snapshot)
+	authorityToken := base.RegistryAuthorityTokenForPlan(snapshot, plan)
 	if _, err = tx.Exec(ctx, `UPDATE registry_cleanup_plans SET authority_token=$2 WHERE id=$1`, planID, authorityToken); err != nil {
 		return err
 	}

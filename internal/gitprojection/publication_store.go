@@ -113,6 +113,49 @@ func convergeVerifiedPublicationTx(ctx context.Context, tx pgx.Tx, publication g
 	if err != nil {
 		return classifyPublicationError(err)
 	}
+	// A newer accepted App command may replace the merged document before its
+	// provider receipt is verified. Retained, activated history can finish that
+	// older command without replaying its desired state over the current App.
+	_, err = tx.Exec(ctx, `WITH historical AS (
+		SELECT c.operation_id,p.merge_revision,h.generation,GREATEST(c.updated_at,p.updated_at) AS indexed_at
+		FROM git_write_commands c
+		JOIN git_pull_request_publications p ON p.operation_id=c.operation_id
+			AND p.state='merge-verified' AND p.binding_id=c.binding_id
+			AND p.target_ref=c.target_ref AND p.base_revision=c.base_revision
+		JOIN git_repository_bindings b ON b.id=c.binding_id AND b.kind='environment'
+			AND b.project_id=c.project_id AND b.environment_id=c.environment_id AND b.scope_id=c.environment_id
+			AND b.provider=p.provider AND b.installation_id=p.installation_id AND b.repository_id=p.repository_id
+			AND b.repository_owner=p.repository_owner AND b.repository_name=p.repository_name AND b.target_ref=p.target_ref
+			AND b.state='ready' AND b.target_head_revision=b.indexed_revision
+		JOIN git_projection_generations current_generation ON current_generation.binding_id=b.id
+			AND current_generation.generation=b.projection_generation AND current_generation.state='active'
+			AND current_generation.activated_at IS NOT NULL AND current_generation.head_revision=b.indexed_revision
+		JOIN deployments d ON d.id=c.deployment_id AND d.environment_id=c.environment_id AND d.application_id=c.application_id
+		JOIN applications a ON a.id=c.application_id AND a.project_id=c.project_id
+		JOIN operations original ON original.id=c.operation_id AND original.target_type='deployment'
+			AND original.target_id=d.id AND original.status='succeeded'
+		JOIN operations newer ON newer.id=d.operation_id AND newer.target_type='deployment'
+			AND newer.target_id=d.id AND newer.generation=d.generation
+		JOIN LATERAL (
+			SELECT g.generation FROM git_projection_generations g
+			JOIN git_projected_documents doc ON doc.binding_id=g.binding_id AND doc.generation=g.generation
+				AND doc.path=c.path AND doc.application_id=c.application_id AND doc.valid
+				AND doc.source_revision=g.head_revision AND doc.content_sha256=c.content_sha256 AND doc.raw=c.content
+			WHERE g.binding_id=c.binding_id AND g.generation<b.projection_generation AND g.head_revision=p.merge_revision
+			AND g.state='active' AND g.activated_at IS NOT NULL
+			ORDER BY g.generation DESC LIMIT 1
+		) h ON true
+		WHERE c.operation_id=$1 AND c.binding_id=$2 AND c.target_ref=$3
+		AND c.command_kind='deployment' AND c.action='upsert' AND c.publication_mode='pull-request' AND c.state='pending'
+		AND d.operation_id<>c.operation_id AND d.generation>original.generation
+	)
+	UPDATE git_write_commands c SET state='indexed',committed_revision=h.merge_revision,committed_at=h.indexed_at,
+		indexed_generation=h.generation,indexed_at=h.indexed_at,updated_at=h.indexed_at
+	FROM historical h WHERE c.operation_id=h.operation_id AND c.state='pending'`,
+		publication.OperationID, publication.BindingID, publication.TargetRef)
+	if err != nil {
+		return classifyPublicationError(err)
+	}
 	_, err = tx.Exec(ctx, `WITH indexed AS (
 		UPDATE git_write_commands c SET state='indexed',committed_revision=$2,committed_at=$3,
 			indexed_generation=b.projection_generation,indexed_at=$3,updated_at=$3

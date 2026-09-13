@@ -139,10 +139,18 @@ func (s *Service) PlanAutomaticCleanup(ctx context.Context, targetID string) (st
 }
 
 func (s *Service) Claim(ctx context.Context, planID, owner string, lease time.Duration) (domain.RegistryCleanupPlan, bool, error) {
-	if err := s.refreshPlanProtection(ctx, planID); err != nil {
+	plan, err := s.store.RegistryCleanupPlan(ctx, planID)
+	if err != nil {
 		return domain.RegistryCleanupPlan{}, false, err
 	}
-	return s.store.ClaimRegistryCleanupPlan(ctx, planID, owner, s.now().UTC(), lease)
+	newClaim := plan.State == "preview" && store.RegistryCleanupUsesSemanticSnapshot(plan)
+	if s.protection != nil {
+		if err = s.protection.RefreshRegistryProtection(ctx, plan.RegistryTargetID, plan.ServiceID, s.now().UTC(), newClaim); err != nil {
+			return domain.RegistryCleanupPlan{}, false, err
+		}
+	}
+
+	return s.store.ClaimRegistryCleanupPlan(ctx, planID, owner, s.now().UTC(), lease, s.maxObservationAge)
 }
 
 func (s *Service) Renew(ctx context.Context, planID, owner string, lease time.Duration) error {

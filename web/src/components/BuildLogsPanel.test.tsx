@@ -82,9 +82,13 @@ class FakeEventSource {
 }
 
 describe("source-build log panel", () => {
-  it.each([404, 410])(
-    "recovers an active missing source after HTTP %i",
-    async (status) => {
+  it.each([
+    [404, undefined],
+    [410, undefined],
+    [503, "BuildLogRuntimeUnavailable"],
+  ] as const)(
+    "recovers an active source after HTTP %i (%s)",
+    async (status, code) => {
       vi.useFakeTimers();
       const request = vi
         .spyOn(api, "buildLogSnapshot")
@@ -92,6 +96,7 @@ describe("source-build log panel", () => {
           new ApiError(status, {
             title: "Source missing",
             status,
+            code,
             detail: "Builder logs are starting.",
           }),
         )
@@ -108,6 +113,25 @@ describe("source-build log panel", () => {
       expect(screen.getByText("snapshot output")).toBeInTheDocument();
       await act(() => vi.advanceTimersByTimeAsync(15_000));
       expect(request).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each(["BuildLogTransportRejected", "UnknownUnavailable", undefined])(
+    "does not poll an unrelated HTTP 503 problem (%s)",
+    async (code) => {
+      vi.useFakeTimers();
+      const request = vi.spyOn(api, "buildLogSnapshot").mockRejectedValue(
+        new ApiError(503, { title: "Unavailable", status: 503, code }),
+      );
+      render(<BuildLogsPanel attemptId="unverified-attempt" active />, {
+        wrapper: wrapper(),
+      });
+      await act(() => vi.advanceTimersByTimeAsync(20));
+      expect(
+        screen.getByRole("heading", { name: "Build logs unavailable" }),
+      ).toBeInTheDocument();
+      await act(() => vi.advanceTimersByTimeAsync(30_000));
+      expect(request).toHaveBeenCalledTimes(1);
     },
   );
 

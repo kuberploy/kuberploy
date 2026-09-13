@@ -10,12 +10,15 @@ import (
 	"github.com/kuberploy/kuberploy/internal/builds"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/githubapp"
+	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/gitssh"
 	"github.com/kuberploy/kuberploy/internal/store"
+	"github.com/kuberploy/kuberploy/internal/variablecompiler"
 )
 
 type SourceDeploymentBackend interface {
 	AcceptSourceDeployment(context.Context, builds.SourceDeploymentCommand) (builds.SourceDeploymentAcceptance, error)
+	SourceDeploymentReceipt(context.Context, string, string, string) (builds.SourceDeploymentAcceptance, error)
 }
 
 type sourceDeploymentRequest struct {
@@ -48,21 +51,6 @@ func (s *Server) sourceDeployment(w http.ResponseWriter, r *http.Request) {
 		mappedError(w, r, err)
 		return
 	}
-	var config domain.DeploymentConfig
-	startDraft := deployment.State == "stopped"
-	if startDraft {
-		config, err = s.store.GetDeploymentConfigForActor(r.Context(), actor, deployment.ID)
-		if err != nil && !errors.Is(err, store.ErrConfigProjectionMissing) {
-			mappedError(w, r, err)
-			return
-		}
-	} else {
-		deployment, config, _, err = s.currentConfig(r, "", 0)
-		if err != nil {
-			mappedError(w, r, err)
-			return
-		}
-	}
 	application, err := s.store.GetApplicationForActor(r.Context(), actor, deployment.ApplicationID)
 	if err != nil {
 		mappedError(w, r, err)
@@ -73,6 +61,42 @@ func (s *Server) sourceDeployment(w http.ResponseWriter, r *http.Request) {
 		mappedError(w, r, err)
 		return
 	}
+	// Recover immutable caller identity before mutable configuration or provider
+	// resolution. Older releases included server state in their fingerprints;
+	// their original receipts and snapshots remain valid and are never rewritten.
+	receipt, receiptErr := s.sourceDeployments.SourceDeploymentReceipt(r.Context(), actor, deployment.ID, key)
+	if receiptErr == nil {
+		intent := receipt.Intent
+		if intent.ActorID != actor || intent.ProjectID != application.ProjectID || intent.ApplicationID != deployment.ApplicationID ||
+			intent.EnvironmentID != deployment.EnvironmentID || intent.DeploymentID != deployment.ID || intent.Mode != input.Mode ||
+			intent.SourceAttemptID != input.SourceAttemptID {
+			mappedGitHubBuildError(w, r, builds.ErrConflict)
+			return
+		}
+		receipt.Replay = true
+		writeSourceDeploymentAcceptance(w, receipt)
+		return
+	}
+	if !errors.Is(receiptErr, builds.ErrNotFound) {
+		mappedGitHubBuildError(w, r, receiptErr)
+		return
+	}
+	var config domain.DeploymentConfig
+	var bundle *gitprojection.Bundle
+	startDraft := deployment.State == "stopped"
+	if startDraft {
+		config, err = s.store.GetDeploymentConfigForActor(r.Context(), actor, deployment.ID)
+		if err != nil && !errors.Is(err, store.ErrConfigProjectionMissing) {
+			mappedError(w, r, err)
+			return
+		}
+	} else {
+		deployment, config, bundle, err = s.currentConfig(r, "", 0)
+		if err != nil {
+			mappedError(w, r, err)
+			return
+		}
+	}
 	var intent []byte
 	var digest string
 	if len(config.RawYAML) != 0 {
@@ -82,18 +106,34 @@ func (s *Server) sourceDeployment(w http.ResponseWriter, r *http.Request) {
 			mappedGitHubBuildError(w, r, builds.ErrInvalid)
 			return
 		}
+		if bundle != nil {
+			dependencies, _, dependencyErr := variablecompiler.CanonicalDependencyIntent(bundle.Dependencies, bundle.Documents)
+			if dependencyErr != nil {
+				mappedGitHubBuildError(w, r, builds.ErrInvalid)
+				return
+			}
+			dependencyIntent := make([]appconfig.AutoDeployDependencyIntent, len(dependencies))
+			for index, dependency := range dependencies {
+				dependencyIntent[index] = appconfig.AutoDeployDependencyIntent{Path: dependency.Path, Present: dependency.Present,
+					BlobID: dependency.BlobID, ContentSHA256: dependency.ContentSHA256}
+			}
+			intent, digest, err = appconfig.BindAutoDeployDependencies(intent, dependencyIntent)
+			if err != nil {
+				mappedGitHubBuildError(w, r, builds.ErrInvalid)
+				return
+			}
+		}
 	}
 	projectionETag := ""
 	if deployment.ConfigVersion > 0 && len(deployment.ConfigRaw) != 0 {
 		projectionETag = domain.DeploymentConfigETag(deployment.ID, deployment.ConfigVersion, deployment.ConfigRaw)
 	}
+	// The receipt identifies the caller's request. Mutable deployment state is
+	// fenced separately when accepting new work and must not invalidate replay.
 	fp := "sha256:" + fingerprint(struct {
-		DeploymentID, ApplicationID, EnvironmentID, ConfigETag, ProjectionETag string
-		Generation                                                             int64
-		Mode                                                                   builds.SourceDeploymentMode
-		SourceAttemptID                                                        string
-		StartDraft                                                             bool
-	}{deployment.ID, deployment.ApplicationID, deployment.EnvironmentID, config.ETag, projectionETag, deployment.Generation, input.Mode, input.SourceAttemptID, startDraft})
+		DeploymentID string
+		Request      sourceDeploymentRequest
+	}{deployment.ID, input})
 	accepted, err := s.sourceDeployments.AcceptSourceDeployment(r.Context(), builds.SourceDeploymentCommand{
 		ActorID: actor, ProjectID: application.ProjectID, ApplicationID: deployment.ApplicationID,
 		EnvironmentID: deployment.EnvironmentID, DeploymentID: deployment.ID, Mode: input.Mode,
@@ -105,6 +145,10 @@ func (s *Server) sourceDeployment(w http.ResponseWriter, r *http.Request) {
 		mappedGitHubBuildError(w, r, err)
 		return
 	}
+	writeSourceDeploymentAcceptance(w, accepted)
+}
+
+func writeSourceDeploymentAcceptance(w http.ResponseWriter, accepted builds.SourceDeploymentAcceptance) {
 	if accepted.Replay {
 		w.Header().Set("Idempotent-Replay", "true")
 	}
@@ -114,6 +158,10 @@ func (s *Server) sourceDeployment(w http.ResponseWriter, r *http.Request) {
 		IntentID string           `json:"intentId"`
 		Sequence int64            `json:"sequence"`
 	}{safeBuildAttempt(accepted.Attempt), accepted.Intent.ID, accepted.Intent.Sequence})
+}
+
+func (b *buildBackend) SourceDeploymentReceipt(ctx context.Context, actorID, deploymentID, key string) (builds.SourceDeploymentAcceptance, error) {
+	return b.store.SourceDeploymentReceipt(ctx, actorID, deploymentID, key)
 }
 
 func (b *buildBackend) AcceptSourceDeployment(ctx context.Context, command builds.SourceDeploymentCommand) (builds.SourceDeploymentAcceptance, error) {

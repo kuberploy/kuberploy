@@ -474,7 +474,7 @@ func (s *Store) saveRegistryCleanupPlanLocked(plan domain.RegistryCleanupPlan) (
 	if err != nil {
 		return domain.RegistryCleanupPlan{}, false, err
 	}
-	if base.RegistrySnapshotToken(current) != plan.SnapshotToken {
+	if base.RegistrySnapshotToken(current) != plan.SnapshotToken || base.RegistryAuthorityToken(current) != plan.AuthorityToken {
 		return domain.RegistryCleanupPlan{}, false, base.ErrRegistrySnapshotStale
 	}
 	digestKey := registryScopeKey(plan.RegistryTargetID, plan.ServiceID, plan.PlanDigest)
@@ -500,7 +500,7 @@ func (s *Store) RegistryCleanupPlan(_ context.Context, planID string) (domain.Re
 	return clonePlan(plan), nil
 }
 
-func (s *Store) ClaimRegistryCleanupPlan(_ context.Context, planID, owner string, now time.Time, leaseDuration time.Duration) (domain.RegistryCleanupPlan, bool, error) {
+func (s *Store) ClaimRegistryCleanupPlan(_ context.Context, planID, owner string, now time.Time, leaseDuration, maxObservationAge time.Duration) (domain.RegistryCleanupPlan, bool, error) {
 	if owner == "" || leaseDuration <= 0 {
 		return domain.RegistryCleanupPlan{}, false, base.ErrRegistryPolicyInvalid
 	}
@@ -571,6 +571,12 @@ func (s *Store) ClaimRegistryCleanupPlan(_ context.Context, planID, owner string
 		plan.State = "superseded"
 		s.registryPlans[planID] = plan
 		return domain.RegistryCleanupPlan{}, false, base.ErrRegistrySnapshotStale
+	}
+	// Validate freshness and the complete graph inside the same lock/transaction
+	// as the semantic token check. Legacy executing/offline recovery returned
+	// above and keeps its original immutable checkpoint authorization.
+	if _, err = registry.BuildCleanupPlan(snapshot, now, maxObservationAge); err != nil {
+		return domain.RegistryCleanupPlan{}, false, err
 	}
 	repositories := cleanupLeaseRepositories(plan)
 	for _, repository := range repositories {
@@ -643,7 +649,7 @@ func (s *Store) AuthorizeRegistryCleanupItem(_ context.Context, planID string, o
 	if err != nil {
 		return domain.RegistryCleanupItem{}, err
 	}
-	if base.RegistryAuthorityToken(snapshot) != plan.AuthorityToken {
+	if base.RegistryAuthorityTokenForPlan(snapshot, plan) != plan.AuthorityToken {
 		return domain.RegistryCleanupItem{}, base.ErrRegistrySnapshotStale
 	}
 	item.State = "deleting"
@@ -687,7 +693,7 @@ func (s *Store) RecordRegistryCleanupItemResult(_ context.Context, planID string
 	if err != nil {
 		return err
 	}
-	plan.AuthorityToken = base.RegistryAuthorityToken(snapshot)
+	plan.AuthorityToken = base.RegistryAuthorityTokenForPlan(snapshot, plan)
 	s.registryPlans[planID] = plan
 	return nil
 }

@@ -44,6 +44,14 @@ const terminalSaveStates = new Set([
 ]);
 const savePollWindow = 15 * 60_000;
 
+function isInvalidPreviewError(error: unknown) {
+  return (
+    error instanceof ApiError &&
+    error.status === 409 &&
+    error.problem?.code === "PreviewInvalid"
+  );
+}
+
 export function ConfigEditor(props: ConfigEditorProps) {
   const { deployment, application } = props;
   if (
@@ -248,6 +256,7 @@ function SavedConfigEditor({ deployment, application }: ConfigEditorProps) {
         rawYaml: input.rawYaml,
         idempotencyKey: crypto.randomUUID(),
       });
+      if (isInvalidPreviewError(saveMutation.error)) saveMutation.reset();
     },
   });
   const matchingPreview =
@@ -280,6 +289,16 @@ function SavedConfigEditor({ deployment, application }: ConfigEditorProps) {
       setPreview(null);
       setPublicationConflict(false);
       void queryClient.invalidateQueries({ queryKey: ["operations"] });
+    },
+    onError: (error, input) => {
+      if (input.deploymentId !== deployment.id || !isInvalidPreviewError(error))
+        return;
+      setPreview((current) =>
+        current?.value.previewToken === input.previewToken &&
+        current.idempotencyKey === input.idempotencyKey
+          ? null
+          : current,
+      );
     },
   });
 
@@ -759,7 +778,11 @@ function SavedConfigEditor({ deployment, application }: ConfigEditorProps) {
       ) : null}
       {saveMutation.error ? (
         <Notice tone="error">
-          <p>{errorMessage(saveMutation.error)}</p>
+          <p>
+            {isInvalidPreviewError(saveMutation.error)
+              ? "This preview expired or the repository or configuration changed. Review your draft, then choose Preview configuration again. Your edits are preserved."
+              : errorMessage(saveMutation.error)}
+          </p>
         </Notice>
       ) : null}
       {saved ? (

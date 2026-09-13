@@ -19,6 +19,7 @@ type protectionServiceStore struct {
 	snapshot   domain.RegistryLifecycleSnapshot
 	plan       domain.RegistryCleanupPlan
 	candidates []string
+	claims     int
 }
 
 func (s *protectionServiceStore) RegistryCleanupCandidates(context.Context, string, time.Time, int) ([]string, error) {
@@ -38,7 +39,8 @@ func (s *protectionServiceStore) RegistryCleanupPlan(context.Context, string) (d
 	return s.plan, nil
 }
 
-func (s *protectionServiceStore) ClaimRegistryCleanupPlan(context.Context, string, string, time.Time, time.Duration) (domain.RegistryCleanupPlan, bool, error) {
+func (s *protectionServiceStore) ClaimRegistryCleanupPlan(context.Context, string, string, time.Time, time.Duration, time.Duration) (domain.RegistryCleanupPlan, bool, error) {
+	s.claims++
 	return s.plan, true, nil
 }
 
@@ -296,11 +298,25 @@ func TestServiceRefreshesProtectionAtEveryDestructiveBoundary(t *testing.T) {
 	}
 	want := []protectionRefreshCall{
 		{targetID: repository.snapshot.Target.ID, serviceID: repository.snapshot.Policy.ServiceID, forceFresh: true},
-		{targetID: repository.snapshot.Target.ID, serviceID: repository.snapshot.Policy.ServiceID, forceFresh: false},
+		{targetID: repository.snapshot.Target.ID, serviceID: repository.snapshot.Policy.ServiceID, forceFresh: true},
 		{targetID: repository.snapshot.Target.ID, serviceID: repository.snapshot.Policy.ServiceID, forceFresh: false},
 	}
 	if !reflect.DeepEqual(refresher.calls, want) {
 		t.Fatalf("refresh calls=%#v want=%#v", refresher.calls, want)
+	}
+}
+
+func TestCleanupResumeDoesNotCreateFreshSemanticApproval(t *testing.T) {
+	now := time.Date(2026, 9, 13, 7, 0, 0, 0, time.UTC)
+	for _, snapshotToken := range []string{"legacy-token", store.RegistrySnapshotToken(fixtureSnapshot(now))} {
+		for _, state := range []string{"executing", "failed"} {
+			repository := &protectionServiceStore{snapshot: fixtureSnapshot(now), plan: domain.RegistryCleanupPlan{ID: "plan", SnapshotToken: snapshotToken, State: state}}
+			repository.snapshot.Inventory.Complete = false
+			service := NewService(repository, WithClock(func() time.Time { return now }))
+			if _, claimed, err := service.Claim(t.Context(), "plan", "worker", time.Minute); err != nil || !claimed || repository.claims != 1 {
+				t.Fatalf("existing checkpoint path changed: state=%s claimed=%v calls=%d err=%v", state, claimed, repository.claims, err)
+			}
+		}
 	}
 }
 

@@ -116,7 +116,7 @@ func (a *KubernetesMaintenanceAdapter) Acquire(ctx context.Context, request Main
 	if err != nil {
 		return nil, err
 	}
-	if store.RegistryAuthorityToken(snapshot) != plan.AuthorityToken {
+	if store.RegistryAuthorityTokenForPlan(snapshot, plan) != plan.AuthorityToken {
 		return nil, store.ErrRegistrySnapshotStale
 	}
 	candidates := cleanupBlobItems(plan.Items)
@@ -377,7 +377,7 @@ func (s *kubernetesMaintenanceSession) capture(ctx context.Context, request Reac
 	if err != nil {
 		return RegistryReachabilityCheckpoint{}, checkpointCaptureFailure("authority-load")
 	}
-	if store.RegistryAuthorityToken(snapshot) != plan.AuthorityToken {
+	if store.RegistryAuthorityTokenForPlan(snapshot, plan) != plan.AuthorityToken {
 		return RegistryReachabilityCheckpoint{}, checkpointCaptureFailure("authority-changed")
 	}
 	if !completeRegistryAuthorities(snapshot, s.adapter.now()) {

@@ -10,6 +10,46 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+func (s *PostgreSQLStore) SourceDeploymentReceipt(ctx context.Context, actorID, deploymentID, key string) (SourceDeploymentAcceptance, error) {
+	if s == nil || s.pool == nil || !uuidRE.MatchString(actorID) || !uuidRE.MatchString(deploymentID) || !setupIdempotencyRE.MatchString(key) {
+		return SourceDeploymentAcceptance{}, ErrInvalid
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return SourceDeploymentAcceptance{}, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	var attemptID string
+	err = tx.QueryRow(ctx, `SELECT resource_id::text FROM mutation_receipts
+		WHERE actor_id=$1 AND receipt_kind='build-api' AND namespace=$2 AND scope_key=$3::text AND idempotency_key=$4`,
+		actorID, APICommandSourceDeployment, deploymentID, key).Scan(&attemptID)
+	if err != nil {
+		return SourceDeploymentAcceptance{}, classifyPostgres(err)
+	}
+	attempt, err := attemptByIDQuery(ctx, tx, attemptID, false)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			err = ErrConflict
+		}
+		return SourceDeploymentAcceptance{}, err
+	}
+	intent, err := sourceDeploymentIntentByAttemptQuery(ctx, tx, attemptID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			err = ErrConflict
+		}
+		return SourceDeploymentAcceptance{}, err
+	}
+	if intent.ActorID != actorID || intent.DeploymentID != deploymentID ||
+		intent.AttemptID != attempt.ID || intent.ProjectID != attempt.ProjectID || intent.ApplicationID != attempt.ServiceID {
+		return SourceDeploymentAcceptance{}, ErrConflict
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return SourceDeploymentAcceptance{}, classifyPostgres(err)
+	}
+	return SourceDeploymentAcceptance{Attempt: attempt, Intent: intent, Replay: true}, nil
+}
+
 func (s *PostgreSQLStore) AcceptSourceDeployment(ctx context.Context, command SourceDeploymentCommand) (SourceDeploymentAcceptance, error) {
 	if s == nil || s.pool == nil || command.validate() != nil {
 		return SourceDeploymentAcceptance{}, ErrInvalid

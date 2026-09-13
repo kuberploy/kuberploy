@@ -84,6 +84,33 @@ func TestMemorySourceDeploymentBuildFailureLeavesIntentUnpublished(t *testing.T)
 	}
 }
 
+func TestMemorySourceDeploymentReceiptPreservesHistoryAndScope(t *testing.T) {
+	store, definition := seedMemory(t, RegistryManaged)
+	command := sourceCommand(t, definition, SourceDeploymentDeploy, "", testNow)
+	accepted, err := store.AcceptSourceDeployment(context.Background(), command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lookup, err := store.SourceDeploymentReceipt(context.Background(), command.ActorID, command.DeploymentID, command.IdempotencyKey)
+	if err != nil || !lookup.Replay || lookup.Attempt.ID != accepted.Attempt.ID || lookup.Intent.ID != accepted.Intent.ID {
+		t.Fatalf("lookup=%+v err=%v", lookup, err)
+	}
+	key := apiMemoryKey(command.ActorID, APICommandSourceDeployment, command.DeploymentID, command.IdempotencyKey)
+	if store.apiIdempotency[key].fingerprint != command.Fingerprint {
+		t.Fatal("receipt lookup rewrote historical fingerprint")
+	}
+	lookup.Intent.ConfigIntent[0] = '!'
+	if store.sourceDeploymentIntents[accepted.Intent.ID].ConfigIntent[0] == '!' {
+		t.Fatal("lookup exposed mutable intent bytes")
+	}
+	for _, scope := range [][2]string{{"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", command.DeploymentID},
+		{command.ActorID, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}} {
+		if _, err = store.SourceDeploymentReceipt(context.Background(), scope[0], scope[1], command.IdempotencyKey); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("receipt escaped actor/deployment scope: %v", err)
+		}
+	}
+}
+
 type sourceReleaseResolver struct{ source buildpromotion.Source }
 
 func (r sourceReleaseResolver) Resolve(context.Context, buildpromotion.Request) (buildpromotion.Source, error) {

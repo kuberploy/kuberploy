@@ -148,7 +148,7 @@ func TestRegistryApplicationWrappersAreScopedReplaySafeAndManagedOnly(t *testing
 	if err != nil || preparedRecovery.Replay || !base.RegistryCleanupPlanCanResumeOfflineSweep(preparedRecovery.Value) || st.AuditCount() != auditsBefore+4 {
 		t.Fatalf("recovery=%#v audits=%d err=%v", preparedRecovery, st.AuditCount(), err)
 	}
-	recovered, claimed, err := st.ClaimRegistryCleanupPlan(ctx, plan.ID, "recovery-worker", seed.now.Add(time.Minute), time.Minute)
+	recovered, claimed, err := st.ClaimRegistryCleanupPlan(ctx, plan.ID, "recovery-worker", seed.now.Add(time.Minute), time.Minute, time.Hour)
 	if err != nil || !claimed || recovered.State != "executing" {
 		t.Fatalf("claim recovery=%#v claimed=%v err=%v", recovered, claimed, err)
 	}

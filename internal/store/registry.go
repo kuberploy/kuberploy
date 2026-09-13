@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/kuberploy/kuberploy/internal/domain"
@@ -32,7 +33,7 @@ type RegistryStore interface {
 	RegistryLifecycleSnapshot(context.Context, string, string, time.Time) (domain.RegistryLifecycleSnapshot, error)
 	SaveRegistryCleanupPlan(context.Context, domain.RegistryCleanupPlan) (domain.RegistryCleanupPlan, bool, error)
 	RegistryCleanupPlan(context.Context, string) (domain.RegistryCleanupPlan, error)
-	ClaimRegistryCleanupPlan(context.Context, string, string, time.Time, time.Duration) (domain.RegistryCleanupPlan, bool, error)
+	ClaimRegistryCleanupPlan(context.Context, string, string, time.Time, time.Duration, time.Duration) (domain.RegistryCleanupPlan, bool, error)
 	RenewRegistryCleanupPlanLeases(context.Context, string, string, time.Time, time.Duration) error
 	AuthorizeRegistryCleanupItem(context.Context, string, int, string, time.Time) (domain.RegistryCleanupItem, error)
 	RecordRegistryCleanupItemResult(context.Context, string, int, string, domain.RegistryCleanupItemResult) error
@@ -54,12 +55,42 @@ type registrySnapshotTokenView struct {
 	BlobLinks   []domain.RegistryManifestBlobLink
 }
 
-// RegistrySnapshotToken fingerprints all lifecycle inputs while deliberately
-// excluding Snapshot.AsOf. Loading an unchanged database view at a later time
-// must produce the same token for immediate pre-delete revalidation.
+const registrySemanticSnapshotPrefix = "registry-semantic-v2:"
+
+// RegistrySnapshotToken fingerprints cleanup content, including the complete
+// graph and first-observation safety ages, without successful observer refresh
+// metadata. The version prefix prevents an older approval from being silently
+// reinterpreted with these semantics. Freshness is validated at preview/claim.
 func RegistrySnapshotToken(snapshot domain.RegistryLifecycleSnapshot) string {
 	view := canonicalRegistrySnapshot(snapshot)
-	return digestJSON(view)
+	view.Inventory.Revision, view.Inventory.ObservedAt = "", time.Time{}
+	for index := range view.Catalogs {
+		item := &view.Catalogs[index]
+		item.ID, item.Revision, item.SnapshotDigest, item.ObservedAt = "", 0, "", time.Time{}
+	}
+	for index := range view.Authorities {
+		item := &view.Authorities[index]
+		item.Revision, item.SnapshotDigest, item.ObservedAt = "", "", time.Time{}
+	}
+	for index := range view.References {
+		view.References[index].ObservedAt = time.Time{}
+	}
+	for index := range view.Manifests {
+		view.Manifests[index].LastObservedAt, view.Manifests[index].LastObservationRevision = time.Time{}, 0
+	}
+	for index := range view.Blobs {
+		view.Blobs[index].LastObservedAt, view.Blobs[index].LastObservationRevision = time.Time{}, 0
+	}
+	for index := range view.Releases {
+		view.Releases[index].AvailabilityObservedAt = nil
+	}
+	return registrySemanticSnapshotPrefix + digestJSON(view)
+}
+
+// RegistryCleanupUsesSemanticSnapshot selects the immutable plan's token
+// semantics. Old unclaimed plans cannot match a newly computed snapshot token.
+func RegistryCleanupUsesSemanticSnapshot(plan domain.RegistryCleanupPlan) bool {
+	return strings.HasPrefix(plan.SnapshotToken, registrySemanticSnapshotPrefix)
 }
 
 // RegistryAuthorityToken fingerprints semantic protection authorities and root
@@ -69,6 +100,17 @@ func RegistrySnapshotToken(snapshot domain.RegistryLifecycleSnapshot) string {
 // runtime, operation, policy, or authority-completeness change still makes the
 // next item fail closed.
 func RegistryAuthorityToken(snapshot domain.RegistryLifecycleSnapshot) string {
+	return registryAuthorityToken(snapshot, true)
+}
+
+// RegistryAuthorityTokenForPlan preserves the original authority calculation
+// for legacy executions, including after their own item checkpoints. It never
+// upgrades an executing or offline-resumable approval to semantic v2.
+func RegistryAuthorityTokenForPlan(snapshot domain.RegistryLifecycleSnapshot, plan domain.RegistryCleanupPlan) string {
+	return registryAuthorityToken(snapshot, RegistryCleanupUsesSemanticSnapshot(plan))
+}
+
+func registryAuthorityToken(snapshot domain.RegistryLifecycleSnapshot, semantic bool) string {
 	type authorityState struct {
 		Authority domain.RegistryAuthority
 		Complete  bool
@@ -97,10 +139,24 @@ func RegistryAuthorityToken(snapshot domain.RegistryLifecycleSnapshot) string {
 	for index := range view.References {
 		view.References[index].ObservedAt = time.Time{}
 	}
-	return digestJSON(authorityTokenView{
+	if semantic {
+		for index := range view.Releases {
+			view.Releases[index].AvailabilityObservedAt = nil
+		}
+	}
+	tokenView := authorityTokenView{
 		Target: view.Target, Policy: view.Policy, Authorities: authorities,
 		References: view.References, Releases: view.Releases, Caches: view.Caches,
-	})
+	}
+	if semantic {
+		// Domain separation also makes older binaries reject new executing
+		// plans, even when this snapshot has no expired-release timestamps.
+		return digestJSON(struct {
+			Version string
+			Content authorityTokenView
+		}{Version: registrySemanticSnapshotPrefix, Content: tokenView})
+	}
+	return digestJSON(tokenView)
 }
 
 func RegistryCleanupPlanDigest(plan domain.RegistryCleanupPlan) string {

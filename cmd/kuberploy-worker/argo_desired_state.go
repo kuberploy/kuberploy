@@ -35,7 +35,7 @@ func (r verifiedPublicationArgoRefresher) RefreshVerifiedMerge(ctx context.Conte
 	if err != nil {
 		return err
 	}
-	if environment.Validate() != nil || environment.Kind != gitprojection.BindingEnvironment ||
+	if environment.Validate() != nil || environment.ID != publication.BindingID || environment.Kind != gitprojection.BindingEnvironment ||
 		environment.TargetRef != publication.TargetRef || environment.Repository.InstallationID != publication.Repository.InstallationID ||
 		environment.Repository.RepositoryID != publication.Repository.ID || environment.Repository.Owner != publication.Repository.Owner ||
 		environment.Repository.Name != publication.Repository.Name {
@@ -45,24 +45,29 @@ func (r verifiedPublicationArgoRefresher) RefreshVerifiedMerge(ctx context.Conte
 	if err != nil {
 		return err
 	}
-	if platform.Repository != environment.Repository || platform.TargetRef != environment.TargetRef {
-		return gitprojection.ErrProviderMismatch
+	if platform.Validate() != nil || platform.ID != r.identity.PlatformBindingID || platform.Kind != gitprojection.BindingPlatform {
+		return argo.ErrInvalid
 	}
-	head := gitprojection.VerifiedHead{
-		BindingID: platform.ID, Repository: platform.Repository, TargetRef: platform.TargetRef,
-		Commit: observation.Revision, Source: gitprojection.ObservationWrite,
-		ProviderRequest: "publication-" + publication.OperationID, ObservedAt: observation.ObservedAt.UTC(),
-	}
-	if head.ValidateFor(platform) != nil {
-		return gitprojection.ErrProviderMismatch
-	}
-	root, err := argo.NewPlatformRootApplicationExpectation(r.identity, platform, head)
-	if err != nil {
-		return err
-	}
-	refreshedAt := head.ObservedAt.UTC()
-	if err = r.target.RefreshPlatformRootApplication(ctx, root, refreshedAt); err != nil {
-		return err
+	refreshedAt := observation.ObservedAt.UTC()
+	// The verified Environment commit can refresh the platform root only when
+	// both bindings share its exact repository/ref. Independent Environment
+	// shards are discovered by their existing, platform-owned ApplicationSet.
+	if platform.Repository == environment.Repository && platform.TargetRef == environment.TargetRef {
+		head := gitprojection.VerifiedHead{
+			BindingID: platform.ID, Repository: platform.Repository, TargetRef: platform.TargetRef,
+			Commit: observation.Revision, Source: gitprojection.ObservationWrite,
+			ProviderRequest: "publication-" + publication.OperationID, ObservedAt: refreshedAt,
+		}
+		if head.ValidateFor(platform) != nil {
+			return gitprojection.ErrProviderMismatch
+		}
+		root, err := argo.NewPlatformRootApplicationExpectation(r.identity, platform, head)
+		if err != nil {
+			return err
+		}
+		if err = r.target.RefreshPlatformRootApplication(ctx, root, refreshedAt); err != nil {
+			return err
+		}
 	}
 	applicationSet := argo.EnvironmentApplicationSetExpectation{
 		Namespace:     r.identity.ArgoNamespace,

@@ -459,7 +459,7 @@ func TestFailedRegistryOfflineSweepMayResumeWithExactCandidates(t *testing.T) {
 		t.Fatalf("recoverable failed cleanup=%q want=%q err=%v", accepted, planID, err)
 	}
 
-	recovered, claimed, err := st.ClaimRegistryCleanupPlan(ctx, planID, "sweep-recovery-worker", now.Add(time.Second), time.Minute)
+	recovered, claimed, err := st.ClaimRegistryCleanupPlan(ctx, planID, "sweep-recovery-worker", now.Add(time.Second), time.Minute, time.Hour)
 	if err != nil || !claimed || recovered.State != "executing" || recovered.Failure != "" || recovered.CompletedAt != nil {
 		t.Fatalf("recovered=%#v claimed=%v err=%v", recovered, claimed, err)
 	}

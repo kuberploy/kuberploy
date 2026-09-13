@@ -33,7 +33,11 @@ const sourceRetryWindow = 5 * 60_000;
 
 function transientSourceError(error: unknown) {
   return (
-    error instanceof ApiError && (error.status === 404 || error.status === 410)
+    error instanceof ApiError &&
+    (error.status === 404 ||
+      error.status === 410 ||
+      (error.status === 503 &&
+        error.problem?.code === "BuildLogRuntimeUnavailable"))
   );
 }
 

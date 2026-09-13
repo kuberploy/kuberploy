@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -26,26 +27,29 @@ type verifiedMergeRefreshTarget struct {
 	applicationSet  argo.EnvironmentApplicationSetExpectation
 	rootRefreshedAt time.Time
 	setRefreshedAt  time.Time
+	rootErr         error
+	setErr          error
 }
 
 func (t *verifiedMergeRefreshTarget) RefreshPlatformRootApplication(_ context.Context, expectation argo.PlatformRootApplicationExpectation, refreshedAt time.Time) error {
 	t.root, t.rootRefreshedAt = expectation, refreshedAt
-	return nil
+	return t.rootErr
 }
 
 func (t *verifiedMergeRefreshTarget) RefreshEnvironmentApplicationSet(_ context.Context, expectation argo.EnvironmentApplicationSetExpectation, refreshedAt time.Time) error {
 	t.applicationSet, t.setRefreshedAt = expectation, refreshedAt
-	return nil
+	return t.setErr
 }
 
 type verifiedMergeObservationWaker struct {
 	namespace string
 	wakeAt    time.Time
+	err       error
 }
 
 func (w *verifiedMergeObservationWaker) WakeObservation(_ context.Context, namespace string, wakeAt time.Time) error {
 	w.namespace, w.wakeAt = namespace, wakeAt
-	return nil
+	return w.err
 }
 
 func TestArgoDesiredStateWorkerIDChangesAcrossSamePodRestart(t *testing.T) {
@@ -117,28 +121,84 @@ func TestVerifiedPublicationRefreshesExactArgoResourcesAndWakesObservation(t *te
 		MergeRevision: targetRevision, TargetRevision: targetRevision, State: gitpublication.StateMergeVerified, ProviderObservedAt: &providerObservedAt,
 		CreatedAt: now.Add(-time.Minute), UpdatedAt: now, Version: 7,
 	}
-	target := &verifiedMergeRefreshTarget{}
-	waker := &verifiedMergeObservationWaker{}
-	refresher := verifiedPublicationArgoRefresher{
-		bindings: verifiedMergeBindingStore{platform.ID: platform, environment.ID: environment},
-		target:   target, waker: waker, identity: identity,
-	}
-
 	observation := gitpublication.TargetHeadObservation{
 		Repository: publication.Repository, TargetRef: targetRef, Revision: targetRevision, ObservedAt: now,
 	}
-	if err = refresher.RefreshVerifiedMerge(t.Context(), publication, observation); err != nil {
-		t.Fatal(err)
-	}
-	if target.root.ExpectedGitRevision != targetRevision || target.root.Name != identity.RootApplicationName || target.rootRefreshedAt != now {
-		t.Fatalf("root refresh=%#v at=%v", target.root, target.rootRefreshedAt)
-	}
-	if target.applicationSet.Name != argo.ApplicationSetName(environmentID) || target.applicationSet.ProjectID != projectID ||
-		target.applicationSet.EnvironmentID != environmentID || target.setRefreshedAt != now {
-		t.Fatalf("ApplicationSet refresh=%#v at=%v", target.applicationSet, target.setRefreshedAt)
-	}
-	if waker.namespace != identity.ArgoNamespace || waker.wakeAt != now {
-		t.Fatalf("observation wake namespace=%q at=%v", waker.namespace, waker.wakeAt)
+	refreshErr := errors.New("fixture refresh failed")
+	for _, test := range []struct {
+		name                        string
+		change                      func(*gitprojection.Binding, *gitprojection.Binding, *verifiedMergeRefreshTarget, *verifiedMergeObservationWaker)
+		wantRoot, wantSet, wantWake bool
+		wantErr                     error
+	}{
+		{name: "shared repository and ref", wantRoot: true, wantSet: true, wantWake: true},
+		{name: "separate branch", wantSet: true, wantWake: true, change: func(platform, _ *gitprojection.Binding, _ *verifiedMergeRefreshTarget, _ *verifiedMergeObservationWaker) {
+			platform.TargetRef = "refs/heads/platform"
+		}},
+		{name: "separate repository", wantSet: true, wantWake: true, change: func(platform, _ *gitprojection.Binding, _ *verifiedMergeRefreshTarget, _ *verifiedMergeObservationWaker) {
+			platform.Repository.RepositoryID++
+			platform.Repository.Name = "platform-gitops"
+		}},
+		{name: "mismatched environment ref", wantErr: argo.ErrInvalid, change: func(_, environment *gitprojection.Binding, _ *verifiedMergeRefreshTarget, _ *verifiedMergeObservationWaker) {
+			environment.TargetRef = "refs/heads/unrelated"
+		}},
+		{name: "mismatched environment repository", wantErr: argo.ErrInvalid, change: func(_, environment *gitprojection.Binding, _ *verifiedMergeRefreshTarget, _ *verifiedMergeObservationWaker) {
+			environment.Repository.RepositoryID++
+		}},
+		{name: "mismatched environment identity", wantErr: argo.ErrInvalid, change: func(_, environment *gitprojection.Binding, _ *verifiedMergeRefreshTarget, _ *verifiedMergeObservationWaker) {
+			environment.ID = "66666666-6666-4666-8666-666666666666"
+		}},
+		{name: "invalid platform identity", wantErr: argo.ErrInvalid, change: func(platform, _ *gitprojection.Binding, _ *verifiedMergeRefreshTarget, _ *verifiedMergeObservationWaker) {
+			platform.ID = "66666666-6666-4666-8666-666666666666"
+			platform.ScopeID = platform.ID
+			platform.TargetRef = "refs/heads/platform"
+		}},
+		{name: "root refresh failure", wantRoot: true, wantErr: refreshErr, change: func(_, _ *gitprojection.Binding, target *verifiedMergeRefreshTarget, _ *verifiedMergeObservationWaker) {
+			target.rootErr = refreshErr
+		}},
+		{name: "separate branch ApplicationSet failure", wantSet: true, wantErr: refreshErr, change: func(platform, _ *gitprojection.Binding, target *verifiedMergeRefreshTarget, _ *verifiedMergeObservationWaker) {
+			platform.TargetRef = "refs/heads/platform"
+			target.setErr = refreshErr
+		}},
+		{name: "separate branch observation wake failure", wantSet: true, wantWake: true, wantErr: refreshErr, change: func(platform, _ *gitprojection.Binding, _ *verifiedMergeRefreshTarget, waker *verifiedMergeObservationWaker) {
+			platform.TargetRef = "refs/heads/platform"
+			waker.err = refreshErr
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			currentPlatform, currentEnvironment := platform, environment
+			target := &verifiedMergeRefreshTarget{}
+			waker := &verifiedMergeObservationWaker{}
+			if test.change != nil {
+				test.change(&currentPlatform, &currentEnvironment, target, waker)
+			}
+			refresher := verifiedPublicationArgoRefresher{
+				bindings: verifiedMergeBindingStore{platform.ID: currentPlatform, environment.ID: currentEnvironment},
+				target:   target, waker: waker, identity: identity,
+			}
+			if err := refresher.RefreshVerifiedMerge(t.Context(), publication, observation); !errors.Is(err, test.wantErr) {
+				t.Fatalf("refresh error=%v want=%v", err, test.wantErr)
+			}
+			if got := !target.rootRefreshedAt.IsZero(); got != test.wantRoot {
+				t.Fatalf("platform root refreshed=%v want=%v", got, test.wantRoot)
+			}
+			if test.wantRoot && (target.root.ExpectedGitRevision != targetRevision || target.root.Name != identity.RootApplicationName || target.rootRefreshedAt != now) {
+				t.Fatalf("root refresh=%#v at=%v", target.root, target.rootRefreshedAt)
+			}
+			if got := !target.setRefreshedAt.IsZero(); got != test.wantSet {
+				t.Fatalf("Environment ApplicationSet refreshed=%v want=%v", got, test.wantSet)
+			}
+			if test.wantSet && (target.applicationSet.Name != argo.ApplicationSetName(environmentID) || target.applicationSet.Namespace != identity.ArgoNamespace ||
+				target.applicationSet.ProjectID != projectID || target.applicationSet.EnvironmentID != environmentID || target.setRefreshedAt != now) {
+				t.Fatalf("ApplicationSet refresh=%#v at=%v", target.applicationSet, target.setRefreshedAt)
+			}
+			if got := !waker.wakeAt.IsZero(); got != test.wantWake {
+				t.Fatalf("observation woken=%v want=%v", got, test.wantWake)
+			}
+			if test.wantWake && (waker.namespace != identity.ArgoNamespace || waker.wakeAt != now) {
+				t.Fatalf("observation wake namespace=%q at=%v", waker.namespace, waker.wakeAt)
+			}
+		})
 	}
 }
 

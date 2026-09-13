@@ -144,11 +144,9 @@ func externalDNSRuntimeRevisionAdvanceNeeded(item domain.ExternalDNSIntegration,
 }
 
 func (r *externalDNSOperationalRuntime) Run(ctx context.Context) error {
-	if r == nil {
+	if r == nil || r.config.PollInterval <= 0 {
 		return externaldns.ErrRuntimeUnavailable
 	}
-	ticker := time.NewTicker(r.config.PollInterval)
-	defer ticker.Stop()
 	for {
 		runtime, err := r.desired(ctx)
 		if err == nil {
@@ -183,10 +181,12 @@ func (r *externalDNSOperationalRuntime) Run(ctx context.Context) error {
 		if err != nil && !errors.Is(err, context.Canceled) {
 			slog.Warn("dynamic external-dns reconciliation failed", "error", err)
 		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
+		// Protected Git publication shares the issuer publisher's bounded
+		// provider retry policy. Wait after this cycle so a buffered poll tick
+		// cannot immediately retry before GitHub's reset or Retry-After time.
+		delay := certificateIssuerProviderDelay(err, time.Now().UTC(), r.config.PollInterval)
+		if waitErr := waitCertificateIssuerCycle(ctx, delay); waitErr != nil {
+			return waitErr
 		}
 	}
 }

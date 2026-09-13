@@ -147,7 +147,7 @@ func TestRegistryLifecycleSQLPaths(t *testing.T) {
 		t.Fatalf("claim replay claimed=%v err=%v", claimed, err)
 	}
 	cleanupOwner := "integration-replacement"
-	if recovered, claimed, reclaimErr := st.ClaimRegistryCleanupPlan(ctx, plan.ID, cleanupOwner, now.Add(11*time.Minute), 10*time.Minute); reclaimErr != nil || !claimed || recovered.State != "executing" {
+	if recovered, claimed, reclaimErr := st.ClaimRegistryCleanupPlan(ctx, plan.ID, cleanupOwner, now.Add(11*time.Minute), 10*time.Minute, time.Hour); reclaimErr != nil || !claimed || recovered.State != "executing" {
 		t.Fatalf("expired cleanup recovery claimed=%v state=%q err=%v", claimed, recovered.State, reclaimErr)
 	}
 	if renewErr := st.RenewRegistryCleanupPlanLeases(ctx, plan.ID, "integration-worker", now.Add(11*time.Minute), 10*time.Minute); !errors.Is(renewErr, base.ErrRegistryLeaseLost) {

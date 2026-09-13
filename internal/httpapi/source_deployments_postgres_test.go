@@ -2,6 +2,10 @@ package httpapi_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -29,11 +33,33 @@ type postgresSourceAcceptance struct {
 	store      *builds.PostgreSQLStore
 	definition builds.BuildDefinition
 	before     func(context.Context) error
+	legacy     bool
+}
+
+func (b *postgresSourceAcceptance) SourceDeploymentReceipt(ctx context.Context, actorID, deploymentID, key string) (builds.SourceDeploymentAcceptance, error) {
+	return b.store.SourceDeploymentReceipt(ctx, actorID, deploymentID, key)
 }
 
 func (b *postgresSourceAcceptance) AcceptSourceDeployment(ctx context.Context, command builds.SourceDeploymentCommand) (builds.SourceDeploymentAcceptance, error) {
 	command.DefinitionID, command.ExpectedDefinitionDigest = b.definition.ID, b.definition.DefinitionDigest
 	command.Execution, command.CommitSHA, command.AcceptedAt = b.definition.Spec.Execution, strings.Repeat("a", 40), time.Now().UTC()
+	if b.legacy {
+		// Exact RC457 fingerprint format: simulate an acceptance made before the
+		// upgrade without rewriting a stored receipt to manufacture compatibility.
+		raw, err := json.Marshal(struct {
+			DeploymentID, ApplicationID, EnvironmentID, ConfigETag, ProjectionETag string
+			Generation                                                             int64
+			Mode                                                                   builds.SourceDeploymentMode
+			SourceAttemptID                                                        string
+			StartDraft                                                             bool
+		}{command.DeploymentID, command.ApplicationID, command.EnvironmentID, command.SourceConfigETag, command.SourceProjectionETag,
+			command.SourceDeploymentGeneration, command.Mode, command.SourceAttemptID, command.StartDraft})
+		if err != nil {
+			return builds.SourceDeploymentAcceptance{}, err
+		}
+		digest := sha256.Sum256(raw)
+		command.Fingerprint = "sha256:" + hex.EncodeToString(digest[:])
+	}
 	if b.before != nil {
 		if err := b.before(ctx); err != nil {
 			return builds.SourceDeploymentAcceptance{}, err
@@ -65,7 +91,7 @@ func TestPostgreSQLSourceDeploymentHTTPUsesIndependentAuthorityTokens(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	acceptance := &postgresSourceAcceptance{store: buildStore}
+	acceptance := &postgresSourceAcceptance{store: buildStore, legacy: true}
 	projection := &projectionHTTPBackend{}
 	srv := httptest.NewServer(httpapi.New(httpapi.Options{Store: st, BootstrapToken: "one-time-secret",
 		SourceDeployments: acceptance,
@@ -148,16 +174,72 @@ func TestPostgreSQLSourceDeploymentHTTPUsesIndependentAuthorityTokens(t *testing
 	}
 	accepted := decode[struct {
 		IntentID string `json:"intentId"`
+		Sequence int64  `json:"sequence"`
+		Build    struct {
+			ID string `json:"id"`
+		} `json:"build"`
 	}](t, response)
-	var persistedGitETag string
-	if err = pool.QueryRow(ctx, `SELECT source_config_etag FROM source_deployment_intents WHERE id=$1`, accepted.IntentID).Scan(&persistedGitETag); err != nil || persistedGitETag != gitETag {
+	var persistedGitETag, persistedDigest string
+	var persistedIntent []byte
+	if err = pool.QueryRow(ctx, `SELECT source_config_etag,config_intent,template_digest FROM source_deployment_intents WHERE id=$1`, accepted.IntentID).
+		Scan(&persistedGitETag, &persistedIntent, &persistedDigest); err != nil || persistedGitETag != gitETag {
 		t.Fatalf("durable Git authority token=%s err=%v", persistedGitETag, err)
+	}
+	assertSourceDeploymentDependencySnapshot(t, persistedIntent, persistedDigest, config.RawYAML, projection.bundle)
+	var originalFingerprint string
+	if err = pool.QueryRow(ctx, `SELECT request_digest FROM mutation_receipts WHERE resource_id=$1 AND namespace=$2`,
+		accepted.Build.ID, builds.APICommandSourceDeployment).Scan(&originalFingerprint); err != nil {
+		t.Fatal(err)
+	}
+	acceptance.legacy = false
+	// A later deployment change must not change the identity of an already
+	// accepted caller request. Its original immutable result remains replayable.
+	if _, err = pool.Exec(ctx, `UPDATE deployments SET generation=generation+1,config_version=config_version+1,config_etag=$2 WHERE id=$1`,
+		operation.TargetID, domain.DeploymentConfigETag(operation.TargetID, 2, config.RawYAML)); err != nil {
+		t.Fatal(err)
+	}
+	projection.bundle.ETag = `"sha256:` + strings.Repeat("c", 64) + `"`
+	response = f.request(http.MethodPost, "/v1/deployments/"+operation.TargetID+"/source-build", "pg-source-accept", map[string]string{"mode": "deploy"})
+	if response.StatusCode != http.StatusAccepted || response.Header.Get("Idempotent-Replay") != "true" {
+		t.Fatalf("same request after deployment change status=%d problem=%+v", response.StatusCode, decode[httpapi.Problem](t, response))
+	}
+	replayed := decode[struct {
+		IntentID string `json:"intentId"`
+		Sequence int64  `json:"sequence"`
+		Build    struct {
+			ID string `json:"id"`
+		} `json:"build"`
+	}](t, response)
+	if replayed != accepted {
+		t.Fatalf("replay did not preserve the original result: accepted=%+v replayed=%+v", accepted, replayed)
+	}
+	var replayFingerprint string
+	if err = pool.QueryRow(ctx, `SELECT request_digest FROM mutation_receipts WHERE resource_id=$1 AND namespace=$2`,
+		accepted.Build.ID, builds.APICommandSourceDeployment).Scan(&replayFingerprint); err != nil || replayFingerprint != originalFingerprint {
+		t.Fatalf("compatibility lookup rewrote the original receipt: err=%v", err)
+	}
+	for _, scope := range [][2]string{{id.New(), operation.TargetID}, {user.ID, id.New()}} {
+		if _, lookupErr := buildStore.SourceDeploymentReceipt(ctx, scope[0], scope[1], "pg-source-accept"); !errors.Is(lookupErr, builds.ErrNotFound) {
+			t.Fatalf("receipt escaped actor/deployment scope: %v", lookupErr)
+		}
+	}
+	response = f.request(http.MethodPost, "/v1/deployments/"+operation.TargetID+"/source-build", "pg-source-accept", map[string]string{
+		"mode": "rebuild", "sourceAttemptId": accepted.Build.ID,
+	})
+	changed := decode[httpapi.Problem](t, response)
+	if response.StatusCode != http.StatusConflict || changed.Code != "BuildConflict" {
+		t.Fatalf("changed request reused an accepted key: status=%d problem=%+v", response.StatusCode, changed)
+	}
+	var buildCount, intentCount int
+	if err = pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM build_attempts WHERE service_id=$1),
+		(SELECT count(*) FROM source_deployment_intents WHERE application_id=$1)`, application.ID).Scan(&buildCount, &intentCount); err != nil || buildCount != 1 || intentCount != 1 {
+		t.Fatalf("retries changed durable history: builds=%d intents=%d err=%v", buildCount, intentCount, err)
 	}
 	// Change the database projection after the HTTP read. Its separate token
 	// must still reject a stale command, without replacing the Git token above.
 	acceptance.before = func(ctx context.Context) error {
 		_, err := pool.Exec(ctx, `UPDATE deployments SET config_version=config_version+1,config_etag=$2 WHERE id=$1`, operation.TargetID,
-			domain.DeploymentConfigETag(operation.TargetID, 2, config.RawYAML))
+			domain.DeploymentConfigETag(operation.TargetID, 3, config.RawYAML))
 		return err
 	}
 	response = f.request(http.MethodPost, "/v1/deployments/"+operation.TargetID+"/source-build", "pg-source-stale-01", map[string]string{"mode": "deploy"})
