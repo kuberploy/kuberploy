@@ -26,6 +26,74 @@ func TestKubernetesReaderSurfaceHasNoSecretMutationOrGenericPath(t *testing.T) {
 	}
 }
 
+func TestExternalDNSObservationRequiresCompletedDeploymentRollout(t *testing.T) {
+	for _, item := range []struct {
+		name                       string
+		desired, replicas, updated int32
+		available                  int32
+		ready                      bool
+	}{
+		{"old-ready-new-config-error", 1, 2, 1, 1, false},
+		{"old-ready-no-updated-pod", 1, 1, 0, 1, false},
+		{"partial-replacement", 3, 3, 2, 3, false},
+		{"new-pod-unavailable", 1, 1, 1, 0, false},
+		{"surge-not-retired", 1, 2, 2, 2, false},
+		{"missing-rollout-counts", 1, 0, 0, 1, false},
+		{"completed-single-replica", 1, 1, 1, 1, true},
+		{"completed-multiple-replicas", 3, 3, 3, 3, true},
+	} {
+		t.Run(item.name, func(t *testing.T) {
+			config := testRuntimeConfig()
+			profile := config.Profiles.ExternalDNS[0]
+			fake := newFakeKubernetesReader(config)
+			key := profile.Namespace + "/" + profile.Deployment.Name + "/" + profile.Deployment.ContainerName
+			original := fake.deployments[key]
+			payload, err := json.Marshal(map[string]any{
+				"metadata": map[string]any{
+					"name": original.Name, "namespace": original.Namespace, "uid": original.UID,
+					"resourceVersion": "123", "generation": 4,
+					"annotations": map[string]string{"kuberploy.io/edge-spec-digest": original.SpecDigest},
+				},
+				"spec": map[string]any{"replicas": item.desired, "template": map[string]any{"spec": map[string]any{
+					"containers": []any{map[string]any{"name": original.ContainerName, "image": original.ContainerImage,
+						"args": original.ContainerArguments}},
+				}}},
+				"status": map[string]any{"observedGeneration": 4, "replicas": item.replicas,
+					"updatedReplicas": item.updated, "availableReplicas": item.available},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet || r.URL.Path != "/apis/apps/v1/namespaces/"+profile.Namespace+"/deployments/"+profile.Deployment.Name {
+					http.Error(w, "unexpected request", http.StatusBadRequest)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write(payload)
+			}))
+			defer server.Close()
+			tokenPath := filepath.Join(t.TempDir(), "token")
+			if err := os.WriteFile(tokenPath, []byte("test-token"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			reader := &InClusterKubernetesReader{baseURL: server.URL, http: server.Client(), tokenPath: tokenPath}
+			deployment, err := reader.Deployment(context.Background(), profile.Namespace, profile.Deployment.Name, profile.Deployment.ContainerName)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fake.deployments[key] = deployment
+			_, err = (&KubernetesTargetObserver{Reader: fake}).ObserveExternalDNS(context.Background(), profile)
+			if item.ready && err != nil {
+				t.Fatalf("completed rollout rejected: %v", err)
+			}
+			if !item.ready && !errors.Is(err, ErrObservation) {
+				t.Fatalf("incomplete current rollout reported ready: %v", err)
+			}
+		})
+	}
+}
+
 func TestKubernetesPathAllowlistIsExact(t *testing.T) {
 	allowed := []string{
 		"/apis/apps/v1/namespaces/edge/deployments/traefik",
@@ -64,7 +132,7 @@ func TestInClusterReaderUsesBoundedExactGETAndRejectsRedirects(t *testing.T) {
 			return
 		}
 		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{"metadata":{"name":"traefik","namespace":"traefik-system","uid":"33333333-3333-4333-8333-333333333333","resourceVersion":"123","generation":4,"labels":{"app.kubernetes.io/version":"v3.5.3"}},"spec":` + string(spec) + `,"status":{"observedGeneration":4,"availableReplicas":1}}`))
+		_, _ = writer.Write([]byte(`{"metadata":{"name":"traefik","namespace":"traefik-system","uid":"33333333-3333-4333-8333-333333333333","resourceVersion":"123","generation":4,"labels":{"app.kubernetes.io/version":"v3.5.3"}},"spec":` + string(spec) + `,"status":{"observedGeneration":4,"replicas":1,"updatedReplicas":1,"availableReplicas":1}}`))
 	}))
 	defer server.Close()
 	tokenPath := filepath.Join(t.TempDir(), "token")
@@ -79,7 +147,8 @@ func TestInClusterReaderUsesBoundedExactGETAndRejectsRedirects(t *testing.T) {
 		t.Fatal(err)
 	}
 	if deployment.SpecDigest != canonicalJSONDigest(spec) || deployment.Version != "v3.5.3" || deployment.ObservedGeneration != 4 ||
-		deployment.ContainerImage != "docker.io/traefik:v3.5.3" || deployment.AvailableReplicas != 1 {
+		deployment.ContainerImage != "docker.io/traefik:v3.5.3" || deployment.AvailableReplicas != 1 ||
+		deployment.TotalReplicas != 1 || deployment.UpdatedReplicas != 1 {
 		t.Fatalf("deployment observation drifted: %#v", deployment)
 	}
 	before := requests.Load()

@@ -108,7 +108,8 @@ func (c *InClusterKubernetesReader) Deployment(ctx context.Context, namespace, n
 		ObjectSnapshot: ObjectSnapshot{Name: name, Namespace: namespace, UID: object.Metadata.UID, ResourceVersion: object.Metadata.ResourceVersion,
 			Generation: object.Metadata.Generation, SpecDigest: specDigest},
 		ObservedGeneration: object.Status.ObservedGeneration, Version: observedDeploymentVersion(object.Metadata.Labels, selected.Image),
-		DesiredReplicas: *spec.Replicas, AvailableReplicas: object.Status.AvailableReplicas,
+		DesiredReplicas: *spec.Replicas, TotalReplicas: object.Status.Replicas,
+		UpdatedReplicas: object.Status.UpdatedReplicas, AvailableReplicas: object.Status.AvailableReplicas,
 		ContainerName: selected.Name, ContainerImage: selected.Image, ContainerArguments: append([]string(nil), selected.Args...),
 		ContainerSecretRefs:    deploymentSecretRefs(selected.Env, selected.EnvFrom),
 		ContainerConfigMapRefs: deploymentConfigMapRefs(selected.EnvFrom),
@@ -418,6 +419,8 @@ type deploymentObject struct {
 	Spec     json.RawMessage `json:"spec"`
 	Status   struct {
 		ObservedGeneration int64 `json:"observedGeneration"`
+		Replicas           int32 `json:"replicas"`
+		UpdatedReplicas    int32 `json:"updatedReplicas"`
 		AvailableReplicas  int32 `json:"availableReplicas"`
 	} `json:"status"`
 }

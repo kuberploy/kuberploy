@@ -30,6 +30,8 @@ type DeploymentSnapshot struct {
 	ObservedGeneration     int64
 	Version                string
 	DesiredReplicas        int32
+	TotalReplicas          int32
+	UpdatedReplicas        int32
 	AvailableReplicas      int32
 	ContainerName          string
 	ContainerImage         string
@@ -42,7 +44,10 @@ func (d DeploymentSnapshot) validate(namespace, version string, expected Deploym
 	if d.ObjectSnapshot.validate(expected.Name, namespace, expected.SpecDigest) != nil {
 		return mismatch("deployment-spec-mismatch")
 	}
-	if d.ObservedGeneration != d.Generation || d.Version != version || d.DesiredReplicas < 1 || d.AvailableReplicas < d.DesiredReplicas ||
+	// Availability may come from an old ReplicaSet while the current template is
+	// broken. Require a complete rollout before attesting this desired revision.
+	if d.ObservedGeneration != d.Generation || d.Version != version || d.DesiredReplicas < 1 ||
+		d.TotalReplicas != d.DesiredReplicas || d.UpdatedReplicas != d.DesiredReplicas || d.AvailableReplicas != d.DesiredReplicas ||
 		d.ContainerName != expected.ContainerName || d.ContainerImage != expected.Image {
 		return mismatch("deployment-not-ready")
 	}

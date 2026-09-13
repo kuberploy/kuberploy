@@ -261,6 +261,14 @@ export function ApplicationOverviewPage() {
   const gitSSHBuildsConfigured = featureStates?.gitSSHBuilds
     ? featureStates.gitSSHBuilds !== "disabled"
     : features?.gitSSHBuilds === true;
+  const sourceBuildsConfigured =
+    application.data?.sourceKind === "git-ssh"
+      ? gitSSHBuildsConfigured
+      : buildsConfigured;
+  const sourceBuildsReady =
+    application.data?.sourceKind === "git-ssh"
+      ? features?.gitSSHBuilds === true
+      : buildsReady;
   const project = projects.data?.items.find(
     (item) => item.id === application.data?.projectId,
   );
@@ -320,7 +328,7 @@ export function ApplicationOverviewPage() {
     queryKey: ["app-source", applicationId],
     queryFn: () => api.buildDefinitions(applicationId),
     enabled:
-      buildsConfigured &&
+      sourceBuildsConfigured &&
       canReadBuildDefinitions &&
       (application.data?.sourceKind === "github" ||
         application.data?.sourceKind === "git-ssh"),
@@ -329,7 +337,7 @@ export function ApplicationOverviewPage() {
   const buildAttempts = useQuery({
     queryKey: ["build-attempts", applicationId],
     queryFn: () => api.buildAttempts(applicationId, 50),
-    enabled: buildsConfigured && canReadBuildAttempts,
+    enabled: sourceBuildsConfigured && canReadBuildAttempts,
     retry: false,
     refetchInterval: (query) =>
       query.state.data?.items.some((attempt) =>
@@ -457,13 +465,13 @@ export function ApplicationOverviewPage() {
     selectedDeployment &&
     (activeBuildDefinition.sourceKind === "github" ||
       activeBuildDefinition.sourceKind === "git_ssh") &&
-    buildsReady &&
+    sourceBuildsReady &&
     canManageBuildDefinitions,
   );
   const canRebuildBuild = Boolean(
     latestSuccessfulBuild &&
     selectedDeployment &&
-    buildsReady &&
+    sourceBuildsReady &&
     application.data &&
     project &&
     humanSession &&
@@ -811,10 +819,36 @@ export function ApplicationOverviewPage() {
         </Card>
       ) : null}
 
-      {tab === "source" && source === "build" ? (
+      {tab === "source" && (source === "build" || source === "ssh") ? (
         <PageStack>
           <Card className="!p-0 overflow-hidden">
-            {!buildsConfigured ? (
+            {source === "ssh" ? (
+              <GitSSHSourcePanel
+                key={`${application.data.id}:${capabilities.data?.defaults?.buildPlatform ?? "linux/amd64"}`}
+                application={application.data}
+                project={project}
+                enabled={features?.gitSSH === true}
+                buildConfigured={gitSSHBuildsConfigured}
+                buildReady={features?.gitSSHBuilds === true}
+                canManageBuilds={Boolean(
+                  humanSession &&
+                  hasBuildApplicationCapability(
+                    effectiveCapabilities,
+                    "app-sources:write",
+                    application.data,
+                    project,
+                  ),
+                )}
+                defaultBuildPlatform={
+                  capabilities.data?.defaults?.buildPlatform ?? "linux/amd64"
+                }
+                registryTargets={compatibleBuildRegistryTargets(
+                  registry.data?.items ?? [],
+                  project.id,
+                  application.data.id,
+                )}
+              />
+            ) : !buildsConfigured ? (
               <EmptyState
                 icon="git"
                 title="Source builds are disabled"
@@ -905,7 +939,7 @@ export function ApplicationOverviewPage() {
                       variant="primary"
                       busy={deployBuild.isPending}
                       disabled={rebuildBuild.isPending}
-                      title="Fetch the configured GitHub branch, build it, and deploy the resulting image"
+                      title="Fetch the configured branch or tag, build it, and deploy the resulting image"
                       onClick={() => {
                         const key =
                           deployBuildKey.current ?? crypto.randomUUID();
@@ -952,17 +986,19 @@ export function ApplicationOverviewPage() {
                   />
                 ) : null}
               </Card>
-              <AutoDeployPoliciesPanel
-                application={application.data}
-                project={project}
-                sourceConnected
-                enabled={features?.autoDeploy === true}
-                humanSession={Boolean(humanSession)}
-                capabilities={effectiveCapabilities}
-              />
+              {source === "build" ? (
+                <AutoDeployPoliciesPanel
+                  application={application.data}
+                  project={project}
+                  sourceConnected
+                  enabled={features?.autoDeploy === true}
+                  humanSession={Boolean(humanSession)}
+                  capabilities={effectiveCapabilities}
+                />
+              ) : null}
             </>
           ) : null}
-          {canReadBuildAttempts ? (
+          {sourceBuildsConfigured && canReadBuildAttempts ? (
             <Card>
               <div className="mb-4">
                 <Eyebrow>Builds</Eyebrow>
@@ -1016,7 +1052,9 @@ export function ApplicationOverviewPage() {
                           application={application.data}
                           project={project}
                           capabilities={effectiveCapabilities}
-                          humanSession={Boolean(humanSession && buildsReady)}
+                          humanSession={Boolean(
+                            humanSession && sourceBuildsReady,
+                          )}
                         />
                       </div>
                     </article>
@@ -1027,7 +1065,7 @@ export function ApplicationOverviewPage() {
                   compact
                   icon="terminal"
                   title="No build yet"
-                  description="A verified push matching this App source creates its first build."
+                  description="Choose Deploy to build the configured branch or tag and start this App."
                 />
               )}
             </Card>
@@ -1059,36 +1097,6 @@ export function ApplicationOverviewPage() {
             />
           </Card>
         </PageStack>
-      ) : null}
-
-      {tab === "source" && source === "ssh" ? (
-        <Card className="!p-0 overflow-hidden">
-          <GitSSHSourcePanel
-            key={`${application.data.id}:${capabilities.data?.defaults?.buildPlatform ?? "linux/amd64"}`}
-            application={application.data}
-            project={project}
-            enabled={features?.gitSSH === true}
-            buildConfigured={gitSSHBuildsConfigured}
-            buildReady={features?.gitSSHBuilds === true}
-            canManageBuilds={Boolean(
-              humanSession &&
-              hasBuildApplicationCapability(
-                effectiveCapabilities,
-                "app-sources:write",
-                application.data,
-                project,
-              ),
-            )}
-            defaultBuildPlatform={
-              capabilities.data?.defaults?.buildPlatform ?? "linux/amd64"
-            }
-            registryTargets={compatibleBuildRegistryTargets(
-              registry.data?.items ?? [],
-              project.id,
-              application.data.id,
-            )}
-          />
-        </Card>
       ) : null}
 
       {tab === "source" && source === "helm" ? (

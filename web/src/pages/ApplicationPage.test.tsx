@@ -315,6 +315,41 @@ function renderApplication(capabilities: Capabilities) {
 }
 
 describe("application rollout truth", () => {
+  it.each([
+    ["unstarted draft", "stopped", "unknown", "Stopped"],
+    ["completed stop", "stopped", "missing", "Stopped"],
+    ["stop awaiting pruning", "pending-stop", "healthy", "Stopping"],
+    ["start awaiting Git", "pending-git", "progressing", "Progressing"],
+    ["running App", "git-committed", "healthy", "Healthy"],
+  ] as const)(
+    "shows the current %s status even with a cached stopped deployment",
+    async (_case, state, rolloutHealth, label) => {
+      vi.mocked(api.deployment).mockResolvedValue({
+        ...(await api.deployment("deployment-production")),
+        state: "stopped",
+      });
+      vi.mocked(api.deploymentStatus).mockResolvedValue({
+        state,
+        argoSyncStatus: "unknown",
+        rolloutHealth,
+      });
+
+      renderApplication({ features: {}, capabilities: [] });
+
+      const header = (
+        await screen.findByRole("heading", {
+          name: "Payments API",
+        })
+      ).closest("header")!;
+      await waitFor(() =>
+        expect(within(header).getByText(label)).toBeInTheDocument(),
+      );
+      if (state !== "stopped") {
+        expect(within(header).queryByText("Stopped")).toBeNull();
+      }
+    },
+  );
+
   it("shows only the authoritative Argo observed revision", async () => {
     const authoritativeRevision = "d".repeat(40);
     const staleStatusRevision = "b".repeat(40);

@@ -138,7 +138,12 @@ export function ApplicationPage() {
   const pullRequest = relatedOperations.find(
     (operation) => operation.pullRequest,
   )?.pullRequest;
-  const health = status.data?.rolloutHealth ?? "unknown";
+  const health =
+    status.data?.state === "stopped"
+      ? "stopped"
+      : status.data?.state === "pending-stop"
+        ? "stopping"
+        : (status.data?.rolloutHealth ?? "unknown");
   const effectiveCapabilities = capabilities.data?.capabilities ?? [];
   const applicationProject = projects.data?.items.find(
     (project) => project.id === application.data?.projectId,

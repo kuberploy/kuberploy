@@ -209,7 +209,7 @@ describe("application source overview", () => {
       });
       const { client, Wrapper } = wrapper();
       vi.mocked(api.capabilities).mockResolvedValue({
-        features: { builds: true, builder: true },
+        features: { builds: true, builder: true, gitSSHBuilds: true },
         capabilities: [
           {
             scopeType: "project",
@@ -224,7 +224,7 @@ describe("application source overview", () => {
       expect(api.buildDefinitions).not.toHaveBeenCalled();
 
       client.setQueryData(["capabilities"], {
-        features: { builds: true, builder: true },
+        features: { builds: true, builder: true, gitSSHBuilds: true },
         capabilities: [
           {
             scopeType: "project",
@@ -806,191 +806,334 @@ describe("application source overview", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows the current App source before editing it", async () => {
-    routeParams.projectId = "project-1";
-    routeParams.environmentId = "environment-1";
-    const user = userEvent.setup();
-    vi.mocked(api.capabilities).mockResolvedValue({
-      features: { builds: true, builder: true },
-      capabilities: [
-        {
-          role: "developer",
-          scopeType: "project",
-          scopeId: "project-1",
-          actions: [
-            "app-sources:read",
-            "app-sources:write",
-            "builds:read",
-            "builds:retry",
-          ],
-        },
-      ],
-    });
-    vi.mocked(api.buildDefinitions).mockResolvedValue({
-      items: [
-        {
-          id: "definition-1",
-          projectId: "project-1",
-          applicationId: "application-1",
-          sourceKind: "github",
-          installationId: "installation-1",
-          repositoryId: "repository-1",
-          triggerRef: "refs/tags/v1.2.3",
-          contextPath: ".",
-          dockerfilePath: "deploy/Dockerfile",
-          platforms: ["linux/amd64", "linux/arm64"],
-          registry: {
-            targetId: "target-1",
-            mode: "managed",
-            server: "registry.example.com",
-            repositoryPrefix: "payments",
-          },
-          buildArgs: [],
-          secretFiles: [],
-          sshFiles: [],
-          cacheTrustLane: "protected",
-          cacheImports: 2,
-          profile: {
-            resource: "standard",
-            timeoutSeconds: 900,
-            egress: "registry-and-source",
-          },
-          maxAttempts: 3,
-          sourceDigest: `sha256:${"c".repeat(64)}`,
-          sourceRevision: 2,
-          enabled: true,
-          createdAt: "2026-08-12T00:00:00Z",
-          updatedAt: "2026-08-12T00:00:00Z",
-        },
-      ],
-      nextCursor: null,
-    });
-    vi.spyOn(api, "buildAttempts").mockResolvedValue({
-      items: [
-        {
-          id: "attempt-1",
-          sourceId: "definition-1",
-          projectId: "project-1",
-          applicationId: "application-1",
-          commitSha: "d".repeat(40),
-          gitRef: "refs/tags/v1.2.3",
-          generation: 2,
-          state: "succeeded",
-          executionAttempts: 1,
-          maxAttempts: 3,
-          createdAt: "2026-08-12T00:00:00Z",
-          updatedAt: "2026-08-12T00:05:00Z",
-        },
-      ],
-      nextCursor: null,
-    });
-    vi.mocked(api.deployments).mockResolvedValue({
-      items: [
-        {
-          id: "deployment-1",
-          environmentId: "environment-1",
-          applicationId: "application-1",
-          image: `registry.example.com/payments@sha256:${"f".repeat(64)}`,
-          replicas: 1,
-          port: 8080,
-          runtime: {
-            replicas: 1,
-            ports: [{ name: "http", containerPort: 8080, protocol: "TCP" }],
-            resources: { requests: { cpu: "50m", memory: "100Mi" } },
-          },
-          state: "stopped",
-          operationId: "operation-1",
-          generation: 1,
-          createdAt: "2026-08-12T00:00:00Z",
-          updatedAt: "2026-08-12T00:00:00Z",
-        },
-      ],
-    });
-    const deploy = vi
-      .spyOn(api, "deploySourceBuild")
-      .mockResolvedValueOnce({
-        build: {
-          id: "attempt-deploy",
-          sourceId: "definition-1",
-          projectId: "project-1",
-          applicationId: "application-1",
-          commitSha: "e".repeat(40),
-          gitRef: "refs/tags/v1.2.3",
-          generation: 3,
-          state: "queued",
-          executionAttempts: 0,
-          maxAttempts: 3,
-          createdAt: "2026-08-12T00:06:00Z",
-          updatedAt: "2026-08-12T00:06:00Z",
-        },
-        intentId: "intent-deploy",
-        sequence: 1,
-      })
-      .mockResolvedValueOnce({
-        build: {
-          id: "attempt-rebuild",
-          sourceId: "definition-1",
-          projectId: "project-1",
-          applicationId: "application-1",
-          commitSha: "d".repeat(40),
-          gitRef: "refs/tags/v1.2.3",
-          generation: 4,
-          state: "queued",
-          executionAttempts: 0,
-          maxAttempts: 3,
-          createdAt: "2026-08-12T00:07:00Z",
-          updatedAt: "2026-08-12T00:07:00Z",
-        },
-        intentId: "intent-rebuild",
-        sequence: 2,
+  it.each([
+    ["github", "ready"],
+    ["git-ssh", "ready"],
+    ["git-ssh", "first-deploy"],
+    ["git-ssh", "read-only"],
+    ["git-ssh", "runtime-pending"],
+    ["git-ssh", "feature-disabled"],
+    ["git-ssh", "no-deployment"],
+    ["git-ssh", "non-human"],
+  ] as const)(
+    "shows the current %s App source and build actions when %s",
+    async (sourceKind, availability) => {
+      routeParams.projectId = "project-1";
+      routeParams.environmentId = "environment-1";
+      const user = userEvent.setup();
+      const ssh = sourceKind === "git-ssh";
+      const readOnly = availability === "read-only";
+      vi.mocked(api.application).mockResolvedValue({
+        id: "application-1",
+        projectId: "project-1",
+        name: "Payments API",
+        sourceKind,
       });
+      vi.spyOn(api, "applicationGitSSHKeys").mockResolvedValue({
+        items: [
+          {
+            scope: "app",
+            ownerId: "application-1",
+            revision: 1,
+            status: "active",
+            publicKey: "ssh-ed25519 AAAAAPP",
+            fingerprint: "SHA256:APP",
+          },
+        ],
+      });
+      vi.spyOn(api, "projectGitSSHKeys").mockResolvedValue({ items: [] });
+      const autoDeployPolicies = vi
+        .spyOn(api, "autoDeployPolicies")
+        .mockResolvedValue({ items: [] });
+      if (availability === "non-human")
+        vi.mocked(api.me).mockResolvedValue({
+          id: "service-account",
+          displayName: "Fixture automation",
+          role: "developer",
+          authentication: {
+            kind: "service-account",
+            serviceAccountId: "service-account",
+            tokenId: "test-token-id",
+            scopes: [],
+            expiresAt: "2026-08-13T00:00:00Z",
+          },
+        });
+      vi.mocked(api.capabilities).mockResolvedValue({
+        features: {
+          builds: !ssh,
+          builder: !ssh,
+          gitSSH: ssh,
+          autoDeploy: true,
+          gitSSHBuilds:
+            ssh &&
+            availability !== "runtime-pending" &&
+            availability !== "feature-disabled",
+        },
+        featureStates: {
+          gitSSHBuilds:
+            ssh && availability !== "feature-disabled"
+              ? availability === "runtime-pending"
+                ? "unavailable"
+                : "healthy"
+              : "disabled",
+        },
+        capabilities: [
+          {
+            role: "developer",
+            scopeType: "project",
+            scopeId: "project-1",
+            actions: [
+              "app-sources:read",
+              "builds:read",
+              ...(readOnly ? [] : ["app-sources:write", "builds:retry"]),
+            ],
+          },
+        ],
+      });
+      vi.mocked(api.buildDefinitions).mockResolvedValue({
+        items: [
+          {
+            id: "definition-1",
+            projectId: "project-1",
+            applicationId: "application-1",
+            sourceKind: ssh ? "git_ssh" : "github",
+            repositoryUrl: ssh
+              ? "ssh://git@git.example.test/team/repository.git"
+              : undefined,
+            gitSSHKeyScope: ssh ? "app" : undefined,
+            gitSSHKeyRevision: ssh ? 1 : undefined,
+            gitSSHKnownHosts: ssh
+              ? "git.example.test ssh-ed25519 AAAAHOST"
+              : undefined,
+            installationId: "installation-1",
+            repositoryId: "repository-1",
+            triggerRef: "refs/tags/v1.2.3",
+            contextPath: ".",
+            dockerfilePath: "deploy/Dockerfile",
+            platforms: ["linux/amd64", "linux/arm64"],
+            registry: {
+              targetId: "target-1",
+              mode: "managed",
+              server: "registry.example.com",
+              repositoryPrefix: "payments",
+            },
+            buildArgs: [],
+            secretFiles: [],
+            sshFiles: [],
+            cacheTrustLane: "protected",
+            cacheImports: 2,
+            profile: {
+              resource: "standard",
+              timeoutSeconds: 900,
+              egress: "registry-and-source",
+            },
+            maxAttempts: 3,
+            sourceDigest: `sha256:${"c".repeat(64)}`,
+            sourceRevision: 2,
+            enabled: true,
+            createdAt: "2026-08-12T00:00:00Z",
+            updatedAt: "2026-08-12T00:00:00Z",
+          },
+        ],
+        nextCursor: null,
+      });
+      vi.spyOn(api, "buildAttempts").mockResolvedValue({
+        items: [
+          {
+            id: "attempt-1",
+            sourceId: "definition-1",
+            projectId: "project-1",
+            applicationId: "application-1",
+            commitSha: "d".repeat(40),
+            gitRef: "refs/tags/v1.2.3",
+            generation: 2,
+            state: "succeeded",
+            executionAttempts: 1,
+            maxAttempts: 3,
+            createdAt: "2026-08-12T00:00:00Z",
+            updatedAt: "2026-08-12T00:05:00Z",
+          },
+        ],
+        nextCursor: null,
+      });
+      vi.mocked(api.deployments).mockResolvedValue({
+        items: [
+          {
+            id: "deployment-1",
+            environmentId: "environment-1",
+            applicationId: "application-1",
+            image:
+              availability === "first-deploy"
+                ? undefined
+                : `registry.example.com/payments@sha256:${"f".repeat(64)}`,
+            replicas: 1,
+            port: 8080,
+            runtime: {
+              replicas: 1,
+              ports: [{ name: "http", containerPort: 8080, protocol: "TCP" }],
+              resources: { requests: { cpu: "50m", memory: "100Mi" } },
+            },
+            state: "stopped",
+            operationId: "operation-1",
+            generation: 1,
+            createdAt: "2026-08-12T00:00:00Z",
+            updatedAt: "2026-08-12T00:00:00Z",
+          },
+        ],
+      });
+      if (availability === "first-deploy")
+        vi.mocked(api.buildAttempts).mockResolvedValue({
+          items: [],
+          nextCursor: null,
+        });
+      if (availability === "no-deployment")
+        vi.mocked(api.deployments).mockResolvedValue({ items: [] });
+      const deploy = vi
+        .spyOn(api, "deploySourceBuild")
+        .mockResolvedValueOnce({
+          build: {
+            id: "attempt-deploy",
+            sourceId: "definition-1",
+            projectId: "project-1",
+            applicationId: "application-1",
+            commitSha: "e".repeat(40),
+            gitRef: "refs/tags/v1.2.3",
+            generation: 3,
+            state: "queued",
+            executionAttempts: 0,
+            maxAttempts: 3,
+            createdAt: "2026-08-12T00:06:00Z",
+            updatedAt: "2026-08-12T00:06:00Z",
+          },
+          intentId: "intent-deploy",
+          sequence: 1,
+        })
+        .mockResolvedValueOnce({
+          build: {
+            id: "attempt-rebuild",
+            sourceId: "definition-1",
+            projectId: "project-1",
+            applicationId: "application-1",
+            commitSha: "d".repeat(40),
+            gitRef: "refs/tags/v1.2.3",
+            generation: 4,
+            state: "queued",
+            executionAttempts: 0,
+            maxAttempts: 3,
+            createdAt: "2026-08-12T00:07:00Z",
+            updatedAt: "2026-08-12T00:07:00Z",
+          },
+          intentId: "intent-rebuild",
+          sequence: 2,
+        });
 
-    render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });
-    await screen.findByRole("heading", { name: "Payments API" });
-    await user.click(screen.getByRole("button", { name: "Source & build" }));
+      render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });
+      await screen.findByRole("heading", { name: "Payments API" });
+      await user.click(screen.getByRole("button", { name: "Source & build" }));
 
-    expect(
-      await screen.findByText("Connected GitHub source"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("GitHub / v1.2.3 · deploy/Dockerfile"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/Edit and save the App source below/),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { name: "Build history" }),
-    ).toBeVisible();
-    expect(screen.getByText("Generation 2")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "Deploy" }));
-    await waitFor(() =>
-      expect(deploy).toHaveBeenCalledWith(
-        "deployment-1",
-        "deploy",
-        undefined,
-        expect.any(String),
-      ),
-    );
-    await user.click(screen.getByRole("button", { name: "Rebuild" }));
-    await waitFor(() =>
-      expect(deploy).toHaveBeenCalledWith(
-        "deployment-1",
-        "rebuild",
-        "attempt-1",
-        expect.any(String),
-      ),
-    );
-    await user.click(screen.getByRole("button", { name: "Disconnect source" }));
-    await user.type(screen.getByLabelText("Confirm deletion"), "DISCONNECT");
-    await user.click(
-      screen.getAllByRole("button", { name: "Disconnect source" }).at(-1)!,
-    );
-    await waitFor(() =>
-      expect(api.disconnectBuildDefinition).toHaveBeenCalledWith(
-        "application-1",
-        "definition-1",
-        expect.any(String),
-      ),
-    );
-  });
+      if (!ssh) {
+        expect(
+          await screen.findByText("Connected GitHub source"),
+        ).toBeInTheDocument();
+        expect(
+          screen.getByText("GitHub / v1.2.3 · deploy/Dockerfile"),
+        ).toBeInTheDocument();
+        expect(
+          screen.getByText(/Edit and save the App source below/),
+        ).toBeInTheDocument();
+      }
+      if (availability === "feature-disabled") {
+        expect(
+          screen.queryByRole("heading", { name: "Build history" }),
+        ).not.toBeInTheDocument();
+        expect(api.buildAttempts).not.toHaveBeenCalled();
+        expect(
+          screen.queryByRole("button", { name: "Deploy" }),
+        ).not.toBeInTheDocument();
+        expect(
+          screen.queryByRole("button", { name: "Rebuild" }),
+        ).not.toBeInTheDocument();
+        return;
+      }
+      expect(
+        screen.getByRole("heading", { name: "Build history" }),
+      ).toBeVisible();
+      expect(
+        screen.getByText(
+          availability === "first-deploy" ? "No build yet" : "Generation 2",
+        ),
+      ).toBeVisible();
+      if (ssh) expect(autoDeployPolicies).not.toHaveBeenCalled();
+      if (availability !== "ready" && availability !== "first-deploy") {
+        expect(
+          screen.queryByRole("button", { name: "Deploy" }),
+        ).not.toBeInTheDocument();
+        expect(
+          screen.queryByRole("button", { name: "Rebuild" }),
+        ).not.toBeInTheDocument();
+        expect(deploy).not.toHaveBeenCalled();
+        return;
+      }
+      if (ssh) {
+        expect(
+          screen.getByRole("heading", { name: "Configure Git SSH build" }),
+        ).toBeVisible();
+        expect(
+          screen.getByRole("button", { name: /Save App source/ }),
+        ).toBeVisible();
+        expect(
+          screen.queryByText("Connected GitHub source"),
+        ).not.toBeInTheDocument();
+      }
+      await user.click(screen.getByRole("button", { name: "Deploy" }));
+      await waitFor(() =>
+        expect(deploy).toHaveBeenCalledWith(
+          "deployment-1",
+          "deploy",
+          undefined,
+          expect.any(String),
+        ),
+      );
+      if (availability === "first-deploy") {
+        expect(
+          screen.queryByRole("button", { name: "Rebuild" }),
+        ).not.toBeInTheDocument();
+        await waitFor(() =>
+          expect(navigate).toHaveBeenCalledWith({
+            to: "/builds/$buildId",
+            params: { buildId: "attempt-deploy" },
+          }),
+        );
+        return;
+      }
+      await user.click(screen.getByRole("button", { name: "Rebuild" }));
+      await waitFor(() =>
+        expect(deploy).toHaveBeenCalledWith(
+          "deployment-1",
+          "rebuild",
+          "attempt-1",
+          expect.any(String),
+        ),
+      );
+      expect(navigate).toHaveBeenCalledWith({
+        to: "/builds/$buildId",
+        params: { buildId: "attempt-rebuild" },
+      });
+      if (ssh) return;
+      await user.click(
+        screen.getByRole("button", { name: "Disconnect source" }),
+      );
+      await user.type(screen.getByLabelText("Confirm deletion"), "DISCONNECT");
+      await user.click(
+        screen.getAllByRole("button", { name: "Disconnect source" }).at(-1)!,
+      );
+      await waitFor(() =>
+        expect(api.disconnectBuildDefinition).toHaveBeenCalledWith(
+          "application-1",
+          "definition-1",
+          expect.any(String),
+        ),
+      );
+    },
+  );
 });

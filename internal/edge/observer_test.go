@@ -37,6 +37,45 @@ func TestKubernetesObserverExactProfiles(t *testing.T) {
 	}
 }
 
+func TestKubernetesObserverDoesNotReuseOldDeploymentAvailability(t *testing.T) {
+	config := testRuntimeConfig()
+	for _, kind := range []Kind{KindTraefik, KindCertManager, KindExternalDNS} {
+		t.Run(string(kind), func(t *testing.T) {
+			reader := newFakeKubernetesReader(config)
+			observer := &KubernetesTargetObserver{Reader: reader}
+			var namespace string
+			var expected DeploymentExpectation
+			var observe func() (ObservationReceipt, error)
+			switch kind {
+			case KindTraefik:
+				profile := *config.Profiles.Traefik
+				namespace, expected = profile.Namespace, profile.Deployment
+				observe = func() (ObservationReceipt, error) { return observer.ObserveTraefik(context.Background(), profile) }
+			case KindCertManager:
+				profile := *config.Profiles.CertManager
+				namespace, expected = profile.Namespace, profile.Deployments[0]
+				observe = func() (ObservationReceipt, error) { return observer.ObserveCertManager(context.Background(), profile) }
+			case KindExternalDNS:
+				profile := config.Profiles.ExternalDNS[0]
+				namespace, expected = profile.Namespace, profile.Deployment
+				observe = func() (ObservationReceipt, error) { return observer.ObserveExternalDNS(context.Background(), profile) }
+			}
+			key := namespace + "/" + expected.Name + "/" + expected.ContainerName
+			deployment := reader.deployments[key]
+			deployment.TotalReplicas = 2
+			reader.deployments[key] = deployment
+			if _, err := observe(); !errors.Is(err, ErrObservation) {
+				t.Fatalf("old available replica attested the replacement: %v", err)
+			}
+			deployment.TotalReplicas = 1
+			reader.deployments[key] = deployment
+			if _, err := observe(); err != nil {
+				t.Fatalf("completed current rollout did not recover: %v", err)
+			}
+		})
+	}
+}
+
 func TestKubernetesObserverRejectsProfileArgumentsAndIssuerDrift(t *testing.T) {
 	config := testRuntimeConfig()
 	reader := newFakeKubernetesReader(config)

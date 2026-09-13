@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "App source pages avoid requests that do not apply to OCI or Helm Apps. GitHub and Git SSH source setup discovers an unconfigured source without a browser network error through an optional empty response, while existing API responses, authentication, tenant authorization, and source editing remain unchanged.",
+  "summary": "Connected Git SSH Apps expose Deploy, Rebuild, and build history using the existing source build workflow. ExternalDNS readiness follows the current Deployment rollout rather than an older ready Pod. App headers distinguish an intentionally stopped deployment from an unknown runtime state.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.461"
+  "version": "0.1.0-rc.462"
 }

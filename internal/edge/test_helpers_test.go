@@ -77,7 +77,8 @@ func newFakeKubernetesReader(config RuntimeConfig) *fakeKubernetesReader {
 	addDeployment := func(namespace, version string, expected DeploymentExpectation, args []string) {
 		reader.deployments[namespace+"/"+expected.Name+"/"+expected.ContainerName] = DeploymentSnapshot{
 			ObjectSnapshot: object(expected.Name, namespace, expected.SpecDigest), ObservedGeneration: 1, Version: version,
-			DesiredReplicas: 1, AvailableReplicas: 1, ContainerName: expected.ContainerName, ContainerImage: expected.Image,
+			DesiredReplicas: 1, TotalReplicas: 1, UpdatedReplicas: 1, AvailableReplicas: 1,
+			ContainerName: expected.ContainerName, ContainerImage: expected.Image,
 			ContainerArguments: slices.Clone(args),
 		}
 	}
