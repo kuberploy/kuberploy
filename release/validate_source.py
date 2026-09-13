@@ -230,14 +230,14 @@ def main() -> None:
         raise SystemExit("release metadata supportedUpgradeFrom has an empty range")
     readme = (args.root / "README.md").read_text(encoding="utf-8")
     upgrade_truth = (
-        "The final `0.1.0` migration baseline intentionally requires a fresh database\n"
-        "> when replacing any older release-candidate schema history. Existing RC data\n"
-        "> must be exported and restored through an operator-reviewed process; it is not\n"
-        "> upgraded in place."
+        "This candidate upgrades the published `001_initial` database baseline in place\n"
+        "> while preserving existing data. Published migrations are now append-only.\n"
+        "> After upgrading, use a release that supports `002_secret_history_retention`;\n"
+        "> earlier binaries cannot start against the new migration history."
     )
     if upgrade_truth not in readme:
         raise SystemExit(
-            "README must state the final baseline fresh-database boundary for older release candidates"
+            "README must state the preserved-data upgrade and compatible-binary recovery boundary"
         )
     if "--reset-values" not in readme or "--reuse-values" not in readme:
         raise SystemExit(

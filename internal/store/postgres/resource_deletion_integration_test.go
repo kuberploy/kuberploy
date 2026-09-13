@@ -10,13 +10,148 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/kuberploy/kuberploy/internal/builds"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/environmentfoundation"
 	"github.com/kuberploy/kuberploy/internal/id"
+	"github.com/kuberploy/kuberploy/internal/secrets"
 	base "github.com/kuberploy/kuberploy/internal/store"
 	"github.com/kuberploy/kuberploy/internal/testdb"
 )
+
+func assertPostgresState(t *testing.T, err error, code string) {
+	t.Helper()
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != code {
+		t.Fatalf("PostgreSQL error=%v, want SQLSTATE %s", err, code)
+	}
+}
+
+func assertSecretHistoryIdentity(t *testing.T, store *Store, bindingID, versionID string) {
+	t.Helper()
+	ctx := t.Context()
+	// A second real binding makes a version substitution distinguishable from
+	// an unknown ID. Everything in this transaction is rolled back afterward.
+	tx, err := store.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	otherBindingID, otherVersionID := id.New(), id.New()
+	if _, err = tx.Exec(ctx, `INSERT INTO secret_bindings(id,project_id,environment_id,application_id,
+		target_namespace,name,provider,state,active_version,created_by,created_at,updated_at,delete_started_at,deleted_at)
+		SELECT $2,project_id,environment_id,application_id,target_namespace,'other-history-binding',
+		provider,state,active_version,created_by,created_at,updated_at,delete_started_at,deleted_at FROM secret_bindings WHERE id=$1`,
+		bindingID, otherBindingID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO secret_binding_versions(id,binding_id,version_number,provider,state,
+		fingerprint_key_id,content_fingerprint,staged_at,created_at,updated_at)
+		SELECT $2,$3,version_number,provider,state,fingerprint_key_id,content_fingerprint,staged_at,created_at,updated_at
+		FROM secret_binding_versions WHERE id=$1`, versionID, otherVersionID, otherBindingID); err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`INSERT INTO secret_binding_deliveries(version_id,binding_id,ordinal,source_key,kind,environment_name)
+		 VALUES($1,$2,1,'value','environment','SUBSTITUTED')`,
+		`INSERT INTO secret_binding_events(id,version_id,binding_id,kind,request_id,occurred_at)
+		 VALUES(gen_random_uuid(),$1,$2,'binding-deleted','substituted',now())`,
+	} {
+		for _, candidateVersion := range []string{otherVersionID, id.New()} {
+			if _, err = tx.Exec(ctx, `SAVEPOINT history_identity`); err != nil {
+				t.Fatal(err)
+			}
+			_, err = tx.Exec(ctx, statement, candidateVersion, bindingID)
+			assertPostgresState(t, err, "23503")
+			if _, err = tx.Exec(ctx, `ROLLBACK TO SAVEPOINT history_identity`); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err = tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// Either kind of accepted history write holds both identity rows against a
+	// concurrent delete until commit, just as the previous foreign keys did.
+	for _, statement := range []string{
+		`INSERT INTO secret_binding_deliveries(version_id,binding_id,ordinal,source_key,kind,environment_name)
+		 VALUES($1,$2,1,'value','environment','LOCKED')`,
+		`INSERT INTO secret_binding_events(id,version_id,binding_id,kind,request_id,occurred_at)
+		 VALUES(gen_random_uuid(),$1,$2,'binding-deleted','locked',now())`,
+	} {
+		lockTx, beginErr := store.pool.Begin(ctx)
+		if beginErr != nil {
+			t.Fatal(beginErr)
+		}
+		defer lockTx.Rollback(ctx) //nolint:errcheck
+		if _, err = lockTx.Exec(ctx, statement, versionID, bindingID); err != nil {
+			t.Fatal(err)
+		}
+		_, err = store.pool.Exec(ctx, `SELECT id FROM secret_bindings WHERE id=$1 FOR UPDATE NOWAIT`, bindingID)
+		assertPostgresState(t, err, "55P03")
+		_, err = store.pool.Exec(ctx, `SELECT id FROM secret_binding_versions WHERE id=$1 FOR UPDATE NOWAIT`, versionID)
+		assertPostgresState(t, err, "55P03")
+		if err = lockTx.Rollback(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func assertSecretCleanupLockOrder(t *testing.T, store *Store, applicationID, bindingID, versionID string) {
+	t.Helper()
+	ctx := t.Context()
+	writer, err := store.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Rollback(ctx) //nolint:errcheck
+	if _, err = writer.Exec(ctx, `SELECT id FROM secret_bindings WHERE id=$1 FOR KEY SHARE`, bindingID); err != nil {
+		t.Fatal(err)
+	}
+	cleanup, err := store.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cleanupPID int
+	if err = cleanup.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&cleanupPID); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		purgeErr := purgeDeletedSecretBindings(ctx, cleanup, "application_id", applicationID)
+		_ = cleanup.Rollback(ctx)
+		done <- purgeErr
+	}()
+	// Wait until cleanup is actually blocked on this writer, avoiding timing
+	// assumptions about which goroutine reaches PostgreSQL first.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var waiting bool
+		if err = store.pool.QueryRow(ctx, `SELECT wait_event_type='Lock' FROM pg_stat_activity WHERE pid=$1`, cleanupPID).Scan(&waiting); err == nil && waiting {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("cleanup did not wait for the in-flight history writer")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// Cleanup must not already hold the version: the writer still needs that
+	// identity lock to finish its event and release the binding without deadlock.
+	if _, err = writer.Exec(ctx, `SELECT id FROM secret_binding_versions WHERE id=$1 FOR KEY SHARE NOWAIT`, versionID); err != nil {
+		t.Fatalf("cleanup inverted history identity lock order: %v", err)
+	}
+	if _, err = writer.Exec(ctx, `INSERT INTO secret_binding_events(id,version_id,binding_id,kind,request_id,occurred_at)
+		VALUES($1,$2,$3,'binding-deleted','concurrent-cleanup',now())`, id.New(), versionID, bindingID); err != nil {
+		t.Fatal(err)
+	}
+	if err = writer.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err = <-done; err != nil {
+		t.Fatalf("cleanup after completed history writer: %v", err)
+	}
+}
 
 func TestPostgreSQLApplicationAndEnvironmentDeletion(t *testing.T) {
 	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
@@ -178,6 +313,22 @@ func TestPostgreSQLApplicationAndEnvironmentDeletion(t *testing.T) {
 		deletedVersionID, deletedBindingID, now); err != nil {
 		t.Fatal(err)
 	}
+	// A real secret lifecycle retains immutable delivery and event history after
+	// provider deletion. A bare tombstone does not exercise resource cleanup.
+	if _, err = store.pool.Exec(ctx, `INSERT INTO secret_binding_deliveries(
+		version_id,binding_id,ordinal,source_key,kind,environment_name)
+		VALUES($1,$2,0,'value','environment','DELETION_TEST_SECRET')`, deletedVersionID, deletedBindingID); err != nil {
+		t.Fatal(err)
+	}
+	deletedEventID := id.New()
+	if _, err = store.pool.Exec(ctx, `INSERT INTO secret_binding_events(
+		id,binding_id,version_id,actor_id,kind,request_id,occurred_at)
+		VALUES($1,$2,$3,$4,'binding-deleted',$5,$6)`, deletedEventID, deletedBindingID,
+		deletedVersionID, actorID, "secret-deleted-"+suffix, now); err != nil {
+		t.Fatal(err)
+	}
+	assertSecretHistoryIdentity(t, store, deletedBindingID, deletedVersionID)
+	assertSecretCleanupLockOrder(t, store, application.Value.ID, deletedBindingID, deletedVersionID)
 	if _, err = store.pool.Exec(ctx, `INSERT INTO mutation_receipts(
 		actor_id,receipt_kind,namespace,scope_key,idempotency_key,request_fingerprint,secret_binding_id,secret_version_id,created_at)
 		VALUES($1,'secret-binding','create',$2,$3,decode(repeat('11',32),'hex'),$4,$5,$6)`,
@@ -246,6 +397,54 @@ func TestPostgreSQLApplicationAndEnvironmentDeletion(t *testing.T) {
 	var retainedReceipt bool
 	if err = store.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM mutation_receipts WHERE secret_binding_id=$1 AND secret_version_id=$2)`, deletedBindingID, deletedVersionID).Scan(&retainedReceipt); err != nil || !retainedReceipt {
 		t.Fatalf("immutable secret mutation receipt was not retained exists=%t err=%v", retainedReceipt, err)
+	}
+	var retainedHistory int
+	if err = store.pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM secret_binding_deliveries WHERE binding_id=$1 AND version_id=$2 AND source_key='value') +
+		(SELECT count(*) FROM secret_binding_events WHERE id=$3 AND binding_id=$1 AND version_id=$2 AND kind='binding-deleted')`,
+		deletedBindingID, deletedVersionID, deletedEventID).Scan(&retainedHistory); err != nil || retainedHistory != 2 {
+		t.Fatalf("immutable secret history was not retained rows=%d err=%v", retainedHistory, err)
+	}
+	for _, statement := range []string{
+		`DELETE FROM secret_binding_deliveries WHERE binding_id=$1`,
+		`UPDATE secret_binding_deliveries SET source_key='rewritten' WHERE binding_id=$1`,
+		`DELETE FROM secret_binding_events WHERE binding_id=$1`,
+		`UPDATE secret_binding_events SET request_id='rewritten' WHERE binding_id=$1`,
+	} {
+		_, err = store.pool.Exec(ctx, statement, deletedBindingID)
+		assertPostgresState(t, err, "23514")
+	}
+	_, err = store.pool.Exec(ctx, `INSERT INTO secret_binding_events(id,binding_id,kind,request_id,occurred_at)
+		VALUES($1,$2,'binding-deleted','missing-binding',now())`, id.New(), deletedBindingID)
+	assertPostgresState(t, err, "23503")
+	_, err = store.pool.Exec(ctx, `INSERT INTO secret_binding_deliveries(version_id,binding_id,ordinal,source_key,kind,environment_name)
+		VALUES($1,$2,1,'value','environment','AFTER_DELETION')`, deletedVersionID, deletedBindingID)
+	assertPostgresState(t, err, "23503")
+	// Publication acknowledgment remains legal even if resource cleanup wins
+	// the race with the event publisher; event identity remains immutable.
+	secretStore, err := secrets.NewPostgreSQLStore(store.pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := secretStore.PendingEvents(ctx, 1000)
+	if err != nil {
+		t.Fatalf("read retained unpublished events: %v", err)
+	}
+	var pendingFound bool
+	for _, event := range events {
+		if event.ID != deletedEventID {
+			continue
+		}
+		pendingFound = true
+		if event.BindingID != deletedBindingID || event.VersionID != deletedVersionID || event.ActorID != actorID {
+			t.Fatalf("retained event lost identity: %#v", event)
+		}
+		if err = secretStore.MarkEventPublished(ctx, event.ID, event.OccurredAt); err != nil {
+			t.Fatalf("publish retained event: %v", err)
+		}
+	}
+	if !pendingFound {
+		t.Fatal("retained unpublished event was stranded after resource deletion")
 	}
 	if _, err = store.pool.Exec(ctx, `INSERT INTO runtime_registry_pull_artifacts(
 		environment_id,namespace,registry_target_id,pull_credential_ref,profile_name,profile_revision,

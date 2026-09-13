@@ -209,6 +209,13 @@ func (w *DesiredStateWriter) CommitClaim(ctx context.Context, lease DesiredState
 	}
 	revision, err := prepared.Commit(workContext, command.Mutation())
 	if err != nil {
+		// Commit reports ErrConflict only when a path/head check rejects the
+		// write before pushing. Retire this immutable attempt immediately so
+		// the planner can use the advanced head. Network or acknowledgement
+		// failures still require recovery of a possibly successful push.
+		if errors.Is(err, gitprojection.ErrConflict) {
+			err = errors.Join(ErrDesiredStateWriteNotFound, err)
+		}
 		return DesiredStateCommand{}, guard.Result(err)
 	}
 	var committed DesiredStateCommand

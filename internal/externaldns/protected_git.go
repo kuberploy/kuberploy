@@ -83,7 +83,8 @@ func (p *ProtectedPublisher) publish(ctx context.Context, item domain.ExternalDN
 	}
 	reservation, reservationErr := p.store.PathReservation(ctx, binding.ID, binding.TargetRef, docPath)
 	if reservationErr == nil {
-		if reservation.OperationID != operationID || reservation.Owner != p.config.Owner {
+		expiredCandidate := reservation.State == gitprojection.ReservationCandidate && reservation.LeaseUntil != nil && !reservation.LeaseUntil.After(p.now().UTC())
+		if reservation.OperationID != operationID || reservation.Owner != p.config.Owner && !expiredCandidate {
 			return PublicationReceipt{}, gitprojection.ErrLeaseHeld
 		}
 	} else if !errors.Is(reservationErr, gitprojection.ErrNotFound) {
@@ -156,6 +157,26 @@ func (p *ProtectedPublisher) publish(ctx context.Context, item domain.ExternalDN
 	}
 	if !found {
 		if head.Commit != reservation.BaseRevision {
+			// A concurrent writer can advance the ref before this candidate
+			// reaches Git. After its lease expires, authoritative history and
+			// the unchanged path preimage let the next attempt plan a fresh CAS.
+			// An active reservation or an uncertain history read stays fenced.
+			now := p.now().UTC()
+			if reservation.State == gitprojection.ReservationCandidate && reservation.LeaseUntil != nil && !reservation.LeaseUntil.After(now) {
+				if err = prepared.VerifyProtectedMutationPrecondition(ctx, mutation); err != nil {
+					return PublicationReceipt{}, err
+				}
+				verified, verifyErr := p.provider.VerifyTargetHead(ctx, binding, gitprojection.ObservationWrite)
+				if verifyErr != nil {
+					return PublicationReceipt{}, verifyErr
+				}
+				if verified.ValidateFor(binding) != nil || verified.Source != gitprojection.ObservationWrite || verified.Commit != head.Commit {
+					return PublicationReceipt{}, gitprojection.ErrProviderMismatch
+				}
+				if err = p.store.RepairExpiredPath(ctx, binding.ID, binding.TargetRef, docPath, false, "", now); err != nil {
+					return PublicationReceipt{}, err
+				}
+			}
 			return PublicationReceipt{}, gitprojection.ErrStale
 		}
 		if err = prepared.VerifyProtectedMutationPrecondition(ctx, mutation); err != nil {

@@ -667,9 +667,13 @@ managed retention never assumes ownership of or deletes those artifacts. Copying
 an external image into the managed registry is a separate explicit promotion
 operation, not a hidden side effect of deployment.
 
-An existing-image tag is previewed through a server-owned authorized registry
-target and credential profile, but the server freshly resolves it again before
-persistence. Git stores only the resulting exact digest. When a caller
+An existing-image tag is previewed after authorization for its exact App and
+Environment. Public registries support anonymous HTTPS resolution without
+per-App operator configuration. Public resolution accepts the registry's
+anonymous pull challenge, validates public network destinations, and never
+loads stored credentials. Configured registry targets retain their exact
+repository, credential profile, and token-authority bindings. The server
+freshly resolves the tag again before persistence. Git stores only the resulting exact digest. When a caller
 supplies the previewed expected digest and the tag moved before submission, the
 request fails with `ImageTagMoved` instead of silently deploying different
 bytes.

@@ -18,7 +18,6 @@ import {
   Notice,
   Page,
   PageHeader,
-  PlaceholderBadge,
   StatusPill,
   buttonVariants,
 } from "../components/ui";
@@ -92,6 +91,7 @@ export function NewDeploymentPage() {
     useRef<StableApplicationReservation | null>(null);
   const stableDeploymentAttempt = useRef<StableDeploymentAttempt | null>(null);
   const initialScopeApplied = useRef(false);
+  const optionalSettingsRef = useRef<HTMLDetailsElement>(null);
   const [reservedApplicationId, setReservedApplicationId] = useState("");
   const lastDeploymentProject = useRef("");
   const lastDeploymentScope = useRef("");
@@ -300,6 +300,11 @@ export function NewDeploymentPage() {
     terminationGracePeriodSeconds,
   };
   const processError = validateGuidedRuntimeProcess(processValues);
+  useEffect(() => {
+    if ((probeError || processError) && optionalSettingsRef.current) {
+      optionalSettingsRef.current.open = true;
+    }
+  }, [probeError, processError]);
   const gitOpsReady =
     capabilities.data?.features?.git === true &&
     capabilities.data?.features?.argo === true;
@@ -775,13 +780,25 @@ export function NewDeploymentPage() {
     (existingDeployments.isSuccess &&
       (!existingDeployment || Boolean(existingGitBundle.data?.etag)));
   const noScopes = !projects.isPending && !projects.data?.items.length;
+  const selectedEnvironment = filteredEnvironments.find(
+    (environment) => environment.id === environmentId,
+  );
+  const scopedApplication =
+    projectId === search.projectId &&
+    environmentId === search.environmentId &&
+    applicationId === search.applicationId &&
+    applicationMode === "existing"
+      ? filteredApplications.find(
+          (application) => application.id === applicationId,
+        )
+      : undefined;
 
   return (
     <Page narrow>
       <PageHeader
         eyebrow="App"
         title="Add App from OCI image"
-        description="Deploy an exact OCI digest, or resolve an authorized existing-image tag. Kuberploy commits exact desired state to Git."
+        description="Choose an image and a port to deploy your App. Optional settings let you customize it when needed."
       />
 
       {loadError ? (
@@ -811,360 +828,315 @@ export function NewDeploymentPage() {
           }
         />
       ) : (
-        <form onSubmit={form.handleSubmit(submitDeployment)}>
-          <FormCard>
-            <FormCardHeading step="01">
-              <div>
-                <h2>Placement</h2>
-                <p>
-                  Choose the project policy boundary and exact destination
-                  environment.
-                </p>
-              </div>
-            </FormCardHeading>
-            <FormGrid>
-              <Field
-                label="Project"
-                required
-                error={form.formState.errors.projectId?.message}
+        <form
+          onSubmit={form.handleSubmit(submitDeployment, (errors) => {
+            if (
+              optionalSettingsRef.current &&
+              (errors.cpuRequest ||
+                errors.memoryRequest ||
+                errors.cpuLimit ||
+                errors.memoryLimit)
+            ) {
+              optionalSettingsRef.current.open = true;
+            }
+          })}
+          onInvalidCapture={(event) => {
+            const target = event.target;
+            if (
+              target instanceof HTMLElement &&
+              optionalSettingsRef.current?.contains(target)
+            ) {
+              optionalSettingsRef.current.open = true;
+            }
+          }}
+        >
+          {!capabilities.isPending && !gitOpsReady ? (
+            <Notice tone="warning" role="status">
+              <strong>Protected GitOps is not ready</strong>
+              <p>
+                The platform is still preparing deployment services. Try again
+                when Git and Argo CD report ready.
+              </p>
+            </Notice>
+          ) : null}
+          {environmentId && environmentGitBindingMissing ? (
+            <Notice tone="warning" role="status">
+              <strong>Environment Git authority required</strong>
+              <p>
+                Configure Git for this Environment before deploying the App.
+              </p>
+              <Link
+                to="/projects/$projectId"
+                params={{ projectId }}
+                search={{ gitEnvironmentId: environmentId }}
+                className={buttonVariants({ variant: "secondary" })}
               >
-                <Select
-                  {...form.register("projectId", {
-                    required: "Select a project.",
-                    onChange: () => {
-                      form.setValue("environmentId", "");
-                      form.setValue("applicationId", "");
-                      form.setValue("routeMode", "internal");
-                    },
-                  })}
-                  value={form.watch("projectId")}
-                >
-                  <option value="">Select project</option>
-                  {projects.data?.items.map((project) => (
-                    <option key={project.id} value={project.id}>
-                      {project.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Field
-                label="Environment"
-                required
-                hint="Maps to one namespace and Argo CD project."
-                error={form.formState.errors.environmentId?.message}
-              >
-                <Select
-                  disabled={!projectId}
-                  {...form.register("environmentId", {
-                    required: "Select an environment.",
-                  })}
-                  value={form.watch("environmentId")}
-                >
-                  <option value="">
-                    {projectId
-                      ? "Select environment"
-                      : "Choose a project first"}
-                  </option>
-                  {filteredEnvironments.map((environment) => (
-                    <option key={environment.id} value={environment.id}>
-                      {environment.name} · {environment.namespace}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-            </FormGrid>
-            <FormGrid columns={3}>
-              <Field
-                label="CPU request"
-                required
-                hint="New Apps default to 50m."
-              >
-                <input
-                  placeholder="50m"
-                  {...form.register("cpuRequest", {
-                    required: "Enter a CPU request.",
-                  })}
-                />
-              </Field>
-              <Field
-                label="Memory request"
-                required
-                hint="New Apps default to 100Mi."
-              >
-                <input
-                  placeholder="100Mi"
-                  {...form.register("memoryRequest", {
-                    required: "Enter a memory request.",
-                  })}
-                />
-              </Field>
-              <Field label="CPU limit" hint="Optional">
-                <input placeholder="500m" {...form.register("cpuLimit")} />
-              </Field>
-              <Field label="Memory limit" hint="Optional">
-                <input placeholder="512Mi" {...form.register("memoryLimit")} />
-              </Field>
-            </FormGrid>
-          </FormCard>
+                Open Environment Git settings
+              </Link>
+            </Notice>
+          ) : null}
+          {environmentId &&
+          !environmentGitBindingMissing &&
+          environmentGitBinding.error ? (
+            <Notice tone="error" role="alert">
+              <strong>Environment Git authority could not be checked</strong>
+              <p>{errorMessage(environmentGitBinding.error)}</p>
+            </Notice>
+          ) : null}
+          {environmentId &&
+          !environmentGitBindingMissing &&
+          !environmentGitBinding.error &&
+          !environmentGitBinding.isPending &&
+          !environmentGitReady ? (
+            <Notice tone="warning" role="status">
+              <strong>Environment Git authority is not ready</strong>
+              <p>
+                Current state: {environmentGitBinding.data?.state ?? "unknown"}.
+                Wait for Git indexing to finish, then retry.
+              </p>
+            </Notice>
+          ) : null}
+          {existingDeploymentScope && gitBundlePending ? (
+            <Notice tone="info" role="status">
+              <strong>Loading current Git configuration</strong>
+              <p>
+                Loading the latest saved configuration before updating this App.
+              </p>
+            </Notice>
+          ) : null}
+          {existingDeploymentScope && gitBundleError ? (
+            <Notice tone="error" role="alert">
+              <strong>Current Git configuration is unavailable</strong>
+              <p>{errorMessage(gitBundleError)}</p>
+            </Notice>
+          ) : null}
 
-          <FormCard>
-            <FormCardHeading step="02">
-              <div>
-                <h2>App identity</h2>
-                <p>
-                  Create the durable logical identity before previewing image,
-                  sslip.io, TLS, DNS, middleware, or secret configuration.
-                </p>
-              </div>
-            </FormCardHeading>
-            <div
-              className="flex w-max p-1 border border-line rounded-[9px] bg-surface-soft [&_label]:cursor-pointer [&_input]:absolute [&_input]:w-px [&_input]:h-px [&_input]:opacity-0 [&_span]:block [&_span]:py-2 [&_span]:px-3 [&_span]:rounded-md [&_span]:text-ink-faint [&_span]:text-meta [&_span]:font-semibold [&_input:checked_+_span]:text-ink [&_input:checked_+_span]:bg-surface [&_input:checked_+_span]:shadow-[0_1px_4px_rgba(15_34_26_0.1)] pointer-coarse:[&_button]:min-h-10"
-              role="radiogroup"
-              aria-label="App identity mode"
-            >
-              <label>
-                <input
-                  type="radio"
-                  value="new"
-                  {...form.register("applicationMode", {
-                    onChange: (event) => {
-                      if (event.target.value === "new") {
-                        stableApplicationReservation.current = null;
-                        reserveApplication.reset();
-                        setReservedApplicationId("");
-                        form.setValue("applicationId", "", {
-                          shouldDirty: true,
-                        });
-                        form.setValue("hostname", "", { shouldDirty: true });
-                        form.setValue("routeMode", "internal");
-                        form.setValue("nodeSelectorYaml", "{}", {
-                          shouldDirty: true,
-                        });
-                        form.setValue("affinityYaml", "{}", {
-                          shouldDirty: true,
-                        });
-                        form.setValue("topologySpreadYaml", "[]", {
-                          shouldDirty: true,
-                        });
-                        form.setValue("tolerationsYaml", "[]", {
-                          shouldDirty: true,
-                        });
-                        form.setValue("priorityClassName", "", {
-                          shouldDirty: true,
-                        });
-                        variables.replace([]);
-                        secretVariables.replace([]);
-                        lastDeploymentScope.current = "";
-                      }
-                    },
-                  })}
-                />
-                <span>New App</span>
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  value="existing"
-                  {...form.register("applicationMode")}
-                />
-                <span>Existing App</span>
-              </label>
-            </div>
-            {applicationMode === "new" ? (
-              <div className="grid gap-4">
-                <Field
-                  label="App name"
-                  required
-                  hint="Stable identity, independent of environment and release."
-                  error={form.formState.errors.applicationName?.message}
-                >
-                  <input
-                    placeholder="hello-api"
-                    {...form.register("applicationName", {
-                      required:
-                        applicationMode === "new"
-                          ? "Enter an App name."
-                          : false,
-                    })}
-                  />
-                </Field>
-                <div>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    busy={reserveApplication.isPending}
-                    onClick={reserveApplicationIdentity}
+          <details
+            className="mb-4 rounded-panel border border-line bg-surface-soft px-4 py-3 [&>summary]:cursor-pointer [&>summary]:font-semibold [&>summary]:text-ink [&>summary]:focus-visible:outline-focus"
+            open={!scopedApplication}
+          >
+            <summary>
+              {scopedApplication
+                ? `${scopedApplication.name} · ${selectedEnvironment?.name ?? "Environment"}`
+                : "App and placement"}
+            </summary>
+            <div className="mt-4">
+              <FormCard>
+                <FormCardHeading step="01">
+                  <div>
+                    <h2>Placement</h2>
+                    <p>Choose where this App will run.</p>
+                  </div>
+                </FormCardHeading>
+                <FormGrid>
+                  <Field
+                    label="Project"
+                    required
+                    error={form.formState.errors.projectId?.message}
                   >
-                    Create App identity
-                  </Button>
-                  <MutedCopy>
-                    This creates a recoverable App record, not a workload. It
-                    remains available from Projects even if you leave this App
-                    setup.
-                  </MutedCopy>
-                </div>
-              </div>
-            ) : (
-              <Field
-                label="App"
-                required
-                error={form.formState.errors.applicationId?.message}
-              >
-                <Select
-                  {...form.register("applicationId", {
-                    required:
-                      applicationMode === "existing" ? "Select an App." : false,
-                  })}
-                  value={form.watch("applicationId")}
-                >
-                  <option value="">Select App</option>
-                  {filteredApplications.map((application) => (
-                    <option key={application.id} value={application.id}>
-                      {application.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-            )}
-            {reservedApplicationId ? (
-              <Notice tone="success" role="status">
-                <div>
-                  <strong>App identity created</strong>
-                  <p>
-                    App-scoped previews are now enabled. You can deploy here or
-                    configure another source from its App page.
-                  </p>
-                </div>
-                <Link
-                  to="/applications/$applicationId"
-                  params={{ applicationId: reservedApplicationId }}
-                  className={buttonVariants({ variant: "secondary" })}
-                >
-                  Source options
-                </Link>
-              </Notice>
-            ) : null}
-            {reserveApplication.error ? (
-              <ErrorPanel
-                title="App identity was not created"
-                error={reserveApplication.error}
-                onRetry={reserveApplicationIdentity}
-              />
-            ) : null}
-          </FormCard>
+                    <Select
+                      {...form.register("projectId", {
+                        required: "Select a project.",
+                        onChange: () => {
+                          form.setValue("environmentId", "");
+                          form.setValue("applicationId", "");
+                          form.setValue("routeMode", "internal");
+                        },
+                      })}
+                      value={form.watch("projectId")}
+                    >
+                      <option value="">Select project</option>
+                      {projects.data?.items.map((project) => (
+                        <option key={project.id} value={project.id}>
+                          {project.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <Field
+                    label="Environment"
+                    required
+                    hint="Apps in this Environment share its deployment settings."
+                    error={form.formState.errors.environmentId?.message}
+                  >
+                    <Select
+                      disabled={!projectId}
+                      {...form.register("environmentId", {
+                        required: "Select an environment.",
+                      })}
+                      value={form.watch("environmentId")}
+                    >
+                      <option value="">
+                        {projectId
+                          ? "Select environment"
+                          : "Choose a project first"}
+                      </option>
+                      {filteredEnvironments.map((environment) => (
+                        <option key={environment.id} value={environment.id}>
+                          {environment.name} · {environment.namespace}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                </FormGrid>
+              </FormCard>
 
-          <FormCard>
-            <FormCardHeading
-              step="03"
-              className="grid-cols-[38px_1fr_auto] page-to-580:grid-cols-[38px_1fr]"
-            >
-              <div>
-                <h2>Secret environment references</h2>
-                <p>
-                  Select a scoped write-only binding and its exact active
-                  version. This form never accepts or commits secret plaintext.
-                </p>
-              </div>
-              <Button
-                type="button"
-                variant="secondary"
-                disabled={
-                  capabilities.data?.features?.secretBindings !== true ||
-                  applicationMode !== "existing" ||
-                  !applicationId ||
-                  !environmentId
-                }
-                onClick={() =>
-                  secretVariables.append({
-                    name: "",
-                    bindingId: "",
-                    bindingName: "",
-                    key: "",
-                    version: 0,
-                  })
-                }
-              >
-                <Icon name="plus" /> Add reference
-              </Button>
-            </FormCardHeading>
-            {secretVariables.fields.length ? (
-              <div className="flex flex-col gap-2">
-                {secretVariables.fields.map((field, index) => (
-                  <div
-                    className="grid grid-cols-[1fr_1.4fr_32px] items-end gap-3 [&_.icon-button]:mb-1 to-580:grid-cols-[1fr_32px] to-580:[&_.field:first-child]:col-[1] to-580:[&_.field:nth-child(2)]:col-[1] to-580:[&_.icon-button]:row-[1] to-580:[&_.icon-button]:col-[2]"
-                    key={field.id}
-                  >
-                    <Field label={index === 0 ? "Environment name" : ""}>
+              <FormCard>
+                <FormCardHeading step="02">
+                  <div>
+                    <h2>App identity</h2>
+                    <p>
+                      Choose an existing App or create one before deploying.
+                    </p>
+                  </div>
+                </FormCardHeading>
+                <div
+                  className="flex w-max p-1 border border-line rounded-[9px] bg-surface-soft [&_label]:cursor-pointer [&_input]:absolute [&_input]:w-px [&_input]:h-px [&_input]:opacity-0 [&_span]:block [&_span]:py-2 [&_span]:px-3 [&_span]:rounded-md [&_span]:text-ink-faint [&_span]:text-meta [&_span]:font-semibold [&_input:checked_+_span]:text-ink [&_input:checked_+_span]:bg-surface [&_input:checked_+_span]:shadow-[0_1px_4px_rgba(15_34_26_0.1)] pointer-coarse:[&_button]:min-h-10"
+                  role="radiogroup"
+                  aria-label="App identity mode"
+                >
+                  <label>
+                    <input
+                      type="radio"
+                      value="new"
+                      {...form.register("applicationMode", {
+                        onChange: (event) => {
+                          if (event.target.value === "new") {
+                            stableApplicationReservation.current = null;
+                            reserveApplication.reset();
+                            setReservedApplicationId("");
+                            form.setValue("applicationId", "", {
+                              shouldDirty: true,
+                            });
+                            form.setValue("hostname", "", {
+                              shouldDirty: true,
+                            });
+                            form.setValue("routeMode", "internal");
+                            form.setValue("nodeSelectorYaml", "{}", {
+                              shouldDirty: true,
+                            });
+                            form.setValue("affinityYaml", "{}", {
+                              shouldDirty: true,
+                            });
+                            form.setValue("topologySpreadYaml", "[]", {
+                              shouldDirty: true,
+                            });
+                            form.setValue("tolerationsYaml", "[]", {
+                              shouldDirty: true,
+                            });
+                            form.setValue("priorityClassName", "", {
+                              shouldDirty: true,
+                            });
+                            variables.replace([]);
+                            secretVariables.replace([]);
+                            lastDeploymentScope.current = "";
+                          }
+                        },
+                      })}
+                    />
+                    <span>New App</span>
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      value="existing"
+                      {...form.register("applicationMode")}
+                    />
+                    <span>Existing App</span>
+                  </label>
+                </div>
+                {applicationMode === "new" ? (
+                  <div className="grid gap-4">
+                    <Field
+                      label="App name"
+                      required
+                      hint="A name you and your team will recognize."
+                      error={form.formState.errors.applicationName?.message}
+                    >
                       <input
-                        aria-label={`Secret variable ${index + 1} name`}
-                        placeholder="DATABASE_PASSWORD"
-                        {...form.register(`secretVariables.${index}.name`, {
-                          onChange: () =>
-                            form.setValue(`secretVariables.${index}.key`, ""),
+                        placeholder="hello-api"
+                        {...form.register("applicationName", {
+                          required:
+                            applicationMode === "new"
+                              ? "Enter an App name."
+                              : false,
                         })}
                       />
                     </Field>
-                    <RuntimeSecretReferencePicker
-                      index={index}
-                      applicationId={
-                        applicationMode === "existing"
-                          ? applicationId
-                          : undefined
-                      }
-                      environmentId={environmentId}
-                      environmentName={
-                        secretVariableValues?.[index]?.name ?? ""
-                      }
-                      value={{
-                        bindingId:
-                          secretVariableValues?.[index]?.bindingId ?? "",
-                        bindingName:
-                          secretVariableValues?.[index]?.bindingName ?? "",
-                        key: secretVariableValues?.[index]?.key ?? "",
-                        version: secretVariableValues?.[index]?.version ?? 0,
-                      }}
-                      enabled={
-                        capabilities.data?.features?.secretBindings === true &&
-                        applicationMode === "existing"
-                      }
-                      unavailableReason={
-                        applicationMode !== "existing"
-                          ? "Create the App first; runtime-secret bindings are scoped to an existing App and Environment."
-                          : "Runtime-secret references remain unavailable until the strict Sealed Secrets runtime is ready."
-                      }
-                      onChange={(reference) =>
-                        form.setValue(`secretVariables.${index}`, {
-                          name: form.getValues(`secretVariables.${index}.name`),
-                          ...reference,
-                        })
-                      }
-                    />
-                    <button
-                      type="button"
-                      className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[2px] grid w-8 h-8 place-items-center border border-line rounded-lg text-ink-soft bg-surface cursor-pointer transition-[color,border-color,background] duration-(--motion-fast) ease-(--ease-standard) [&_svg]:w-3.5 pointer-coarse:min-w-8 pointer-coarse:min-h-8 [&:hover:not(:disabled)]:text-ink [&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-soft [&:active:not(:disabled)]:translate-y-[1px]"
-                      onClick={() => secretVariables.remove(index)}
-                      aria-label={`Remove secret variable ${index + 1}`}
-                    >
-                      <Icon name="close" />
-                    </button>
+                    <div>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        busy={reserveApplication.isPending}
+                        onClick={reserveApplicationIdentity}
+                      >
+                        Create App identity
+                      </Button>
+                      <MutedCopy>
+                        This creates a recoverable App record, not a workload.
+                        It remains available from Projects even if you leave
+                        this App setup.
+                      </MutedCopy>
+                    </div>
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="p-4 border border-dashed border-[var(--line)] rounded-lg text-ink-faint bg-surface-soft text-meta text-center">
-                No secret references.
-              </div>
-            )}
-          </FormCard>
+                ) : (
+                  <Field
+                    label="App"
+                    required
+                    error={form.formState.errors.applicationId?.message}
+                  >
+                    <Select
+                      {...form.register("applicationId", {
+                        required:
+                          applicationMode === "existing"
+                            ? "Select an App."
+                            : false,
+                      })}
+                      value={form.watch("applicationId")}
+                    >
+                      <option value="">Select App</option>
+                      {filteredApplications.map((application) => (
+                        <option key={application.id} value={application.id}>
+                          {application.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                )}
+                {reservedApplicationId ? (
+                  <Notice tone="success" role="status">
+                    <div>
+                      <strong>App identity created</strong>
+                      <p>
+                        App-scoped previews are now enabled. You can deploy here
+                        or configure another source from its App page.
+                      </p>
+                    </div>
+                    <Link
+                      to="/applications/$applicationId"
+                      params={{ applicationId: reservedApplicationId }}
+                      className={buttonVariants({ variant: "secondary" })}
+                    >
+                      Source options
+                    </Link>
+                  </Notice>
+                ) : null}
+                {reserveApplication.error ? (
+                  <ErrorPanel
+                    title="App identity was not created"
+                    error={reserveApplication.error}
+                    onRetry={reserveApplicationIdentity}
+                  />
+                ) : null}
+              </FormCard>
+            </div>
+          </details>
 
           <FormCard>
-            <FormCardHeading step="04">
+            <FormCardHeading step="01">
               <div>
-                <h2>Artifact & runtime</h2>
-                <p>
-                  Exact digests submit directly. Authorized tags require a fresh
-                  server-owned resolution preview for this App and environment.
-                </p>
+                <h2>Image and port</h2>
+                <p>Enter the image to run and the port your App listens on.</p>
               </div>
             </FormCardHeading>
             <Field
@@ -1277,7 +1249,7 @@ export function NewDeploymentPage() {
               <Field
                 label="Container port"
                 required
-                hint="The HTTP Service targets this port."
+                hint="Use the port your application listens on inside its container."
                 error={form.formState.errors.port?.message}
               >
                 <input
@@ -1293,224 +1265,16 @@ export function NewDeploymentPage() {
                 />
               </Field>
             </FormGrid>
-            <FormGrid columns={3}>
-              <Field label="Workload type" required>
-                <Select
-                  {...form.register("workloadType", {
-                    onChange: (event) => {
-                      const stateful = event.target.value === "StatefulSet";
-                      form.setValue("strategyType", "RollingUpdate", {
-                        shouldDirty: true,
-                        shouldTouch: true,
-                      });
-                      if (stateful) {
-                        form.setValue("podManagementPolicy", "OrderedReady", {
-                          shouldDirty: true,
-                          shouldTouch: true,
-                        });
-                      }
-                    },
-                  })}
-                  value={form.watch("workloadType")}
-                >
-                  <option value="Deployment">Deployment</option>
-                  <option value="StatefulSet">StatefulSet</option>
-                </Select>
-              </Field>
-              <Field
-                label={`${workloadType === "StatefulSet" ? "StatefulSet" : "Deployment"} strategy`}
-                required
-                hint="StatefulSets support rolling update or on-delete; Deployments support rolling update or recreate."
-              >
-                <Select
-                  {...form.register("strategyType")}
-                  value={form.watch("strategyType")}
-                >
-                  <option value="RollingUpdate">Rolling update</option>
-                  {workloadType === "StatefulSet" ? (
-                    <option value="OnDelete">On delete</option>
-                  ) : (
-                    <option value="Recreate">Recreate</option>
-                  )}
-                </Select>
-              </Field>
-              {workloadType === "StatefulSet" ? (
-                <Field label="Pod management policy" required>
-                  <Select
-                    {...form.register("podManagementPolicy")}
-                    value={form.watch("podManagementPolicy")}
-                  >
-                    <option value="OrderedReady">Ordered ready</option>
-                    <option value="Parallel">Parallel</option>
-                  </Select>
-                </Field>
-              ) : null}
-            </FormGrid>
-            <RuntimeProcessEditor
-              value={processValues}
-              onChange={(value) => {
-                form.setValue("commandYaml", value.commandYaml, {
-                  shouldDirty: true,
-                  shouldTouch: true,
-                });
-                form.setValue("argsYaml", value.argsYaml, {
-                  shouldDirty: true,
-                  shouldTouch: true,
-                });
-                form.setValue(
-                  "workingDirectory",
-                  value.workingDirectory ?? "",
-                  { shouldDirty: true, shouldTouch: true },
-                );
-                form.setValue(
-                  "terminationGracePeriodSeconds",
-                  value.terminationGracePeriodSeconds,
-                  { shouldDirty: true, shouldTouch: true },
-                );
-              }}
-            />
           </FormCard>
 
           <FormCard>
-            <FormCardHeading step="05">
+            <FormCardHeading step="02">
               <div>
-                <h2>Scheduling for this App</h2>
+                <h2>Public access</h2>
                 <p>
-                  Choose placement for this app without changing nodes, taints,
-                  or cluster-wide scheduling policy.
-                </p>
-              </div>
-            </FormCardHeading>
-            <SchedulingEditor
-              value={{
-                nodeSelectorYaml: scheduling[0] ?? "{}",
-                affinityYaml: scheduling[1] ?? "{}",
-                topologySpreadYaml: scheduling[2] ?? "[]",
-                tolerationsYaml: scheduling[3] ?? "[]",
-                priorityClassName: scheduling[4] ?? "",
-              }}
-              applicationId={applicationId}
-              onChange={(value) => {
-                form.setValue("nodeSelectorYaml", value.nodeSelectorYaml, {
-                  shouldDirty: true,
-                  shouldTouch: true,
-                });
-                form.setValue("affinityYaml", value.affinityYaml, {
-                  shouldDirty: true,
-                  shouldTouch: true,
-                });
-                form.setValue("topologySpreadYaml", value.topologySpreadYaml, {
-                  shouldDirty: true,
-                  shouldTouch: true,
-                });
-                form.setValue("tolerationsYaml", value.tolerationsYaml, {
-                  shouldDirty: true,
-                  shouldTouch: true,
-                });
-                form.setValue("priorityClassName", value.priorityClassName, {
-                  shouldDirty: true,
-                  shouldTouch: true,
-                });
-              }}
-            />
-            <p className="mt-1 mx-0 mb-0 text-ink-faint text-xs leading-[1.45]">
-              Affinity, anti-affinity, and topology selectors are bound to this
-              exact App identity.
-            </p>
-          </FormCard>
-
-          <FormCard>
-            <FormCardHeading step="06">
-              <div>
-                <h2>Health checks</h2>
-                <p>
-                  Add startup, readiness, or liveness checks. All are optional;
-                  Kubernetes defaults apply to empty timing fields.
-                </p>
-              </div>
-            </FormCardHeading>
-            <HealthProbeEditor
-              value={probes}
-              configuredPorts={configuredPorts}
-              onChange={(value) =>
-                form.setValue("probes", value, {
-                  shouldDirty: true,
-                  shouldTouch: true,
-                })
-              }
-            />
-          </FormCard>
-
-          <FormCard>
-            <FormCardHeading
-              step="07"
-              className="grid-cols-[38px_1fr_auto] page-to-580:grid-cols-[38px_1fr]"
-            >
-              <div>
-                <h2>Runtime environment values</h2>
-                <p>
-                  Used only by the deployed App. Visible in Git and rendered
-                  through a versioned ConfigMap; never passed to the image
-                  builder. Never place secrets here.
-                </p>
-              </div>
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => variables.append({ key: "", value: "" })}
-              >
-                <Icon name="plus" /> Add value
-              </Button>
-            </FormCardHeading>
-            {variables.fields.length ? (
-              <div className="flex flex-col gap-2">
-                {variables.fields.map((field, index) => (
-                  <div
-                    className="grid grid-cols-[1fr_1.4fr_32px] items-end gap-3 [&_.icon-button]:mb-1 to-580:grid-cols-[1fr_32px] to-580:[&_.field:first-child]:col-[1] to-580:[&_.field:nth-child(2)]:col-[1] to-580:[&_.icon-button]:row-[1] to-580:[&_.icon-button]:col-[2]"
-                    key={field.id}
-                  >
-                    <Field label={index === 0 ? "Name" : ""}>
-                      <input
-                        aria-label={`Variable ${index + 1} name`}
-                        placeholder="LOG_LEVEL"
-                        spellCheck={false}
-                        {...form.register(`variables.${index}.key`)}
-                      />
-                    </Field>
-                    <Field label={index === 0 ? "Value" : ""}>
-                      <input
-                        aria-label={`Variable ${index + 1} value`}
-                        placeholder="info"
-                        {...form.register(`variables.${index}.value`)}
-                      />
-                    </Field>
-                    <button
-                      type="button"
-                      className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[2px] grid w-8 h-8 place-items-center border border-line rounded-lg text-ink-soft bg-surface cursor-pointer transition-[color,border-color,background] duration-(--motion-fast) ease-(--ease-standard) [&_svg]:w-3.5 pointer-coarse:min-w-8 pointer-coarse:min-h-8 [&:hover:not(:disabled)]:text-ink [&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-soft [&:active:not(:disabled)]:translate-y-[1px]"
-                      onClick={() => variables.remove(index)}
-                      aria-label={`Remove variable ${index + 1}`}
-                    >
-                      <Icon name="close" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="p-4 border border-dashed border-[var(--line)] rounded-lg text-ink-faint bg-surface-soft text-meta text-center">
-                No ordinary values. Secret bindings are added later through the
-                write-only configuration flow.
-              </div>
-            )}
-          </FormCard>
-
-          <FormCard>
-            <FormCardHeading step="08">
-              <div>
-                <h2>Initial internet route</h2>
-                <p>
-                  Optional HTTP-only exposure through Traefik. TLS, DNS
-                  automation, and middleware use the previewed configuration
-                  flow after creation.
+                  Keep the App internal or give it a public hostname. You can
+                  add HTTPS and automatic DNS from App settings after
+                  deployment.
                 </p>
               </div>
             </FormCardHeading>
@@ -1601,109 +1365,389 @@ export function NewDeploymentPage() {
                 {errorMessage(sslipHostname.error)}
               </small>
             ) : null}
-            <div className="flex items-center justify-between flex-wrap gap-4 mt-4 pt-4 border-t border-t-line [&>div]:flex [&>div]:min-w-0 [&>div]:items-center [&>div]:flex-wrap [&>div]:gap-2 [&_small]:text-ink-faint [&_small]:text-xs to-580:items-start to-580:flex-col to-580:[&>div:last-child]:items-start to-580:[&>div:last-child]:flex-wrap">
-              <div>
-                <StatusPill value="active" label="HTTP only · /" />
-                <small>Supported during initial App deployment</small>
-              </div>
-              <div>
-                <PlaceholderBadge>
-                  Let&apos;s Encrypt via config preview
-                </PlaceholderBadge>
-                <PlaceholderBadge>
-                  Custom TLS via config preview
-                </PlaceholderBadge>
-                <PlaceholderBadge>
-                  external-dns via config preview
-                </PlaceholderBadge>
-              </div>
-            </div>
           </FormCard>
 
-          <FormCard className="bg-surface-soft shadow-none">
-            <div className="flex items-center gap-4 [&_div]:flex-1 [&_h3]:m-0 [&_h3]:text-[11px] [&_p]:mt-1 [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-ink-faint [&_p]:text-meta [&_p]:leading-[1.5] to-580:items-start to-580:flex-wrap to-580:[&_div]:min-w-[calc(100%_-_55px)]">
-              <span className="grid w-[37px] h-[37px] flex-none place-items-center rounded-[10px] text-mint-dark bg-mint-soft [&_svg]:w-[18px]">
-                <Icon name="route" />
-              </span>
-              <div>
-                <h3>Advanced exposure stays preview-first</h3>
-                <p>
-                  After the App runtime exists, upgrade the initial HTTP route
-                  with TLS, DNS automation, and middleware in its shared Form /
-                  Advanced YAML editor.
-                </p>
-              </div>
-              <span className="inline-flex w-max min-h-[22px] items-center py-0 px-2 border border-line rounded-md text-ink-soft bg-surface-soft text-xs font-semibold whitespace-nowrap">
-                Next step
-              </span>
-            </div>
-          </FormCard>
+          <details
+            className="mb-4 rounded-panel border border-line bg-surface-soft px-4 py-3 [&>summary]:cursor-pointer [&>summary]:font-semibold [&>summary]:text-ink [&>summary]:focus-visible:outline-focus"
+            ref={optionalSettingsRef}
+          >
+            <summary>Optional settings</summary>
+            <p className="mb-4 mt-2 text-meta text-ink-faint">
+              Environment variables, secrets, resources, health checks, and
+              scheduling. Defaults work for most Apps.
+            </p>
+            <FormCard>
+              <FormCardHeading className="grid-cols-[1fr_auto] page-to-580:grid-cols-1">
+                <div>
+                  <h2>Environment variables</h2>
+                  <p>
+                    Ordinary values for the running App. These values are
+                    visible in its saved configuration; use Secrets for
+                    sensitive values.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => variables.append({ key: "", value: "" })}
+                >
+                  <Icon name="plus" /> Add value
+                </Button>
+              </FormCardHeading>
+              {variables.fields.length ? (
+                <div className="flex flex-col gap-2">
+                  {variables.fields.map((field, index) => (
+                    <div
+                      className="grid grid-cols-[1fr_1.4fr_32px] items-end gap-3 [&_.icon-button]:mb-1 to-580:grid-cols-[1fr_32px] to-580:[&_.field:first-child]:col-[1] to-580:[&_.field:nth-child(2)]:col-[1] to-580:[&_.icon-button]:row-[1] to-580:[&_.icon-button]:col-[2]"
+                      key={field.id}
+                    >
+                      <Field label={index === 0 ? "Name" : ""}>
+                        <input
+                          aria-label={`Variable ${index + 1} name`}
+                          placeholder="LOG_LEVEL"
+                          spellCheck={false}
+                          {...form.register(`variables.${index}.key`)}
+                        />
+                      </Field>
+                      <Field label={index === 0 ? "Value" : ""}>
+                        <input
+                          aria-label={`Variable ${index + 1} value`}
+                          placeholder="info"
+                          {...form.register(`variables.${index}.value`)}
+                        />
+                      </Field>
+                      <button
+                        type="button"
+                        className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[2px] grid w-8 h-8 place-items-center border border-line rounded-lg text-ink-soft bg-surface cursor-pointer transition-[color,border-color,background] duration-(--motion-fast) ease-(--ease-standard) [&_svg]:w-3.5 pointer-coarse:min-w-8 pointer-coarse:min-h-8 [&:hover:not(:disabled)]:text-ink [&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-soft [&:active:not(:disabled)]:translate-y-[1px]"
+                        onClick={() => variables.remove(index)}
+                        aria-label={`Remove variable ${index + 1}`}
+                      >
+                        <Icon name="close" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-4 border border-dashed border-[var(--line)] rounded-lg text-ink-faint bg-surface-soft text-meta text-center">
+                  No environment variables added.
+                </div>
+              )}
+            </FormCard>
+
+            <FormCard>
+              <FormCardHeading className="grid-cols-[1fr_auto] page-to-580:grid-cols-1">
+                <div>
+                  <h2>Secrets</h2>
+                  <p>
+                    Use saved secrets as environment variables. Existing secret
+                    values are never shown.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={
+                    capabilities.data?.features?.secretBindings !== true ||
+                    applicationMode !== "existing" ||
+                    !applicationId ||
+                    !environmentId
+                  }
+                  onClick={() =>
+                    secretVariables.append({
+                      name: "",
+                      bindingId: "",
+                      bindingName: "",
+                      key: "",
+                      version: 0,
+                    })
+                  }
+                >
+                  <Icon name="plus" /> Add reference
+                </Button>
+              </FormCardHeading>
+              {secretVariables.fields.length ? (
+                <div className="flex flex-col gap-2">
+                  {secretVariables.fields.map((field, index) => (
+                    <div
+                      className="grid grid-cols-[1fr_1.4fr_32px] items-end gap-3 [&_.icon-button]:mb-1 to-580:grid-cols-[1fr_32px] to-580:[&_.field:first-child]:col-[1] to-580:[&_.field:nth-child(2)]:col-[1] to-580:[&_.icon-button]:row-[1] to-580:[&_.icon-button]:col-[2]"
+                      key={field.id}
+                    >
+                      <Field label={index === 0 ? "Environment name" : ""}>
+                        <input
+                          aria-label={`Secret variable ${index + 1} name`}
+                          placeholder="DATABASE_PASSWORD"
+                          {...form.register(`secretVariables.${index}.name`, {
+                            onChange: () =>
+                              form.setValue(`secretVariables.${index}.key`, ""),
+                          })}
+                        />
+                      </Field>
+                      <RuntimeSecretReferencePicker
+                        index={index}
+                        applicationId={
+                          applicationMode === "existing"
+                            ? applicationId
+                            : undefined
+                        }
+                        environmentId={environmentId}
+                        environmentName={
+                          secretVariableValues?.[index]?.name ?? ""
+                        }
+                        value={{
+                          bindingId:
+                            secretVariableValues?.[index]?.bindingId ?? "",
+                          bindingName:
+                            secretVariableValues?.[index]?.bindingName ?? "",
+                          key: secretVariableValues?.[index]?.key ?? "",
+                          version: secretVariableValues?.[index]?.version ?? 0,
+                        }}
+                        enabled={
+                          capabilities.data?.features?.secretBindings ===
+                            true && applicationMode === "existing"
+                        }
+                        unavailableReason={
+                          applicationMode !== "existing"
+                            ? "Create the App first; runtime-secret bindings are scoped to an existing App and Environment."
+                            : "Saved secrets are unavailable until the secret integration is ready."
+                        }
+                        onChange={(reference) =>
+                          form.setValue(`secretVariables.${index}`, {
+                            name: form.getValues(
+                              `secretVariables.${index}.name`,
+                            ),
+                            ...reference,
+                          })
+                        }
+                      />
+                      <button
+                        type="button"
+                        className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[2px] grid w-8 h-8 place-items-center border border-line rounded-lg text-ink-soft bg-surface cursor-pointer transition-[color,border-color,background] duration-(--motion-fast) ease-(--ease-standard) [&_svg]:w-3.5 pointer-coarse:min-w-8 pointer-coarse:min-h-8 [&:hover:not(:disabled)]:text-ink [&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-soft [&:active:not(:disabled)]:translate-y-[1px]"
+                        onClick={() => secretVariables.remove(index)}
+                        aria-label={`Remove secret variable ${index + 1}`}
+                      >
+                        <Icon name="close" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-4 border border-dashed border-[var(--line)] rounded-lg text-ink-faint bg-surface-soft text-meta text-center">
+                  No secret references.
+                </div>
+              )}
+            </FormCard>
+
+            <FormCard>
+              <FormCardHeading className="grid-cols-1">
+                <div>
+                  <h2>Resources</h2>
+                  <p>
+                    Adjust CPU and memory when your App needs more capacity.
+                  </p>
+                </div>
+              </FormCardHeading>
+              <FormGrid columns={3}>
+                <Field
+                  label="CPU request"
+                  required
+                  hint="New Apps default to 50m."
+                >
+                  <input
+                    placeholder="50m"
+                    {...form.register("cpuRequest", {
+                      required: "Enter a CPU request.",
+                    })}
+                  />
+                </Field>
+                <Field
+                  label="Memory request"
+                  required
+                  hint="New Apps default to 100Mi."
+                >
+                  <input
+                    placeholder="100Mi"
+                    {...form.register("memoryRequest", {
+                      required: "Enter a memory request.",
+                    })}
+                  />
+                </Field>
+                <Field label="CPU limit" hint="Optional">
+                  <input placeholder="500m" {...form.register("cpuLimit")} />
+                </Field>
+                <Field label="Memory limit" hint="Optional">
+                  <input
+                    placeholder="512Mi"
+                    {...form.register("memoryLimit")}
+                  />
+                </Field>
+              </FormGrid>
+            </FormCard>
+            <FormCard>
+              <FormCardHeading className="grid-cols-1">
+                <div>
+                  <h2>Container process</h2>
+                  <p>
+                    Keep the image defaults, or override how its container
+                    starts.
+                  </p>
+                </div>
+              </FormCardHeading>
+              <FormGrid columns={3}>
+                <Field label="Workload type" required>
+                  <Select
+                    {...form.register("workloadType", {
+                      onChange: (event) => {
+                        const stateful = event.target.value === "StatefulSet";
+                        form.setValue("strategyType", "RollingUpdate", {
+                          shouldDirty: true,
+                          shouldTouch: true,
+                        });
+                        if (stateful) {
+                          form.setValue("podManagementPolicy", "OrderedReady", {
+                            shouldDirty: true,
+                            shouldTouch: true,
+                          });
+                        }
+                      },
+                    })}
+                    value={form.watch("workloadType")}
+                  >
+                    <option value="Deployment">Deployment</option>
+                    <option value="StatefulSet">StatefulSet</option>
+                  </Select>
+                </Field>
+                <Field
+                  label={`${workloadType === "StatefulSet" ? "StatefulSet" : "Deployment"} strategy`}
+                  required
+                  hint="StatefulSets support rolling update or on-delete; Deployments support rolling update or recreate."
+                >
+                  <Select
+                    {...form.register("strategyType")}
+                    value={form.watch("strategyType")}
+                  >
+                    <option value="RollingUpdate">Rolling update</option>
+                    {workloadType === "StatefulSet" ? (
+                      <option value="OnDelete">On delete</option>
+                    ) : (
+                      <option value="Recreate">Recreate</option>
+                    )}
+                  </Select>
+                </Field>
+                {workloadType === "StatefulSet" ? (
+                  <Field label="Pod management policy" required>
+                    <Select
+                      {...form.register("podManagementPolicy")}
+                      value={form.watch("podManagementPolicy")}
+                    >
+                      <option value="OrderedReady">Ordered ready</option>
+                      <option value="Parallel">Parallel</option>
+                    </Select>
+                  </Field>
+                ) : null}
+              </FormGrid>
+              <RuntimeProcessEditor
+                value={processValues}
+                onChange={(value) => {
+                  form.setValue("commandYaml", value.commandYaml, {
+                    shouldDirty: true,
+                    shouldTouch: true,
+                  });
+                  form.setValue("argsYaml", value.argsYaml, {
+                    shouldDirty: true,
+                    shouldTouch: true,
+                  });
+                  form.setValue(
+                    "workingDirectory",
+                    value.workingDirectory ?? "",
+                    { shouldDirty: true, shouldTouch: true },
+                  );
+                  form.setValue(
+                    "terminationGracePeriodSeconds",
+                    value.terminationGracePeriodSeconds,
+                    { shouldDirty: true, shouldTouch: true },
+                  );
+                }}
+              />
+            </FormCard>
+            <FormCard>
+              <FormCardHeading className="grid-cols-1">
+                <div>
+                  <h2>Health checks</h2>
+                  <p>
+                    Add startup, readiness, or liveness checks. All are
+                    optional; Kubernetes defaults apply to empty timing fields.
+                  </p>
+                </div>
+              </FormCardHeading>
+              <HealthProbeEditor
+                value={probes}
+                configuredPorts={configuredPorts}
+                onChange={(value) =>
+                  form.setValue("probes", value, {
+                    shouldDirty: true,
+                    shouldTouch: true,
+                  })
+                }
+              />
+            </FormCard>
+
+            <FormCard>
+              <FormCardHeading className="grid-cols-1">
+                <div>
+                  <h2>Scheduling for this App</h2>
+                  <p>
+                    Choose specific nodes only when your App needs them. The
+                    default works on a single-node cluster.
+                  </p>
+                </div>
+              </FormCardHeading>
+              <SchedulingEditor
+                value={{
+                  nodeSelectorYaml: scheduling[0] ?? "{}",
+                  affinityYaml: scheduling[1] ?? "{}",
+                  topologySpreadYaml: scheduling[2] ?? "[]",
+                  tolerationsYaml: scheduling[3] ?? "[]",
+                  priorityClassName: scheduling[4] ?? "",
+                }}
+                applicationId={applicationId}
+                onChange={(value) => {
+                  form.setValue("nodeSelectorYaml", value.nodeSelectorYaml, {
+                    shouldDirty: true,
+                    shouldTouch: true,
+                  });
+                  form.setValue("affinityYaml", value.affinityYaml, {
+                    shouldDirty: true,
+                    shouldTouch: true,
+                  });
+                  form.setValue(
+                    "topologySpreadYaml",
+                    value.topologySpreadYaml,
+                    {
+                      shouldDirty: true,
+                      shouldTouch: true,
+                    },
+                  );
+                  form.setValue("tolerationsYaml", value.tolerationsYaml, {
+                    shouldDirty: true,
+                    shouldTouch: true,
+                  });
+                  form.setValue("priorityClassName", value.priorityClassName, {
+                    shouldDirty: true,
+                    shouldTouch: true,
+                  });
+                }}
+              />
+              <p className="mt-1 mx-0 mb-0 text-ink-faint text-xs leading-[1.45]">
+                Affinity, anti-affinity, and topology selectors are bound to
+                this exact App identity.
+              </p>
+            </FormCard>
+          </details>
 
           {deploy.error ? (
             <Notice tone="error" role="alert">
               <strong>App could not be deployed</strong>
               <p>{errorMessage(deploy.error)}</p>
-            </Notice>
-          ) : null}
-          {!capabilities.isPending && !gitOpsReady ? (
-            <Notice tone="warning" role="status">
-              <strong>Protected GitOps is not ready</strong>
-              <p>
-                App deployment remains disabled until both the exact Git
-                projection worker and protected Argo desired-state runtime are
-                healthy.
-              </p>
-            </Notice>
-          ) : null}
-          {environmentId && environmentGitBindingMissing ? (
-            <Notice tone="warning" role="status">
-              <strong>Environment Git authority required</strong>
-              <p>
-                Configure Git for this Environment before deploying the App.
-              </p>
-              <Link
-                to="/projects/$projectId"
-                params={{ projectId }}
-                className={buttonVariants({ variant: "secondary" })}
-              >
-                Open Environment Git settings
-              </Link>
-            </Notice>
-          ) : null}
-          {environmentId &&
-          !environmentGitBindingMissing &&
-          environmentGitBinding.error ? (
-            <Notice tone="error" role="alert">
-              <strong>Environment Git authority could not be checked</strong>
-              <p>{errorMessage(environmentGitBinding.error)}</p>
-            </Notice>
-          ) : null}
-          {environmentId &&
-          !environmentGitBindingMissing &&
-          !environmentGitBinding.error &&
-          !environmentGitBinding.isPending &&
-          !environmentGitReady ? (
-            <Notice tone="warning" role="status">
-              <strong>Environment Git authority is not ready</strong>
-              <p>
-                Current state: {environmentGitBinding.data?.state ?? "unknown"}.
-                Wait for Git indexing to finish, then retry.
-              </p>
-            </Notice>
-          ) : null}
-          {existingDeploymentScope && gitBundlePending ? (
-            <Notice tone="info" role="status">
-              <strong>Loading current Git configuration</strong>
-              <p>
-                Existing Apps use the current strong Git bundle ETag for a safe
-                App update.
-              </p>
-            </Notice>
-          ) : null}
-          {existingDeploymentScope && gitBundleError ? (
-            <Notice tone="error" role="alert">
-              <strong>Current Git configuration is unavailable</strong>
-              <p>{errorMessage(gitBundleError)}</p>
             </Notice>
           ) : null}
           <FormActions>
@@ -1726,7 +1770,7 @@ export function NewDeploymentPage() {
                 !imageReady,
               )}
             >
-              Commit & deploy <Icon name="arrow" />
+              Deploy App <Icon name="arrow" />
             </Button>
           </FormActions>
         </form>

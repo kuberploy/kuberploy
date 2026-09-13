@@ -7,6 +7,9 @@ import { ApiError, api } from "../api/client";
 import { ProjectPage } from "./ProjectPage";
 
 const routeParams = vi.hoisted(() => ({ projectId: "project_payments" }));
+const routeSearch = vi.hoisted(() => ({
+  gitEnvironmentId: undefined as string | undefined,
+}));
 const navigate = vi.hoisted(() => vi.fn());
 
 vi.mock("@tanstack/react-router", () => ({
@@ -41,6 +44,7 @@ vi.mock("@tanstack/react-router", () => ({
     </a>
   ),
   useParams: () => routeParams,
+  useSearch: () => routeSearch,
   useNavigate: () => navigate,
 }));
 
@@ -55,6 +59,7 @@ function wrapper() {
 
 beforeEach(() => {
   navigate.mockReset();
+  routeSearch.gitEnvironmentId = undefined;
   vi.spyOn(api, "me").mockResolvedValue({
     id: "user_admin",
     displayName: "Project admin",
@@ -245,6 +250,95 @@ describe("project workspace", () => {
     await waitFor(() =>
       expect(screen.queryByLabelText("Production Git authority")).toBeNull(),
     );
+  });
+
+  it("opens the requested Environment Git panel and clears its deep link on close", async () => {
+    routeSearch.gitEnvironmentId = "environment_production";
+    const binding = vi
+      .spyOn(api, "environmentGitBinding")
+      .mockRejectedValue(new ApiError(404, { title: "Not found" }));
+    const user = userEvent.setup();
+    const view = render(<ProjectPage />, { wrapper: wrapper() });
+
+    expect(
+      await screen.findByLabelText("Production Git authority"),
+    ).toBeInTheDocument();
+    expect(binding).toHaveBeenCalledWith("environment_production");
+    await user.click(screen.getByRole("button", { name: "Close" }));
+
+    expect(screen.queryByLabelText("Production Git authority")).toBeNull();
+    expect(navigate).toHaveBeenCalledWith({
+      to: "/projects/$projectId",
+      params: { projectId: "project_payments" },
+      search: { gitEnvironmentId: undefined },
+      replace: true,
+    });
+    routeSearch.gitEnvironmentId = undefined;
+    view.rerender(<ProjectPage />);
+    expect(screen.queryByLabelText("Production Git authority")).toBeNull();
+  });
+
+  it("opens a same-Project Git deep link after viewing access settings", async () => {
+    vi.spyOn(api, "environmentGitBinding").mockRejectedValue(
+      new ApiError(404, { title: "Not found" }),
+    );
+    const user = userEvent.setup();
+    const view = render(<ProjectPage />, { wrapper: wrapper() });
+    await user.click(
+      await screen.findByRole("button", { name: "Access & automation" }),
+    );
+    routeSearch.gitEnvironmentId = "environment_production";
+    view.rerender(<ProjectPage />);
+
+    expect(
+      await screen.findByLabelText("Production Git authority"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Environments (1)" }),
+    ).toHaveAttribute("aria-current", "page");
+  });
+
+  it("does not query Git settings through a deep link to another Project", async () => {
+    routeSearch.gitEnvironmentId = "environment_other";
+    vi.mocked(api.environments).mockResolvedValue({
+      items: [
+        {
+          id: "environment_other",
+          projectId: "project_other",
+          name: "Other Environment",
+          namespace: "other-production",
+          protectionPolicy: "protected",
+        },
+      ],
+    });
+    const binding = vi.spyOn(api, "environmentGitBinding");
+    render(<ProjectPage />, { wrapper: wrapper() });
+
+    await screen.findByRole("heading", { name: "Payments" });
+    expect(
+      screen.queryByLabelText("Other Environment Git authority"),
+    ).toBeNull();
+    expect(binding).not.toHaveBeenCalled();
+  });
+
+  it("requires current Git read access before opening a visible Environment deep link", async () => {
+    routeSearch.gitEnvironmentId = "environment_production";
+    vi.mocked(api.capabilities).mockResolvedValue({
+      capabilities: [
+        {
+          role: "viewer",
+          scopeType: "project",
+          scopeId: "project_payments",
+          actions: ["environments:read"],
+        },
+      ],
+    });
+    const binding = vi.spyOn(api, "environmentGitBinding");
+    render(<ProjectPage />, { wrapper: wrapper() });
+
+    await screen.findByRole("heading", { name: "Payments" });
+    expect(screen.queryByLabelText("Production Git authority")).toBeNull();
+    expect(binding).not.toHaveBeenCalled();
   });
 
   it("resets workspace state when navigating to another project", async () => {

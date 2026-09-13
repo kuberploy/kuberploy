@@ -74,6 +74,29 @@ type failingDesiredStateClaimStore struct {
 	err error
 }
 
+type interruptedDesiredStateWriteStore struct {
+	*argo.MemoryDesiredStateStore
+	afterBind           func()
+	failAcknowledgement bool
+}
+
+func (s *interruptedDesiredStateWriteStore) BindDesiredStateWriteBase(ctx context.Context, lease argo.DesiredStateLease, revision string, observedAt, now time.Time) (argo.DesiredStateCommand, error) {
+	command, err := s.MemoryDesiredStateStore.BindDesiredStateWriteBase(ctx, lease, revision, observedAt, now)
+	if err == nil && s.afterBind != nil {
+		s.afterBind()
+		s.afterBind = nil
+	}
+	return command, err
+}
+
+func (s *interruptedDesiredStateWriteStore) MarkDesiredStateGitCommitted(ctx context.Context, lease argo.DesiredStateLease, revision string, now time.Time) (argo.DesiredStateCommand, error) {
+	if s.failAcknowledgement {
+		s.failAcknowledgement = false
+		return argo.DesiredStateCommand{}, errors.New("database acknowledgement unavailable after push")
+	}
+	return s.MemoryDesiredStateStore.MarkDesiredStateGitCommitted(ctx, lease, revision, now)
+}
+
 func (s *failingDesiredStateClaimStore) ClaimDesiredState(context.Context, string, argo.DesiredStateWorkerIdentity, time.Time, time.Duration) (argo.DesiredStateWork, error) {
 	return argo.DesiredStateWork{}, s.err
 }
@@ -732,6 +755,93 @@ func TestDesiredStateRuntimeRetiresUnrecoverableWriteBaseAndReplans(t *testing.T
 	current, readErr := fixture.commands.DesiredStateCommand(t.Context(), fixture.command.ID)
 	if readErr != nil || current.State != argo.DesiredStateFailed || current.LastFailureCode != "stale-git-base" || current.Lease != nil {
 		t.Fatalf("unrecoverable write-base remained live: %#v err=%v", current, readErr)
+	}
+}
+
+func TestDesiredStateRuntimeImmediatelyRetiresRejectedCASAndPreservesUnrelatedHistory(t *testing.T) {
+	fixture := newDesiredStateWriterFixture(t)
+	if _, err := fixture.commands.RetryDesiredState(t.Context(), fixture.claim.Lease,
+		argo.DesiredStateRetry{FailureCode: "test-reset", NextAttemptAt: fixture.now}, fixture.now); err != nil {
+		t.Fatal(err)
+	}
+	var unrelated string
+	store := &interruptedDesiredStateWriteStore{MemoryDesiredStateStore: fixture.commands,
+		afterBind: func() { unrelated = fixture.advanceUnrelated(t) }}
+	providerCalls := 0
+	writer := fixture.writer(fixture.provider(t, func(_ int, actual string) string {
+		providerCalls++
+		return actual
+	}))
+	writer.Store = store
+	worker := &argo.DesiredStateRuntimeWorker{Store: store, Writer: writer,
+		Observation: argo.DesiredStateRuntimeWorkerObservation{WorkerID: "argo-rejected-cas-worker", DesiredStateRuntimeIdentity: fixture.identity,
+			StartedAt: fixture.now, ObservedAt: fixture.now}, Now: func() time.Time { return fixture.now }}
+	processed, err := worker.ProcessOne(t.Context())
+	if err != nil || !processed {
+		t.Fatalf("rejected write escaped worker: processed=%v err=%v", processed, err)
+	}
+	rejected, err := fixture.commands.DesiredStateCommand(t.Context(), fixture.command.ID)
+	if err != nil || rejected.State != argo.DesiredStateFailed || rejected.LastFailureCode != "stale-git-base" ||
+		rejected.WriteBaseRevision != fixture.baseHead || rejected.CommittedRevision != "" || rejected.Lease != nil || rejected.CompletedAt == nil {
+		t.Fatalf("definite rejection waited for ambiguous-write recovery: command=%#v err=%v", rejected, err)
+	}
+	if providerCalls != 1 || unrelated == "" || runDesiredStateGit(t, fixture.remote, "rev-parse", fixture.target.PlatformBinding.TargetRef) != unrelated {
+		t.Fatalf("rejected write performed recovery or changed unrelated history: providerCalls=%d", providerCalls)
+	}
+
+	// A fresh generation can publish immediately on the advanced branch while
+	// retaining the rejected immutable write-base receipt for audit history.
+	next := fixture.command
+	next.ID = "fc16a2db-441c-4d58-9165-cebc35bfb8bd"
+	next.Generation++
+	next.BaseRevision = unrelated
+	if _, err = fixture.commands.CreateDesiredState(t.Context(), next); err != nil {
+		t.Fatal(err)
+	}
+	if processed, err = worker.ProcessOne(t.Context()); err != nil || !processed {
+		t.Fatalf("replacement generation did not publish: processed=%v err=%v", processed, err)
+	}
+	verified, err := fixture.commands.DesiredStateCommand(t.Context(), next.ID)
+	if err != nil || verified.State != argo.DesiredStateVerified || verified.WriteBaseRevision != unrelated {
+		t.Fatalf("replacement generation did not retain advanced write base: command=%#v err=%v", verified, err)
+	}
+	if parent := runDesiredStateGit(t, fixture.remote, "rev-parse", verified.CommittedRevision+"^"); parent != unrelated {
+		t.Fatalf("replacement rewrote unrelated history: parent=%s want=%s", parent, unrelated)
+	}
+	if content := runDesiredStateGit(t, fixture.remote, "show", verified.CommittedRevision+":unrelated.txt"); content != "unrelated protected change" {
+		t.Fatalf("replacement changed unrelated file: %q", content)
+	}
+}
+
+func TestDesiredStateRuntimeRecoversUnknownPushAcknowledgementWithoutDuplicateCommit(t *testing.T) {
+	fixture := newDesiredStateWriterFixture(t)
+	if _, err := fixture.commands.RetryDesiredState(t.Context(), fixture.claim.Lease,
+		argo.DesiredStateRetry{FailureCode: "test-reset", NextAttemptAt: fixture.now}, fixture.now); err != nil {
+		t.Fatal(err)
+	}
+	store := &interruptedDesiredStateWriteStore{MemoryDesiredStateStore: fixture.commands, failAcknowledgement: true}
+	writer := fixture.writer(fixture.provider(t, nil))
+	writer.Store = store
+	worker := &argo.DesiredStateRuntimeWorker{Store: store, Writer: writer,
+		Observation: argo.DesiredStateRuntimeWorkerObservation{WorkerID: "argo-unknown-push-worker", DesiredStateRuntimeIdentity: fixture.identity,
+			StartedAt: fixture.now, ObservedAt: fixture.now}, Now: func() time.Time { return fixture.now }}
+	if processed, err := worker.ProcessOne(t.Context()); err != nil || !processed {
+		t.Fatalf("unknown push outcome escaped worker: processed=%v err=%v", processed, err)
+	}
+	pushed := runDesiredStateGit(t, fixture.remote, "rev-parse", fixture.target.PlatformBinding.TargetRef)
+	pending, err := fixture.commands.DesiredStateCommand(t.Context(), fixture.command.ID)
+	if err != nil || pending.State != argo.DesiredStatePending || pending.WriteBaseRevision != fixture.baseHead ||
+		pending.CommittedRevision != "" || pending.CompletedAt != nil || pushed == fixture.baseHead {
+		t.Fatalf("unknown push outcome was discarded: command=%#v err=%v", pending, err)
+	}
+	fixture.now = pending.NextAttemptAt.Add(time.Second)
+	if processed, err := worker.ProcessOne(t.Context()); err != nil || !processed {
+		t.Fatalf("unknown push recovery failed: processed=%v err=%v", processed, err)
+	}
+	verified, err := fixture.commands.DesiredStateCommand(t.Context(), fixture.command.ID)
+	if err != nil || verified.State != argo.DesiredStateVerified || verified.CommittedRevision != pushed ||
+		runDesiredStateGit(t, fixture.remote, "rev-parse", fixture.target.PlatformBinding.TargetRef) != pushed {
+		t.Fatalf("unknown push recovery duplicated or lost commit: command=%#v err=%v", verified, err)
 	}
 }
 

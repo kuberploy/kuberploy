@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Project cleanup removes disabled service accounts while preserving their audit history through deleted-identity tombstones.",
+  "summary": "Public image tags deploy without per-App registry setup. Helm Apps recognize synchronized values and charts at a Git repository root. Git publication recovers from concurrent writes and expired ExternalDNS reservations. Desktop deployment puts essential settings first and monitoring reports available data accurately. Stopped App cleanup preserves secret and audit history.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.455"
+  "version": "0.1.0-rc.456"
 }

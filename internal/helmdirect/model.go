@@ -105,6 +105,9 @@ func validRelativePath(value string) bool {
 	if value == "" || len(value) > 512 || strings.ContainsAny(value, "\x00\r\n\\") || strings.HasPrefix(value, "/") {
 		return false
 	}
+	if value == "." {
+		return true
+	}
 	for _, part := range strings.Split(value, "/") {
 		if part == "" || part == "." || part == ".." {
 			return false

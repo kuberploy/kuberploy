@@ -224,20 +224,20 @@ def main() -> None:
 
         (fixture / "README.md").write_text(
             readme.replace(
-                "The final `0.1.0` migration baseline intentionally requires a fresh database\n"
-                "> when replacing any older release-candidate schema history. Existing RC data\n"
-                "> must be exported and restored through an operator-reviewed process; it is not\n"
-                "> upgraded in place.",
-                "Older release-candidate databases upgrade in place.",
+                "This candidate upgrades the published `001_initial` database baseline in place\n"
+                "> while preserving existing data. Published migrations are now append-only.\n"
+                "> After upgrading, use a release that supports `002_secret_history_retention`;\n"
+                "> earlier binaries cannot start against the new migration history.",
+                "All earlier release candidates can be restored after this upgrade.",
                 1,
             ),
             encoding="utf-8",
         )
         false_upgrade_claim = run_validator(root, fixture, workflow)
-        if false_upgrade_claim.returncode == 0 or "fresh-database boundary" not in (
+        if false_upgrade_claim.returncode == 0 or "compatible-binary recovery boundary" not in (
             false_upgrade_claim.stdout + false_upgrade_claim.stderr
         ):
-            raise SystemExit("validator accepted a false release-candidate upgrade claim")
+            raise SystemExit("validator accepted a false release-candidate downgrade claim")
         (fixture / "README.md").write_text(readme, encoding="utf-8")
 
         (fixture / ".github/workflows/ci.yml").write_text(

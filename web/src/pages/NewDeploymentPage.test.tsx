@@ -22,16 +22,20 @@ vi.mock("@tanstack/react-router", () => ({
     to,
     className,
     params,
+    search,
   }: PropsWithChildren<{
     to: string;
     className?: string;
     params?: Record<string, string>;
+    search?: Record<string, string>;
   }>) => (
     <a
-      href={Object.entries(params ?? {}).reduce(
-        (path, [key, value]) => path.replace(`$${key}`, value),
-        to,
-      )}
+      href={
+        Object.entries(params ?? {}).reduce(
+          (path, [key, value]) => path.replace(`$${key}`, value),
+          to,
+        ) + (search ? `?${new URLSearchParams(search)}` : "")
+      }
       className={className}
     >
       {children}
@@ -112,6 +116,70 @@ afterEach(() => {
 });
 
 describe("new deployment runtime controls", () => {
+  it("deploys from the selected App with optional settings collapsed and preserves edited values", async () => {
+    const user = userEvent.setup();
+    router.search.projectId = "project-1";
+    router.search.environmentId = "environment-1";
+    router.search.applicationId = "application-1";
+    const createDeployment = vi
+      .spyOn(api, "createDeployment")
+      .mockResolvedValue({
+        id: "operation-simple-deploy",
+        kind: "deployment.create",
+        status: "queued",
+        state: "queued",
+        targetType: "deployment",
+        targetId: "deployment-simple",
+        requestId: "request-simple",
+        generation: 1,
+        progress: [],
+        createdAt: "2026-09-13T00:00:00Z",
+        updatedAt: "2026-09-13T00:00:00Z",
+      });
+    render(<NewDeploymentPage />, { wrapper: wrapper() });
+
+    const placement = await screen.findByText("Payments API · Production");
+    expect(placement.closest("details")).not.toHaveAttribute("open");
+    const optional = screen.getByText("Optional settings");
+    expect(optional.closest("details")).not.toHaveAttribute("open");
+    expect(screen.getByLabelText(/^CPU request/)).not.toBeVisible();
+
+    await user.type(
+      screen.getByRole("textbox", { name: /^Image digest/ }),
+      `docker.io/library/nginx@sha256:${"a".repeat(64)}`,
+    );
+    const port = screen.getByRole("spinbutton", { name: "Container port" });
+    await user.clear(port);
+    await user.type(port, "80");
+    await user.click(optional);
+    await user.click(screen.getByRole("button", { name: "Add value" }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Variable 1 name" }),
+      "LOG_LEVEL",
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: "Variable 1 value" }),
+      "info",
+    );
+    await user.click(optional);
+    expect(optional.closest("details")).not.toHaveAttribute("open");
+    const submit = screen.getByRole("button", { name: "Deploy App" });
+    await waitFor(() => expect(submit).toBeEnabled());
+    await user.click(submit);
+
+    await waitFor(() => expect(createDeployment).toHaveBeenCalledOnce());
+    expect(createDeployment.mock.calls[0]?.[0]).toMatchObject({
+      applicationId: "application-1",
+      environmentId: "environment-1",
+      runtime: {
+        replicas: 1,
+        resources: { requests: { cpu: "50m", memory: "100Mi" } },
+        ports: [{ name: "http", containerPort: 80 }],
+        env: [{ name: "LOG_LEVEL", value: "info" }],
+      },
+    });
+  });
+
   it("requires Environment Git authority before deployment", async () => {
     vi.mocked(api.environmentGitBinding).mockRejectedValue(
       new ApiError(404, { title: "Not found" }),
@@ -126,10 +194,11 @@ describe("new deployment runtime controls", () => {
     ).toBeVisible();
     expect(
       screen.getByRole("link", { name: "Open Environment Git settings" }),
-    ).toHaveAttribute("href", "/projects/project-1");
-    expect(
-      screen.getByRole("button", { name: /commit & deploy/i }),
-    ).toBeDisabled();
+    ).toHaveAttribute(
+      "href",
+      "/projects/project-1?gitEnvironmentId=environment-1",
+    );
+    expect(screen.getByRole("button", { name: /deploy App/i })).toBeDisabled();
   });
 
   it("starts in the exact project environment selected by Add App", async () => {
@@ -346,7 +415,7 @@ describe("new deployment runtime controls", () => {
       await waitFor(() =>
         expect(deploymentConfig).toHaveBeenCalledWith("deployment-1"),
       );
-      const submit = screen.getByRole("button", { name: /commit & deploy/i });
+      const submit = screen.getByRole("button", { name: /deploy App/i });
       await waitFor(() => expect(submit).toBeEnabled());
       await user.click(submit);
 
@@ -515,7 +584,7 @@ describe("new deployment runtime controls", () => {
     const image = screen.getByRole("textbox", { name: /^Image digest/ });
     await user.type(image, "registry.example.test/payments/api:release");
 
-    const submit = screen.getByRole("button", { name: /commit & deploy/i });
+    const submit = screen.getByRole("button", { name: /deploy App/i });
     expect(submit).toBeDisabled();
     await user.click(
       screen.getByRole("button", { name: "Resolve tag to digest" }),
@@ -581,7 +650,7 @@ describe("new deployment runtime controls", () => {
     await user.click(
       screen.getByRole("button", { name: "Resolve tag to digest" }),
     );
-    const submit = screen.getByRole("button", { name: /commit & deploy/i });
+    const submit = screen.getByRole("button", { name: /deploy App/i });
     await waitFor(() => expect(submit).toBeEnabled());
 
     await user.type(image, "-changed");
@@ -645,15 +714,11 @@ describe("new deployment runtime controls", () => {
       screen.getByRole("button", { name: "Resolve tag to digest" }),
     );
     await waitFor(() => expect(previewImageResolution).toHaveBeenCalledOnce());
-    expect(
-      screen.getByRole("button", { name: /commit & deploy/i }),
-    ).toBeEnabled();
+    expect(screen.getByRole("button", { name: /deploy App/i })).toBeEnabled();
 
     await selectOption(environment, "environment-2");
     await selectOption(environment, "environment-1");
-    expect(
-      screen.getByRole("button", { name: /commit & deploy/i }),
-    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: /deploy App/i })).toBeDisabled();
     expect(screen.queryByText(/Image digest resolved/)).not.toBeInTheDocument();
   });
 
@@ -711,7 +776,7 @@ describe("new deployment runtime controls", () => {
     expect(
       await screen.findByText("Protected GitOps is not ready"),
     ).toBeVisible();
-    const submit = screen.getByRole("button", { name: /commit & deploy/i });
+    const submit = screen.getByRole("button", { name: /deploy App/i });
     expect(submit).toBeDisabled();
     await userEvent.click(submit);
     expect(createApplication).not.toHaveBeenCalled();
@@ -723,6 +788,7 @@ describe("new deployment runtime controls", () => {
     const createApplication = vi.spyOn(api, "createApplication");
     const createDeployment = vi.spyOn(api, "createDeployment");
     render(<NewDeploymentPage />, { wrapper: wrapper() });
+    await user.click(screen.getByText("Optional settings"));
 
     const command = await screen.findByRole("textbox", {
       name: "Container command (YAML list)",
@@ -733,7 +799,7 @@ describe("new deployment runtime controls", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       /YAML list, never a shell string/i,
     );
-    const submit = screen.getByRole("button", { name: /commit & deploy/i });
+    const submit = screen.getByRole("button", { name: /deploy App/i });
     expect(submit).toBeDisabled();
     await user.click(submit);
     expect(createApplication).not.toHaveBeenCalled();
@@ -744,6 +810,7 @@ describe("new deployment runtime controls", () => {
     const user = userEvent.setup();
     const createDeployment = vi.spyOn(api, "createDeployment");
     render(<NewDeploymentPage />, { wrapper: wrapper() });
+    await user.click(screen.getByText("Optional settings"));
 
     expect(
       await screen.findByRole("combobox", { name: "Readiness check" }),
@@ -761,7 +828,7 @@ describe("new deployment runtime controls", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       /exec command must be a YAML array/i,
     );
-    const submit = screen.getByRole("button", { name: /commit & deploy/i });
+    const submit = screen.getByRole("button", { name: /deploy App/i });
     expect(submit).toBeDisabled();
     await user.click(submit);
     expect(createDeployment).not.toHaveBeenCalled();
@@ -786,6 +853,7 @@ describe("new deployment runtime controls", () => {
         updatedAt: "2026-08-09T00:00:00Z",
       });
     render(<NewDeploymentPage />, { wrapper: wrapper() });
+    await user.click(screen.getByText("Optional settings"));
 
     await selectOption(
       screen.getByRole("combobox", { name: "Project" }),
@@ -840,7 +908,7 @@ describe("new deployment runtime controls", () => {
       screen.getByRole("textbox", { name: /^Hostname/ }),
       "payments.example.test",
     );
-    const submit = screen.getByRole("button", { name: /commit & deploy/i });
+    const submit = screen.getByRole("button", { name: /deploy App/i });
     await waitFor(() => expect(submit).toBeEnabled());
     await user.click(submit);
     await screen.findByText("App could not be deployed");
@@ -906,7 +974,7 @@ describe("new deployment runtime controls", () => {
     const firstImage = `ghcr.io/acme/payments@sha256:${"a".repeat(64)}`;
     const secondImage = `ghcr.io/acme/payments@sha256:${"b".repeat(64)}`;
     await user.type(image, firstImage);
-    const submit = screen.getByRole("button", { name: /commit & deploy/i });
+    const submit = screen.getByRole("button", { name: /deploy App/i });
     await waitFor(() => expect(submit).toBeEnabled());
     await user.click(submit);
     await waitFor(() => expect(createDeployment).toHaveBeenCalledOnce());
@@ -977,7 +1045,7 @@ describe("new deployment runtime controls", () => {
       `ghcr.io/acme/payments@sha256:${"a".repeat(64)}`,
     );
 
-    await user.click(screen.getByRole("button", { name: /commit & deploy/i }));
+    await user.click(screen.getByRole("button", { name: /deploy App/i }));
     await waitFor(() => expect(createDeployment).toHaveBeenCalledOnce());
     expect(createDeployment.mock.calls[0]?.[0].runtime.nodeSelector).toEqual({
       workload: "high",
@@ -1033,7 +1101,7 @@ describe("new deployment runtime controls", () => {
       `ghcr.io/acme/payments@sha256:${"e".repeat(64)}`,
     );
 
-    await user.click(screen.getByRole("button", { name: /commit & deploy/i }));
+    await user.click(screen.getByRole("button", { name: /deploy App/i }));
     await waitFor(() => expect(createDeployment).toHaveBeenCalledOnce());
     expect(createDeployment.mock.calls[0]?.[0].runtime).toMatchObject({
       workloadType: "StatefulSet",
@@ -1061,6 +1129,7 @@ describe("new deployment runtime controls", () => {
       ],
     });
     render(<NewDeploymentPage />, { wrapper: wrapper() });
+    await user.click(screen.getByText("Optional settings"));
 
     await selectOption(
       screen.getByRole("combobox", { name: "Project" }),
@@ -1359,7 +1428,7 @@ describe("new deployment runtime controls", () => {
       screen.getByRole("textbox", { name: /^Image digest/ }),
       `ghcr.io/acme/payments@sha256:${"a".repeat(64)}`,
     );
-    await user.click(screen.getByRole("button", { name: /commit & deploy/i }));
+    await user.click(screen.getByRole("button", { name: /deploy App/i }));
 
     await waitFor(() => expect(createDeployment).toHaveBeenCalledOnce());
     expect(createApplication).not.toHaveBeenCalled();

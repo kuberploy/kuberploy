@@ -398,6 +398,27 @@ describe("app-centric routes", () => {
     expect(match?.routeId).toBe("/deploy");
     expect(match?.search).toEqual({ projectId, environmentId, applicationId });
   });
+
+  it("preserves an exact Environment Git deep link on the Project route", () => {
+    const match = router
+      .matchRoutes(`/projects/${projectId}`, {
+        gitEnvironmentId: environmentId,
+      })
+      .at(-1);
+
+    expect(match?.routeId).toBe("/projects/$projectId");
+    expect(match?.search).toEqual({ gitEnvironmentId: environmentId });
+  });
+
+  it("ignores malformed or empty Environment Git search values", () => {
+    for (const gitEnvironmentId of [42, [environmentId], {}, " "]) {
+      const match = router
+        .matchRoutes(`/projects/${projectId}`, { gitEnvironmentId })
+        .at(-1);
+
+      expect(match?.search).toMatchObject({ gitEnvironmentId: undefined });
+    }
+  });
 });
 
 describe("post-authentication routing", () => {

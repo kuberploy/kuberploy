@@ -45,13 +45,30 @@ func (f *recordingApplicationAPI) Observe(_ context.Context, _, name string) (Ap
 	return state, nil
 }
 
+func observedRevisionState(revision Revision) ApplicationState {
+	source, _ := revision.Source.Normalize()
+	observed := map[string]any{"repoURL": source.RepositoryURL, "targetRevision": source.TargetRevision,
+		"helm": map[string]any{"releaseName": revision.ReleaseName, "values": string(revision.ValuesYAML)}}
+	if source.Chart != "" {
+		observed["chart"] = source.Chart
+	}
+	if source.Path != "" {
+		observed["path"] = source.Path
+	}
+	return ApplicationState{EnvironmentID: revision.Target.EnvironmentID, ApplicationID: revision.Target.ApplicationID,
+		ProjectID: revision.Target.ProjectID, ArgoProject: HelmAppProject, ObservedSource: observed,
+		ObservedDestination: map[string]any{"server": InClusterURL, "namespace": revision.DestinationNamespace},
+		Sync:                "Synced", Health: "Healthy"}
+}
+
 func TestArgoReconcilerAppliesAndDeletesOnlyOwnedApplication(t *testing.T) {
 	api := &recordingApplicationAPI{}
 	reconciler := ArgoReconciler{API: api, Namespace: ArgoNamespace}
 	revision := renderFixture(SourceGit)
 	legacyName := legacyApplicationName(revision.Target.ApplicationID)
 	settledAt := revision.UpdatedAt
-	api.state = ApplicationState{Sync: "Synced", Health: "Healthy", ReconciledAt: &settledAt}
+	api.state = observedRevisionState(revision)
+	api.state.ReconciledAt = &settledAt
 	api.exists = map[string]bool{legacyName: true}
 	api.states = map[string]ApplicationState{legacyName: {EnvironmentID: revision.Target.EnvironmentID}}
 	if err := reconciler.Reconcile(t.Context(), revision); err != nil || len(api.applied) == 0 || len(api.names) != 1 {
@@ -73,46 +90,125 @@ func TestArgoReconcilerAppliesAndDeletesOnlyOwnedApplication(t *testing.T) {
 func TestArgoReconcilerWaitsForHealthAndReportsArgoFailure(t *testing.T) {
 	revision := renderFixture(SourceHelmRepository)
 	settledAt := revision.UpdatedAt.Add(time.Second)
-	api := &recordingApplicationAPI{state: ApplicationState{Sync: "OutOfSync", Health: "Progressing", ReconciledAt: &settledAt}}
+	api := &recordingApplicationAPI{state: observedRevisionState(revision)}
+	api.state.Sync, api.state.Health, api.state.ReconciledAt = "OutOfSync", "Progressing", &settledAt
 	reconciler := ArgoReconciler{API: api, Namespace: ArgoNamespace}
 	if err := reconciler.Reconcile(t.Context(), revision); !errors.Is(err, ErrPending) {
 		t.Fatalf("progressing reconcile err=%v", err)
 	}
-	api.state = ApplicationState{ConditionType: "ComparisonError", ReconciledAt: &settledAt}
+	api.state = observedRevisionState(revision)
+	api.state.ConditionType, api.state.ReconciledAt = "ComparisonError", &settledAt
 	var failure ReconcileFailure
 	if err := reconciler.Reconcile(t.Context(), revision); !errors.As(err, &failure) || failure.Code != "argo-comparison-failed" {
 		t.Fatalf("failed reconcile code=%q err=%v", failure.Code, err)
 	}
 }
 
-func TestArgoReconcilerIgnoresStaleSuccessAndFailure(t *testing.T) {
+func TestArgoReconcilerRejectsPreviousSourceSuccessAndFailure(t *testing.T) {
 	revision := renderFixture(SourceOCI)
-	staleAt := revision.UpdatedAt.Add(-time.Nanosecond)
-	api := &recordingApplicationAPI{state: ApplicationState{Sync: "Synced", Health: "Healthy", ReconciledAt: &staleAt}}
-	reconciler := ArgoReconciler{API: api, Namespace: ArgoNamespace}
-	if err := reconciler.Reconcile(t.Context(), revision); !errors.Is(err, ErrPending) {
-		t.Fatalf("stale success reconcile err=%v", err)
+	for _, status := range []string{"success", "condition", "operation"} {
+		t.Run(status, func(t *testing.T) {
+			state := observedRevisionState(revision)
+			state.ObservedSource["helm"].(map[string]any)["values"] = "replicas: 99\n"
+			switch status {
+			case "condition":
+				state.ConditionType = "InvalidSpecError"
+			case "operation":
+				state.Operation = "Failed"
+			}
+			api := &recordingApplicationAPI{state: state}
+			if err := (ArgoReconciler{API: api, Namespace: ArgoNamespace}).Reconcile(t.Context(), revision); !errors.Is(err, ErrPending) {
+				t.Fatalf("previous source %s err=%v", status, err)
+			}
+		})
 	}
-	api.state = ApplicationState{ConditionType: "InvalidSpecError", ReconciledAt: &staleAt}
-	if err := reconciler.Reconcile(t.Context(), revision); !errors.Is(err, ErrPending) {
-		t.Fatalf("stale failure reconcile err=%v", err)
+}
+
+func TestArgoReconcilerAcceptsExactObservedIntentWithOlderTimestamp(t *testing.T) {
+	revision := renderFixture(SourceOCI)
+	revision.UpdatedAt = revision.UpdatedAt.Add(76 * time.Millisecond)
+	for _, age := range []time.Duration{0, 3 * time.Second, 3 * time.Minute} {
+		state := observedRevisionState(revision)
+		at := revision.UpdatedAt.Truncate(time.Second).Add(-age)
+		state.ReconciledAt = &at
+		api := &recordingApplicationAPI{state: state}
+		if err := (ArgoReconciler{API: api, Namespace: ArgoNamespace}).Reconcile(t.Context(), revision); err != nil {
+			t.Fatalf("exact observed intent with timestamp age %s: %v", age, err)
+		}
 	}
-	api.state = ApplicationState{Operation: "Failed", ReconciledAt: &staleAt}
-	if err := reconciler.Reconcile(t.Context(), revision); !errors.Is(err, ErrPending) {
-		t.Fatalf("stale operation failure reconcile err=%v", err)
+}
+
+func TestArgoReconcilerFencesFullSourceDestinationAndOwnership(t *testing.T) {
+	revision := renderFixture(SourceGit)
+	cases := map[string]func(*ApplicationState){
+		"missing source": func(s *ApplicationState) { s.ObservedSource = nil },
+		"repository":     func(s *ApplicationState) { s.ObservedSource["repoURL"] = "https://example.com/another.git" },
+		"revision":       func(s *ApplicationState) { s.ObservedSource["targetRevision"] = "other" },
+		"path":           func(s *ApplicationState) { s.ObservedSource["path"] = "other" },
+		"release name":   func(s *ApplicationState) { s.ObservedSource["helm"].(map[string]any)["releaseName"] = "other" },
+		"extra Helm setting": func(s *ApplicationState) {
+			s.ObservedSource["helm"].(map[string]any)["valueFiles"] = []any{"other.yaml"}
+		},
+		"namespace":    func(s *ApplicationState) { s.ObservedDestination["namespace"] = "other" },
+		"server":       func(s *ApplicationState) { s.ObservedDestination["server"] = "https://other.example.com" },
+		"environment":  func(s *ApplicationState) { s.EnvironmentID = "other" },
+		"application":  func(s *ApplicationState) { s.ApplicationID = "other" },
+		"project":      func(s *ApplicationState) { s.ProjectID = "other" },
+		"Argo project": func(s *ApplicationState) { s.ArgoProject = "other" },
 	}
-	api.state = ApplicationState{Sync: "Synced", Health: "Healthy"}
-	if err := reconciler.Reconcile(t.Context(), revision); !errors.Is(err, ErrPending) {
-		t.Fatalf("missing reconciledAt reconcile err=%v", err)
+	for name, change := range cases {
+		t.Run(name, func(t *testing.T) {
+			state := observedRevisionState(revision)
+			change(&state)
+			api := &recordingApplicationAPI{state: state}
+			if err := (ArgoReconciler{API: api, Namespace: ArgoNamespace}).Reconcile(t.Context(), revision); !errors.Is(err, ErrPending) {
+				t.Fatalf("mismatched %s err=%v", name, err)
+			}
+		})
+	}
+}
+
+func TestArgoReconcilerLaterValuesAndRollbackRequireTheirObservedValues(t *testing.T) {
+	first := renderFixture(SourceHelmRepository)
+	api := &recordingApplicationAPI{state: observedRevisionState(first)}
+	r := ArgoReconciler{API: api, Namespace: ArgoNamespace}
+	second := first
+	second.ValuesYAML = []byte("replicas: 2\n")
+	second.ValuesDigest = Digest(second.ValuesYAML)
+	second.UpdatedAt = first.UpdatedAt.Add(time.Second)
+	if err := r.Reconcile(t.Context(), second); !errors.Is(err, ErrPending) {
+		t.Fatalf("new values accepted old observation: %v", err)
+	}
+	api.state = observedRevisionState(second)
+	if err := r.Reconcile(t.Context(), second); err != nil {
+		t.Fatalf("new values: %v", err)
+	}
+	repeated := second
+	repeated.UpdatedAt = second.UpdatedAt.Add(time.Minute)
+	if err := r.Reconcile(t.Context(), repeated); err != nil {
+		t.Fatalf("identical intent should already be satisfied: %v", err)
+	}
+	rollback := first
+	rollback.Action = ActionRollback
+	rollback.Generation = 2
+	rollback.ParentRevisionID = first.ID
+	rollback.RollbackSourceRevisionID = first.ID
+	rollback.ID = "66666666-6666-4666-8666-666666666666"
+	rollback.UpdatedAt = second.UpdatedAt.Add(time.Minute)
+	if err := r.Reconcile(t.Context(), rollback); !errors.Is(err, ErrPending) {
+		t.Fatalf("rollback accepted newer values: %v", err)
+	}
+	api.state = observedRevisionState(rollback)
+	if err := r.Reconcile(t.Context(), rollback); err != nil {
+		t.Fatalf("observed rollback: %v", err)
 	}
 }
 
 func TestArgoReconcilerPreservesLegacyApplicationOwnedByAnotherEnvironment(t *testing.T) {
 	revision := renderFixture(SourceGit)
 	legacyName := legacyApplicationName(revision.Target.ApplicationID)
-	settledAt := revision.UpdatedAt.Add(time.Second)
 	api := &recordingApplicationAPI{
-		state:  ApplicationState{Sync: "Synced", Health: "Healthy", ReconciledAt: &settledAt},
+		state:  observedRevisionState(revision),
 		exists: map[string]bool{legacyName: true},
 		states: map[string]ApplicationState{legacyName: {EnvironmentID: "77777777-7777-4777-8777-777777777777"}},
 	}
@@ -156,5 +252,36 @@ func TestArgoApplicationNameIncludesEnvironmentIdentity(t *testing.T) {
 	}
 	if string(firstManifest) == string(secondManifest) {
 		t.Fatal("distinct Environment Helm Apps rendered identical manifests")
+	}
+}
+
+func TestArgoReconcilerMatchesRenderedBlankValuesForEverySource(t *testing.T) {
+	for _, kind := range []SourceKind{SourceHelmRepository, SourceOCI, SourceGit} {
+		t.Run(string(kind), func(t *testing.T) {
+			revision := renderFixture(kind)
+			values, err := NormalizeValues(nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			revision.ValuesYAML, revision.ValuesDigest = values, Digest(values)
+			if kind == SourceGit {
+				revision.Source.Path = "."
+			}
+			state := observedRevisionState(revision)
+			if state.ObservedSource["helm"].(map[string]any)["values"] != "{}\n" {
+				t.Fatal("blank values were not normalized")
+			}
+			api := &recordingApplicationAPI{state: state}
+			if err := (ArgoReconciler{API: api, Namespace: ArgoNamespace}).Reconcile(t.Context(), revision); err != nil {
+				t.Fatal(err)
+			}
+			for _, missing := range []any{nil, map[string]any{}, map[string]any{"values": nil}} {
+				state.ObservedSource["helm"] = missing
+				api.state = state
+				if err := (ArgoReconciler{API: api, Namespace: ArgoNamespace}).Reconcile(t.Context(), revision); !errors.Is(err, ErrPending) {
+					t.Fatalf("incomplete Helm observation accepted: %v", err)
+				}
+			}
+		})
 	}
 }

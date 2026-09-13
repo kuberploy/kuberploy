@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -53,6 +54,7 @@ type manifestEnvelope struct {
 	SchemaVersion int                  `json:"schemaVersion"`
 	MediaType     string               `json:"mediaType"`
 	Manifests     []manifestDescriptor `json:"manifests"`
+	Annotations   map[string]string    `json:"annotations,omitempty"`
 }
 
 type manifestDescriptor struct {
@@ -61,9 +63,11 @@ type manifestDescriptor struct {
 	Size        int64             `json:"size"`
 	Annotations map[string]string `json:"annotations,omitempty"`
 	Platform    struct {
-		Architecture string `json:"architecture"`
-		OS           string `json:"os"`
-		Variant      string `json:"variant"`
+		Architecture string   `json:"architecture"`
+		OS           string   `json:"os"`
+		Variant      string   `json:"variant"`
+		OSVersion    string   `json:"os.version,omitempty"`
+		OSFeatures   []string `json:"os.features,omitempty"`
 	} `json:"platform"`
 }
 
@@ -72,6 +76,7 @@ type imageManifestEnvelope struct {
 	MediaType     string              `json:"mediaType"`
 	Config        contentDescriptor   `json:"config"`
 	Layers        []contentDescriptor `json:"layers"`
+	Annotations   map[string]string   `json:"annotations,omitempty"`
 }
 
 type contentDescriptor struct {
@@ -107,7 +112,20 @@ func (p *HTTPProvider) ResolveTag(ctx context.Context, source AuthorizedSource, 
 	if authority.Token != nil && authority.Token.TargetID != source.Target.ID {
 		return "", ErrConflict
 	}
-	client := &http.Client{Transport: p.transport(), Timeout: p.Config.Timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	if authority.Public {
+		if !authority.Anonymous || authority.Profile != nil || authority.Token != nil || source.Target.ID != "" || source.Target.PullCredentialRef != "" || !publicHTTPSURL(source.Target.Endpoint, false) {
+			return "", ErrConflict
+		}
+		// Docker's familiar image host is distinct from its Registry V2 host.
+		// Keep the caller's image name unchanged in the resolution result.
+		if server == "docker.io" || server == "index.docker.io" {
+			source.Target.Endpoint = "https://registry-1.docker.io"
+		}
+	}
+	client := &http.Client{Transport: p.transport(authority.Public), Timeout: p.Config.Timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	if authority.Public {
+		client.CheckRedirect = publicRegistryRedirect
+	}
 	root, err := p.fetch(ctx, client, source, reference.Repository, reference.Tag, authority)
 	if err != nil {
 		return "", err
@@ -180,7 +198,7 @@ func (p *HTTPProvider) fetch(ctx context.Context, client *http.Client, source Au
 		return fetchedManifest{}, ErrUnavailable
 	}
 	if response.StatusCode == http.StatusUnauthorized {
-		challenge, challengeErr := parseBearerChallenge(response.Header, authority.Token, repository)
+		challenge, challengeErr := parseBearerChallenge(response.Header, authority.Token, repository, authority.Public)
 		if drainErr := drainBounded(response.Body, p.Config.MaximumBodyBytes); drainErr != nil {
 			_ = response.Body.Close()
 			return fetchedManifest{}, ErrUnavailable
@@ -251,9 +269,9 @@ type bearerChallenge struct {
 	scope   string
 }
 
-func parseBearerChallenge(header http.Header, authority *TokenAuthority, repository string) (bearerChallenge, error) {
+func parseBearerChallenge(header http.Header, authority *TokenAuthority, repository string, public bool) (bearerChallenge, error) {
 	values := header.Values("WWW-Authenticate")
-	if len(values) != 1 || len(values[0]) > 2048 || authority == nil || !validRepository(repository) || !strings.HasPrefix(values[0], "Bearer ") {
+	if len(values) != 1 || len(values[0]) > 2048 || authority == nil && !public || !validRepository(repository) || !strings.HasPrefix(values[0], "Bearer ") {
 		return bearerChallenge{}, ErrUnavailable
 	}
 	parameters, err := parseChallengeParameters(strings.TrimPrefix(values[0], "Bearer "))
@@ -261,7 +279,14 @@ func parseBearerChallenge(header http.Header, authority *TokenAuthority, reposit
 		return bearerChallenge{}, ErrConflict
 	}
 	wantScope := "repository:" + repository + ":pull"
-	if parameters["realm"] != authority.RealmURL || parameters["service"] != authority.Service || parameters["scope"] != wantScope {
+	if parameters["scope"] != wantScope {
+		return bearerChallenge{}, ErrConflict
+	}
+	if public {
+		if authority != nil || !publicHTTPSURL(parameters["realm"], true) || len(parameters["service"]) > 253 || strings.TrimSpace(parameters["service"]) != parameters["service"] {
+			return bearerChallenge{}, ErrConflict
+		}
+	} else if parameters["realm"] != authority.RealmURL || parameters["service"] != authority.Service {
 		return bearerChallenge{}, ErrConflict
 	}
 	return bearerChallenge{realm: parameters["realm"], service: parameters["service"], scope: parameters["scope"]}, nil
@@ -300,7 +325,8 @@ func parseChallengeParameters(raw string) (map[string]string, error) {
 
 func (p *HTTPProvider) fetchToken(ctx context.Context, client *http.Client, source AuthorizedSource, challenge bearerChallenge, authority *ProviderAuthority) ([]byte, error) {
 	realm, err := url.Parse(challenge.realm)
-	if err != nil || authority.Token == nil || challenge.realm != authority.Token.RealmURL {
+	if err != nil || !authority.Public && (authority.Token == nil || challenge.realm != authority.Token.RealmURL) ||
+		authority.Public && (!authority.Anonymous || authority.Profile != nil || !publicHTTPSURL(challenge.realm, true)) {
 		return nil, ErrConflict
 	}
 	query := realm.Query()
@@ -326,8 +352,10 @@ func (p *HTTPProvider) fetchToken(ctx context.Context, client *http.Client, sour
 		return nil, ErrUnavailable
 	}
 	defer response.Body.Close()
+	contentType, parameters, contentTypeErr := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	if response.StatusCode != http.StatusOK || response.ContentLength > 16<<10 || response.Header.Get("Content-Encoding") != "" ||
-		len(response.Header.Values("Content-Type")) != 1 || response.Header.Get("Content-Type") != "application/json" {
+		len(response.Header.Values("Content-Type")) != 1 || contentTypeErr != nil || contentType != "application/json" ||
+		len(parameters) > 1 || len(parameters) == 1 && !strings.EqualFold(parameters["charset"], "utf-8") {
 		_ = drainBounded(response.Body, 16<<10)
 		return nil, ErrUnavailable
 	}
@@ -340,14 +368,14 @@ func (p *HTTPProvider) fetchToken(ctx context.Context, client *http.Client, sour
 	var payload struct {
 		Token       string `json:"token"`
 		AccessToken string `json:"access_token"`
-		ExpiresIn   int64  `json:"expires_in"`
+		ExpiresIn   *int64 `json:"expires_in"`
 		IssuedAt    string `json:"issued_at"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
 	if decoder.Decode(&payload) != nil || decoder.Decode(&struct{}{}) != io.EOF || payload.Token == "" && payload.AccessToken == "" ||
 		payload.Token != "" && payload.AccessToken != "" && payload.Token != payload.AccessToken ||
-		payload.ExpiresIn < 1 || payload.ExpiresIn > 3600 || len(payload.IssuedAt) > 64 {
+		payload.ExpiresIn != nil && (*payload.ExpiresIn < 1 || *payload.ExpiresIn > 3600) || len(payload.IssuedAt) > 64 {
 		return nil, ErrConflict
 	}
 	token := payload.Token
@@ -370,13 +398,16 @@ func drainBounded(reader io.Reader, maximum int64) error {
 	return nil
 }
 
-func (p *HTTPProvider) transport() http.RoundTripper {
+func (p *HTTPProvider) transport(public bool) http.RoundTripper {
 	if p.Transport != nil {
 		return p.Transport
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
 	transport.DialContext = (&net.Dialer{Timeout: min(p.Config.Timeout, 3*time.Second), KeepAlive: 30 * time.Second}).DialContext
+	if public {
+		transport.DialContext = publicRegistryDialer(net.DefaultResolver.LookupNetIP, transport.DialContext)
+	}
 	transport.TLSHandshakeTimeout = min(p.Config.Timeout, 3*time.Second)
 	transport.ResponseHeaderTimeout = p.Config.Timeout
 	transport.ExpectContinueTimeout = time.Second
@@ -403,7 +434,7 @@ func manifestURL(endpoint, repository, reference string) (string, error) {
 func selectPlatform(raw []byte, mediaType string, platform Platform, maximum int, maximumBody int64) (manifestDescriptor, error) {
 	var envelope manifestEnvelope
 	if decodeStrictJSON(raw, &envelope, 12) != nil || envelope.SchemaVersion != 2 || envelope.MediaType != mediaType || !isImageIndex(mediaType) ||
-		len(envelope.Manifests) < 1 || len(envelope.Manifests) > maximum {
+		len(envelope.Manifests) < 1 || len(envelope.Manifests) > maximum || !validAnnotations(envelope.Annotations) {
 		return manifestDescriptor{}, ErrConflict
 	}
 	var selected *manifestDescriptor
@@ -430,7 +461,7 @@ func selectPlatform(raw []byte, mediaType string, platform Platform, maximum int
 func validateImageManifest(raw []byte, mediaType string, maximumLayers int, maximumBody int64) error {
 	var envelope imageManifestEnvelope
 	if decodeStrictJSON(raw, &envelope, 12) != nil || envelope.SchemaVersion != 2 || envelope.MediaType != mediaType || !isImageManifest(mediaType) ||
-		len(envelope.Layers) > maximumLayers || !validContentDescriptor(envelope.Config, true) {
+		len(envelope.Layers) > maximumLayers || !validContentDescriptor(envelope.Config, true) || !validAnnotations(envelope.Annotations) {
 		return ErrConflict
 	}
 	for _, layer := range envelope.Layers {

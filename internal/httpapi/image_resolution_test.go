@@ -20,14 +20,71 @@ import (
 )
 
 type imageResolutionHTTPProvider struct {
-	digest string
-	err    error
-	calls  int
+	digest    string
+	err       error
+	calls     int
+	authority *imageresolution.ProviderAuthority
 }
 
-func (p *imageResolutionHTTPProvider) ResolveTag(_ context.Context, _ imageresolution.AuthorizedSource, _ imageresolution.TagReference, _ *imageresolution.ProviderAuthority, _ imageresolution.Platform) (string, error) {
+func (p *imageResolutionHTTPProvider) ResolveTag(_ context.Context, _ imageresolution.AuthorizedSource, _ imageresolution.TagReference, authority *imageresolution.ProviderAuthority, _ imageresolution.Platform) (string, error) {
 	p.calls++
+	p.authority = authority
 	return p.digest, p.err
+}
+
+func TestPublicImageTagWithoutAppPolicyPreviewsAndDeploysWithDigestPrecondition(t *testing.T) {
+	fixture := newImageResolutionAPI(t, true)
+	fixture.resolver.Config = imageresolution.RuntimeConfig{Platform: imageresolution.DefaultPlatform()}
+	application := decode[domain.Application](t, fixture.request(http.MethodPost, "/v1/applications", "public-image-application", map[string]string{"projectId": fixture.environment.ProjectID, "name": "Public nginx"}))
+	capabilities := decode[struct {
+		Features map[string]bool `json:"features"`
+	}](t, fixture.request(http.MethodGet, "/v1/capabilities", "", nil))
+	if !capabilities.Features["imageTagResolution"] {
+		t.Fatal("default public tag resolution capability is missing")
+	}
+	previewInput := map[string]any{"environmentId": fixture.environment.ID, "applicationId": application.ID, "image": "docker.io/library/nginx:alpine"}
+	response := fixture.request(http.MethodPost, "/v1/deployments/image-resolution-preview", "", previewInput)
+	preview := decode[imageresolution.Resolution](t, response)
+	if response.StatusCode != http.StatusOK || !strings.Contains(response.Header.Get("Cache-Control"), "no-store") || !preview.Resolved || preview.ImmutableImage != "docker.io/library/nginx@"+fixture.provider.digest || fixture.provider.calls != 1 ||
+		fixture.provider.authority == nil || !fixture.provider.authority.Anonymous || !fixture.provider.authority.Public || fixture.provider.authority.Profile != nil || fixture.provider.authority.Token != nil {
+		t.Fatalf("public preview status=%d result=%+v calls=%d", response.StatusCode, preview, fixture.provider.calls)
+	}
+	// An authorized App must still belong to the selected Environment's Project.
+	otherProject := decode[domain.Project](t, fixture.request(http.MethodPost, "/v1/projects", "public-image-other-project", map[string]string{"name": "Other project"}))
+	otherEnvironment := decode[domain.Environment](t, fixture.request(http.MethodPost, "/v1/environments", "public-image-other-environment", map[string]string{"projectId": otherProject.ID, "name": "Development"}))
+	previewInput["environmentId"] = otherEnvironment.ID
+	response = fixture.request(http.MethodPost, "/v1/deployments/image-resolution-preview", "", previewInput)
+	problem := decode[httpapi.Problem](t, response)
+	if response.StatusCode != http.StatusNotFound || fixture.provider.calls != 1 {
+		t.Fatalf("cross-project preview status=%d problem=%+v calls=%d", response.StatusCode, problem, fixture.provider.calls)
+	}
+	body := map[string]any{
+		"environmentId": fixture.environment.ID, "applicationId": application.ID, "image": preview.RequestedImage,
+		"expectedImmutableImage": preview.ImmutableImage,
+		"runtime":                map[string]any{"replicas": 1, "ports": []map[string]any{{"name": "http", "containerPort": 80}}, "resources": map[string]any{"requests": map[string]string{"cpu": "50m", "memory": "100Mi"}}},
+	}
+	fixture.provider.digest = "sha256:" + strings.Repeat("e", 64)
+	response = fixture.request(http.MethodPost, "/v1/deployments", "public-image-moved", body)
+	problem = decode[httpapi.Problem](t, response)
+	if response.StatusCode != http.StatusConflict || problem.Code != "ImageTagMoved" || fixture.provider.calls != 2 {
+		t.Fatalf("moved tag status=%d problem=%+v calls=%d", response.StatusCode, problem, fixture.provider.calls)
+	}
+	fixture.provider.digest = strings.TrimPrefix(preview.ImmutableImage, "docker.io/library/nginx@")
+	response = fixture.request(http.MethodPost, "/v1/deployments", "public-image-create", body)
+	operation := decode[domain.Operation](t, response)
+	if response.StatusCode != http.StatusAccepted || operation.ID == "" || fixture.provider.calls != 3 {
+		t.Fatalf("public create status=%d operation=%+v calls=%d", response.StatusCode, operation, fixture.provider.calls)
+	}
+	snapshot, err := fixture.store.GetDeploymentForOperation(t.Context(), operation.ID)
+	if err != nil || snapshot.Image != preview.ImmutableImage {
+		t.Fatalf("immutable snapshot=%+v err=%v", snapshot, err)
+	}
+	fixture.provider.err = errors.New("public registry unavailable after acceptance")
+	response = fixture.request(http.MethodPost, "/v1/deployments", "public-image-create", body)
+	replay := decode[domain.Operation](t, response)
+	if response.StatusCode != http.StatusAccepted || response.Header.Get("Idempotent-Replay") != "true" || replay.ID != operation.ID || fixture.provider.calls != 3 {
+		t.Fatalf("public replay status=%d operation=%+v calls=%d", response.StatusCode, replay, fixture.provider.calls)
+	}
 }
 
 type imageResolutionFixture struct {

@@ -7,6 +7,19 @@ import (
 	"github.com/kuberploy/kuberploy/internal/imagepull"
 )
 
+func TestRuntimeConfigEnablesPublicResolutionWithoutOperatorTargets(t *testing.T) {
+	lookup := func(string) (string, bool) { return "", false }
+	pull, err := imagepull.RuntimeConfigFromLookup(lookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := RuntimeConfigFromLookup(pull, lookup)
+	resolver := &Resolver{Catalog: &resolverCatalog{}, Provider: &resolverProvider{}, Config: config}
+	if err != nil || !resolver.Available() || len(config.Profiles) != 0 || len(config.AnonymousTargetIDs) != 0 || len(config.TokenAuthorities) != 0 || config.Platform != DefaultPlatform() {
+		t.Fatalf("default config=%+v available=%t err=%v", config, resolver.Available(), err)
+	}
+}
+
 func TestRuntimeConfigBindsAnonymousChallengeAndPlatformToOperatorInput(t *testing.T) {
 	profile := resolutionProfile()
 	pull := imagepull.DefaultRuntimeConfig()

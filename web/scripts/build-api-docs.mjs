@@ -54,6 +54,13 @@ function renderIndex(integrity, versions) {
       .contract-links a { color: #c6f6d5; }
       .swagger-ui .topbar { background: #08120f; }
       .swagger-ui .topbar .download-url-wrapper .select-label { color: #d7e3dd; }
+      .swagger-ui .docs-choice { display: inline-block; min-width: 9rem; max-width: 100%; max-height: 10rem; overflow: auto; border: 1px solid #899d93; border-radius: 5px; background: #fff; color: #10231d; font: 400 14px/1.4 sans-serif; vertical-align: middle; }
+      .swagger-ui .docs-choice:focus-visible { outline: 2px solid #126b4f; outline-offset: 2px; }
+      .swagger-ui .docs-choice[aria-disabled="true"] { opacity: .6; }
+      .swagger-ui .docs-choice [role="option"] { padding: .4rem .65rem; cursor: pointer; overflow-wrap: anywhere; }
+      .swagger-ui .docs-choice [aria-selected="true"] { background: #d7eee3; font-weight: 600; }
+      .swagger-ui .docs-choice:focus [data-active="true"] { outline: 2px solid #126b4f; outline-offset: -2px; }
+      .swagger-ui .docs-choice-single { display: inline-block; padding: .4rem .65rem; border: 1px solid #d7e3dd; border-radius: 5px; }
       .docs-error { width: min(680px, calc(100% - 2rem)); margin: 5rem auto; padding: 2rem; border: 1px solid #d7e3dd; border-radius: 16px; background: #fff; box-shadow: 0 18px 55px rgb(8 18 15 / 10%); color: #10231d; font: 400 16px/1.6 system-ui, sans-serif; }
       .docs-error h1 { margin: 0 0 .5rem; font-size: 1.5rem; line-height: 1.25; }
       .docs-error p { margin: 0 0 1.25rem; color: #496159; }
@@ -97,6 +104,107 @@ function renderIndex(integrity, versions) {
             requestSnippetsEnabled: true,
             validatorUrl: null,
             presets: [window.SwaggerUIBundle.presets.apis, window.SwaggerUIStandalonePreset],
+            plugins: [function (system) {
+              var React = system.React;
+              var choiceSequence = 0;
+              function Choice(props) {
+                var options = React.Children.toArray(props.children).filter(function (item) { return item && item.type === "option"; });
+                var rawValue = props.value === undefined ? props.defaultValue : props.value;
+                var selected = (props.multiple ? Array.from(rawValue || []) : [rawValue]).map(String);
+                var activeState = React.useState(function () { return Math.max(0, options.findIndex(function (option) { return selected.indexOf(String(option.props.value)) !== -1; })); });
+                var active = Math.min(activeState[0], Math.max(0, options.length - 1)), setActive = activeState[1];
+                var list = React.useRef(null), identifier = React.useRef(null), search = React.useRef({ text: "", at: 0 });
+                if (!identifier.current) identifier.current = "docs-choice-" + (++choiceSequence);
+                function valueOf(option) { return String(option.props.value); }
+                function change(values) {
+                  if (props.disabled || !props.onChange) return;
+                  var eventOptions = options.map(function (option) {
+                    var value = valueOf(option);
+                    return { value: value, selected: values.indexOf(value) !== -1, getAttribute: function (name) { return name === "value" ? value : null; } };
+                  });
+                  props.onChange({ target: { value: values[0] || "", options: eventOptions, selectedOptions: eventOptions.filter(function (option) { return option.selected; }), getAttribute: function (name) { return props[name]; } } });
+                }
+                function choose(index) {
+                  if (props.disabled || !options[index]) return;
+                  setActive(index);
+                  var value = valueOf(options[index]);
+                  change(props.multiple
+                    ? options.map(valueOf).filter(function (item) { return item === value ? selected.indexOf(item) === -1 : selected.indexOf(item) !== -1; })
+                    : [value]);
+                  if (list.current) list.current.focus();
+                }
+                React.useEffect(function () {
+                  if (!props.multiple && options.length === 1 && selected[0] !== valueOf(options[0])) change([valueOf(options[0])]);
+                }, [props.value, props.multiple, options.length]);
+                React.useEffect(function () {
+                  if (props.multiple) return;
+                  var index = options.findIndex(function (option) { return selected.indexOf(valueOf(option)) !== -1; });
+                  if (index >= 0) setActive(index);
+                }, [props.value]);
+                function keyDown(event) {
+                  if (props.disabled || !options.length) return;
+                  var next = active;
+                  if (event.key === "ArrowDown") next = Math.min(options.length - 1, active + 1);
+                  else if (event.key === "ArrowUp") next = Math.max(0, active - 1);
+                  else if (event.key === "Home") next = 0;
+                  else if (event.key === "End") next = options.length - 1;
+                  else if (event.key === " " || event.key === "Enter") { event.preventDefault(); choose(active); return; }
+                  else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+                    var now = Date.now();
+                    search.current.text = (now - search.current.at < 700 ? search.current.text : "") + event.key.toLowerCase();
+                    search.current.at = now;
+                    next = options.findIndex(function (option) { return String(option.props.children).toLowerCase().indexOf(search.current.text) === 0; });
+                    if (next < 0) return;
+                  } else return;
+                  event.preventDefault();
+                  setActive(next);
+                  if (!props.multiple) choose(next);
+                  var option = list.current && list.current.children[next];
+                  if (option && option.scrollIntoView) option.scrollIntoView({ block: "nearest" });
+                }
+                if (!props.multiple && options.length === 1) return React.createElement("span", { id: props.id, className: "docs-choice-single", "aria-label": props["aria-label"] }, options[0].props.children);
+                return React.createElement("div", {
+                  id: props.id, ref: list, role: "listbox", tabIndex: props.disabled ? -1 : 0,
+                  className: "docs-choice " + (props.className || ""), title: props.title,
+                  "aria-label": props["aria-label"] || "Value", "aria-labelledby": props["aria-labelledby"],
+                  "aria-controls": props["aria-controls"], "aria-disabled": !!props.disabled,
+                  "aria-multiselectable": !!props.multiple, "aria-activedescendant": options.length ? identifier.current + "-" + active : undefined,
+                  onKeyDown: keyDown
+                }, options.map(function (option, index) {
+                  return React.createElement("div", { key: index, id: identifier.current + "-" + index, role: "option", "aria-selected": selected.indexOf(valueOf(option)) !== -1, "data-active": index === active, onClick: function () { choose(index); } }, option.props.children);
+                }));
+              }
+              function replaceSelect(element) {
+                if (!React.isValidElement(element)) return element;
+                if (element.type === "select") return React.createElement(Choice, Object.assign({ key: element.key }, element.props));
+                return element.props.children === undefined ? element : React.cloneElement(element, undefined, React.Children.map(element.props.children, replaceSelect));
+              }
+              function customChoices(Original) {
+                // Keep Swagger's own lifecycle, default values and change handlers.
+                return class extends Original { render() { return replaceSelect(super.render()); } };
+              }
+              return { wrapComponents: {
+                Select: customChoices,
+                contentType: customChoices,
+                ExamplesSelect: customChoices,
+                schemes: customChoices,
+                oauth2: customChoices,
+                Topbar: customChoices,
+                Servers: function (Original) {
+                  return function InstallationServer(props) {
+                    var first = props.servers.first();
+                    var singleInstallation = props.servers.size === 1 && first.get("url") === "/" && !first.get("variables");
+                    system.React.useEffect(function () {
+                      if (singleInstallation && props.currentServer !== "/") props.setSelectedServer("/");
+                    }, [singleInstallation, props.currentServer, props.setSelectedServer]);
+                    return singleInstallation
+                      ? system.React.createElement("div", { className: "servers", "data-installation-server": true },
+                          system.React.createElement("code", null, "/"), " — this Kuberploy installation")
+                      : system.React.createElement(Original, props);
+                  };
+                }
+              } };
+            }],
             layout: "StandaloneLayout"
           });
         } catch (error) {

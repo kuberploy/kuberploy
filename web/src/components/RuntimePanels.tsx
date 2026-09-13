@@ -356,7 +356,8 @@ export function LogsPanel({
               </Select>
             </Field>
             <span className="pb-2 text-ink-faint text-xs">
-              Default 200 lines. Every snapshot includes at most 1 MiB of log text.
+              Default 200 lines. Every snapshot includes at most 1 MiB of log
+              text.
             </span>
           </div>
 
@@ -667,12 +668,9 @@ export function MetricsPanel({ deploymentId }: { deploymentId: string }) {
     <div className="[&_h2]:m-0 [&_h2]:text-ink [&_h2]:text-section [&_h2]:font-semibold [&_h2]:tracking-[-0.02em] [&_h2]:leading-[1.3]">
       <div className="flex items-end justify-between gap-5 mb-4 [&_h2]:text-[20px] [&_p]:mt-1 [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-ink-soft [&_p]:text-meta">
         <div>
-          <Eyebrow>Scoped Prometheus gateway</Eyebrow>
+          <Eyebrow>Runtime monitoring</Eyebrow>
           <h2>App metrics</h2>
-          <p>
-            Named, bounded queries only. Tenant users never receive arbitrary
-            PromQL access.
-          </p>
+          <p>Recent resource usage and traffic for this App.</p>
         </div>
         <StatusPill
           value={
@@ -710,12 +708,14 @@ export function MetricsPanel({ deploymentId }: { deploymentId: string }) {
         <div>
           <strong>
             {available
-              ? "Monitoring is connected; no App series were returned."
-              : "Metrics are explicitly unavailable"}
+              ? "Monitoring is connected"
+              : "App metrics are unavailable"}
           </strong>
           <p>
-            {status.data?.message ??
-              "Configure managed kube-prometheus-stack or an existing compatible endpoint. Missing data is never displayed as zero."}
+            {available
+              ? "Each card shows its latest available data. Traffic metrics appear when your App exposes them."
+              : (status.data?.message ??
+                "Enable monitoring in Settings to view this App's metrics.")}
           </p>
         </div>
       </Notice>

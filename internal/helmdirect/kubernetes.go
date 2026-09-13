@@ -107,9 +107,16 @@ func (c *InClusterApplicationAPI) Observe(ctx context.Context, namespace, name s
 		Metadata struct {
 			Labels map[string]string `json:"labels"`
 		} `json:"metadata"`
+		Spec struct {
+			Project string `json:"project"`
+		} `json:"spec"`
 		Status struct {
 			Sync struct {
-				Status string `json:"status"`
+				Status     string `json:"status"`
+				ComparedTo struct {
+					Source      map[string]any `json:"source"`
+					Destination map[string]any `json:"destination"`
+				} `json:"comparedTo"`
 			} `json:"sync"`
 			Health struct {
 				Status string `json:"status"`
@@ -128,11 +135,16 @@ func (c *InClusterApplicationAPI) Observe(ctx context.Context, namespace, name s
 		return ApplicationState{}, fmt.Errorf("decode Kubernetes Argo Application: %w", err)
 	}
 	state := ApplicationState{
-		Exists:        true,
-		EnvironmentID: payload.Metadata.Labels["kuberploy.io/environment-id"],
-		Sync:          payload.Status.Sync.Status,
-		Health:        payload.Status.Health.Status,
-		Operation:     payload.Status.OperationState.Phase,
+		Exists:              true,
+		EnvironmentID:       payload.Metadata.Labels["kuberploy.io/environment-id"],
+		ApplicationID:       payload.Metadata.Labels["kuberploy.io/application-id"],
+		ProjectID:           payload.Metadata.Labels["kuberploy.io/project-id"],
+		ArgoProject:         payload.Spec.Project,
+		ObservedSource:      payload.Status.Sync.ComparedTo.Source,
+		ObservedDestination: payload.Status.Sync.ComparedTo.Destination,
+		Sync:                payload.Status.Sync.Status,
+		Health:              payload.Status.Health.Status,
+		Operation:           payload.Status.OperationState.Phase,
 	}
 	if reconciledAt, parseErr := time.Parse(time.RFC3339Nano, strings.TrimSpace(payload.Status.ReconciledAt)); parseErr == nil {
 		state.ReconciledAt = &reconciledAt

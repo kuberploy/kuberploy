@@ -154,7 +154,6 @@ func TestResolverRejectsCallerSelectedOrAmbiguousRegistryCoordinates(t *testing.
 	provider := &resolverProvider{digest: "sha256:" + strings.Repeat("d", 64)}
 	config := RuntimeConfig{Profiles: []imagepull.Profile{resolutionProfile()}, Platform: DefaultPlatform()}
 	for name, image := range map[string]string{
-		"different host":       "evil.example.test/tenant/service:latest",
 		"different repository": "registry.example.test:5000/other/service:latest",
 		"implicit registry":    "tenant/service:latest",
 		"traversal":            "registry.example.test:5000/tenant/../service:latest",

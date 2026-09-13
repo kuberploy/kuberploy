@@ -146,8 +146,15 @@ func TestPostgreSQLRuntimeSecretContract(t *testing.T) {
 		t.Fatalf("concurrent version IDs=%v", ids)
 	}
 	bindings, err := store.ListBindings(ctx, testApplication, testEnvironment)
-	if err != nil || len(bindings) != 2 {
+	if err != nil || len(bindings) != 3 {
 		t.Fatalf("listed bindings=%#v err=%v", bindings, err)
+	}
+	listed := make(map[string]BindingState, len(bindings))
+	for _, binding := range bindings {
+		listed[binding.Name] = binding.State
+	}
+	if listed["database"] != BindingReady || listed["cache"] != BindingProvisioning || listed["faileddelete"] != BindingDeleted {
+		t.Fatalf("listed binding states=%v", listed)
 	}
 	rotated, err := service.Rotate(ctx, RotateRequest{ActorID: testActor, BindingID: active.Binding.ID, ExpectedActiveVersion: 1,
 		Deliveries: testDeliveries(), IdempotencyKey: "postgres-rotate-01", RequestID: "postgres-rotate", Material: testMaterial(t, "pg-next-value")})

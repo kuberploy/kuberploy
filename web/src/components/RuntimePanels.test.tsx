@@ -16,7 +16,11 @@ import type {
   LogSource,
   Workload,
 } from "../api/types";
-import { LogsPanel, retryTransientRuntimeView } from "./RuntimePanels";
+import {
+  LogsPanel,
+  MetricsPanel,
+  retryTransientRuntimeView,
+} from "./RuntimePanels";
 
 afterEach(() => {
   cleanup();
@@ -108,6 +112,72 @@ function panel() {
     <LogsPanel applicationId="application-1" deploymentId={targetWorkload.id} />
   );
 }
+
+describe("App runtime metrics", () => {
+  it("shows available resource data without claiming that all App metrics are missing", async () => {
+    vi.spyOn(api, "monitoringStatus").mockResolvedValue({
+      mode: "managed",
+      status: "available",
+      available: true,
+      message: "The scoped query boundary is available.",
+      observedAt: "2026-09-13T00:05:00Z",
+    });
+    vi.spyOn(api, "metricRange").mockImplementation(async ({ metric }) => ({
+      metric,
+      scope: "service",
+      series:
+        metric === "cpu-usage" || metric === "memory-working-set"
+          ? [
+              {
+                labels: {},
+                samples: [
+                  {
+                    timestamp: "2026-09-13T00:04:00Z",
+                    value: metric === "cpu-usage" ? 0 : 4 * 1024 * 1024,
+                  },
+                ],
+              },
+            ]
+          : [],
+      observedAt: "2026-09-13T00:05:00Z",
+    }));
+
+    render(<MetricsPanel deploymentId="deployment-target" />, {
+      wrapper: wrapper(),
+    });
+
+    expect(await screen.findByText("0.000 cores")).toBeInTheDocument();
+    expect(await screen.findByText("4.0 MiB")).toBeInTheDocument();
+    expect(screen.getAllByText("Live")).toHaveLength(2);
+    expect(screen.getAllByText("No data")).toHaveLength(2);
+    expect(screen.getByText("Monitoring is connected")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/no App series were returned/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("explains disabled monitoring and does not issue metric queries", async () => {
+    vi.spyOn(api, "monitoringStatus").mockResolvedValue({
+      mode: "disabled",
+      status: "disabled",
+      available: false,
+      message: "Monitoring is disabled by the administrator.",
+      observedAt: "2026-09-13T00:05:00Z",
+    });
+    const metrics = vi.spyOn(api, "metricRange");
+
+    render(<MetricsPanel deploymentId="deployment-target" />, {
+      wrapper: wrapper(),
+    });
+
+    expect(
+      await screen.findByText("Monitoring is disabled by the administrator."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("App metrics are unavailable")).toBeInTheDocument();
+    expect(metrics).not.toHaveBeenCalled();
+    expect(screen.queryByText("Live")).not.toBeInTheDocument();
+  });
+});
 
 describe("deployment runtime panel", () => {
   it("selects the exact deployment and presents nested log source identity and events", async () => {

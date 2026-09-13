@@ -205,6 +205,15 @@ const projectsRoute = createRoute({
 const projectRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/projects/$projectId",
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { gitEnvironmentId?: string } => ({
+    gitEnvironmentId:
+      typeof search.gitEnvironmentId === "string" &&
+      search.gitEnvironmentId.trim()
+        ? search.gitEnvironmentId.trim()
+        : undefined,
+  }),
   component: ProjectPage,
 });
 const environmentRoute = createRoute({

@@ -5,33 +5,48 @@ The backend remains Go with `pgx`; Prisma Client is neither generated nor
 shipped.
 
 `prisma/schema.prisma` is the readable declarative source for tables, columns,
-scalar types, primary keys, unique constraints, and indexes. The pre-stable
-baseline and append-only post-stable deployment history are SQL under
+scalar types, primary keys, unique constraints, and indexes. The published
+baseline and append-only deployment history are SQL under
 `prisma/migrations/<NNN_name>/migration.sql`. PostgreSQL foreign-key authority
 fences, functions, triggers, CHECK and deferred constraints, expression
 indexes, and other database-owned guards belong in that SQL because Prisma
 cannot represent them losslessly. Do not replace them with application-only
 checks.
 
-Before the first stable release:
+For every schema change, including release candidates that preserve existing data:
 
 1. Edit `prisma/schema.prisma` for the declarative part of the change.
-2. Fold matching SQL and native PostgreSQL authority into
-   `prisma/migrations/001_initial/migration.sql`.
-3. Apply it to a fresh disposable PostgreSQL 18 database.
+2. Add the next ordered three-digit migration containing matching SQL and native
+   PostgreSQL authority. Never rewrite a published migration.
+3. Apply the full history to a fresh disposable PostgreSQL 18 database and prove
+   an upgrade from the previous schema with representative retained data.
 4. Review `npm run pull:print`.
-5. Update the baseline checksum assertion in `embed_test.go`.
+5. Bump `migrations.CurrentSchema` and update history assertions in `embed_test.go`,
+   preserving the published baseline checksum.
 6. Run `npm run format`, `npm run validate`, `npm run check:drift`,
    `make prisma-migration-test`, and the normal Go, chart, and release gates.
 
-`001_initial` is the replaceable pre-stable `0.1.0` baseline. Release-candidate
-databases are disposable and must start fresh when this baseline changes.
-After `0.1.0` becomes stable, freeze this checksum. Add the next ordered
-three-digit migration for every later change, review its SQL, bump
-`migrations.CurrentSchema`, and prove upgrade compatibility. Remove
+`001_initial` is the frozen published `0.1.0` baseline. Starting with
+`002_secret_history_retention`, release candidates use append-only upgrades to
+preserve existing installation data. This supersedes the earlier pre-stable
+baseline-replacement policy. Remove
 `pg_dump`'s psql-only `\\restrict` /
 `\\unrestrict` transport lines and its empty `search_path` session directive;
 Prisma executes migration SQL directly and owns `_prisma_migrations`.
+
+`002_secret_history_retention` retains immutable secret deliveries, lifecycle
+events, and mutation receipts when a deleted binding's App or Environment is
+removed. Native insertion guards validate and lock exact existing binding and
+version identities; immutable update/delete guards remain in force. No historical
+rows, credentials, or parent resources are rewritten by the migration.
+
+The migration runs atomically before API/worker rollout. Existing processes can
+continue their reads and secret writes during rollout; their old resource-deletion
+path still rejects immutable history until the new binaries take over. A binary
+that knows only `001_initial` refuses the additional migration on startup. Do not
+downgrade the database or restore old foreign keys after resource deletion has
+retained history without parent metadata. Recover using a chart and binary that
+support the same schema (or a later compatible schema), preserving the database.
 
 The baseline separates presentation `display_name` from local-auth `email`.
 Fresh installs ask for an administrator email and display name separately;

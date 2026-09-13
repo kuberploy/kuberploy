@@ -42,3 +42,16 @@ func TestNormalizeValuesRequiresOneMapping(t *testing.T) {
 		}
 	}
 }
+
+func TestGitHelmSourceAcceptsRepositoryRootWithoutAllowingTraversal(t *testing.T) {
+	source := Source{Kind: SourceGit, RepositoryURL: "https://github.com/example/charts.git", Path: ".", TargetRevision: "main"}
+	normalized, err := source.Normalize()
+	if err != nil || normalized.Path != "." {
+		t.Fatalf("repository root chart rejected: %#v %v", normalized, err)
+	}
+	for _, path := range []string{"", "..", "../chart", "chart/../other", "./chart", "chart/./other", "/chart", "chart\\other"} {
+		if validRelativePath(path) {
+			t.Fatalf("unsafe or ambiguous chart path accepted: %q", path)
+		}
+	}
+}

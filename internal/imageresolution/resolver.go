@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/imagepull"
 )
 
@@ -20,6 +21,9 @@ type ProviderAuthority struct {
 	Profile   *imagepull.Profile
 	Anonymous bool
 	Token     *TokenAuthority
+	// Public permits an anonymous challenge from an unbound public registry.
+	// It never permits a stored credential or an operator authority override.
+	Public bool
 }
 
 type Resolution struct {
@@ -35,8 +39,7 @@ type Resolver struct {
 }
 
 func (r *Resolver) Available() bool {
-	return r != nil && r.Catalog != nil && r.Provider != nil && r.Config.Validate() == nil &&
-		(len(r.Config.Profiles) != 0 || len(r.Config.AnonymousTargetIDs) != 0)
+	return r != nil && r.Catalog != nil && r.Provider != nil && r.Config.Validate() == nil
 }
 
 func (r *Resolver) Resolve(ctx context.Context, actor, applicationID, environmentID, image string) (Resolution, error) {
@@ -93,28 +96,43 @@ func (r *Resolver) Resolve(ctx context.Context, actor, applicationID, environmen
 			return result, nil
 		}
 	}
-	if len(matches) == 0 {
+	if len(matches) == 0 && sameServer {
 		return result, ErrNotFound
 	}
-	if len(matches) != 1 {
+	if len(matches) > 1 {
 		return result, ErrConflict
 	}
-	source := matches[0]
-	profile, anonymous, configured := r.Config.authority(source.Target.ID)
-	if !configured || profile == nil && !anonymous {
-		return result, ErrUnavailable
-	}
-	if anonymous && strings.Contains(reference.Server, ":") {
-		return result, ErrConflict
-	}
-	authority := &ProviderAuthority{Anonymous: anonymous}
-	authority.Token = r.Config.tokenAuthority(source.Target.ID)
-	if profile != nil {
-		server, _ := canonicalRegistryServer(source.Target.Endpoint)
-		if profile.RegistryServer != server || source.Target.PullCredentialRef == "" || profile.CredentialRef != source.Target.PullCredentialRef {
+	var source AuthorizedSource
+	authority := &ProviderAuthority{}
+	if len(matches) == 0 {
+		// Catalog access has already authorized this exact App/Environment.
+		// An unbound host is the public-image path, with no credential lookup.
+		if !publicHTTPSURL("https://"+reference.Server, false) {
 			return result, ErrConflict
 		}
-		authority.Profile = profile
+		source = AuthorizedSource{
+			Target: domain.RegistryTarget{Endpoint: "https://" + reference.Server, RepositoryPrefix: reference.Repository},
+			Policy: domain.ServiceRegistryPolicy{ServiceID: applicationID, Repository: reference.Repository},
+		}
+		authority.Anonymous, authority.Public = true, true
+	} else {
+		source = matches[0]
+		profile, anonymous, configured := r.Config.authority(source.Target.ID)
+		if !configured || profile == nil && !anonymous {
+			return result, ErrUnavailable
+		}
+		authority.Anonymous = anonymous
+		authority.Token = r.Config.tokenAuthority(source.Target.ID)
+		if profile != nil {
+			server, _ := canonicalRegistryServer(source.Target.Endpoint)
+			if profile.RegistryServer != server || source.Target.PullCredentialRef == "" || profile.CredentialRef != source.Target.PullCredentialRef {
+				return result, ErrConflict
+			}
+			authority.Profile = profile
+		}
+	}
+	if authority.Anonymous && strings.Contains(reference.Server, ":") {
+		return result, ErrConflict
 	}
 	digest, err := r.Provider.ResolveTag(ctx, source, reference, authority, r.Config.Platform)
 	if err != nil {

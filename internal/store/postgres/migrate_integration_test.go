@@ -74,16 +74,16 @@ func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
 
 	assertCatalogCount(t, ctx, pool, "application tables", `SELECT count(*)
 		FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-		WHERE n.nspname='public' AND c.relkind='r' AND c.relname <> '_prisma_migrations'`, 96)
+		WHERE n.nspname='public' AND c.relkind='r' AND c.relname <> '_prisma_migrations'`, 97)
 	assertCatalogCount(t, ctx, pool, "native functions", `SELECT count(*)
 		FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-		WHERE n.nspname='public'`, 63)
+		WHERE n.nspname='public'`, 64)
 	assertCatalogCount(t, ctx, pool, "non-internal triggers", `SELECT count(*)
 		FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
-		WHERE n.nspname='public' AND NOT t.tgisinternal`, 68)
+		WHERE n.nspname='public' AND NOT t.tgisinternal`, 70)
 	assertCatalogCount(t, ctx, pool, "check constraints", `SELECT count(*)
 		FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace
-		WHERE n.nspname='public' AND c.contype='c'`, 651)
+		WHERE n.nspname='public' AND c.contype='c'`, 666)
 	assertCatalogCount(t, ctx, pool, "deferred constraints", `SELECT count(*)
 		FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace
 		WHERE n.nspname='public' AND c.condeferrable`, 9)
@@ -100,6 +100,7 @@ func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
 	for _, function := range []string{
 		"protect_git_pull_request_publication",
 		"protect_secret_binding_version",
+		"validate_secret_binding_history_identity",
 		"validate_configuration_profile_assignment",
 		"validate_runtime_readiness",
 		"validate_mutation_receipt",
@@ -122,6 +123,8 @@ func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
 	for _, trigger := range []string{
 		"git_pull_request_publications_protect",
 		"secret_binding_versions_protect",
+		"secret_binding_deliveries_identity",
+		"secret_binding_events_identity",
 		"configuration_profile_assignment_validate",
 		"runtime_readiness_validate",
 		"mutation_receipts_validate",

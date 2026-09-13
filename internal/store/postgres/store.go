@@ -995,11 +995,18 @@ func purgeDeletedSecretBindings(ctx context.Context, tx pgx.Tx, scopeColumn, sco
 		return base.ErrConflict
 	}
 	bindingIDs := `SELECT id FROM secret_bindings WHERE ` + scopeColumn + `=$1 AND state='deleted'`
+	// Match the history writer's binding-before-version lock order. Otherwise
+	// a late event can hold the binding while cleanup holds its version, leaving
+	// both transactions waiting on each other.
+	if _, err := tx.Exec(ctx, bindingIDs+` ORDER BY id FOR UPDATE`, scopeID); err != nil {
+		return err
+	}
+	// Deliveries, events, and mutation receipts are immutable history. Their
+	// insertion guards validate live identity; resource deletion retains those
+	// records while removing only the deleted binding's operational metadata.
 	for _, statement := range []string{
 		`DELETE FROM secret_binding_references WHERE binding_id IN (` + bindingIDs + `)`,
 		`DELETE FROM secret_binding_runtime_reconciliations WHERE binding_id IN (` + bindingIDs + `)`,
-		`DELETE FROM secret_binding_deliveries WHERE binding_id IN (` + bindingIDs + `)`,
-		`DELETE FROM secret_binding_events WHERE binding_id IN (` + bindingIDs + `)`,
 		`DELETE FROM secret_binding_versions WHERE binding_id IN (` + bindingIDs + `)`,
 		`DELETE FROM secret_bindings WHERE id IN (` + bindingIDs + `)`,
 	} {

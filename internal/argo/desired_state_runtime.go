@@ -94,8 +94,9 @@ func (w *DesiredStateRuntimeWorker) ProcessOne(ctx context.Context) (bool, error
 	}
 	// Once the immutable write-base receipt exists, the Git push may have
 	// succeeded even if its database acknowledgement did not. The writer first
-	// searches provider history for the exact operation trailer. Only an absent
-	// trailer is terminal; an acknowledged operation remains recoverable.
+	// searches provider history for the exact operation trailer. An absent
+	// trailer or a definite pre-push rejection is terminal; an acknowledged
+	// operation remains recoverable.
 	if current.State == DesiredStateClaimed &&
 		((current.WriteBaseRevision == "" && IsPermanentDesiredStateError(err)) ||
 			errors.Is(err, ErrDesiredStateWriteNotFound)) {

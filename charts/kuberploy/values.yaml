@@ -142,9 +142,10 @@ config:
     readinessSeconds: 90
     minimumBackoffSeconds: 5
     maximumBackoffSeconds: 300
-  # Existing-image tags resolve only through the application registry catalog.
-  # Anonymous targets are exact IDs and restricted to canonical HTTPS/443.
-  # Bearer challenge realms and audiences are exact operator-owned bindings.
+  # Public image tags resolve anonymously over public HTTPS by default.
+  # Configured registry targets retain exact repository and credential policy.
+  # These optional bindings configure anonymous targets and token authorities
+  # for operator-managed registries; credentials never enter public resolution.
   imageTagResolution:
     anonymousTargetIds: []
     tokenAuthorities: []
@@ -250,7 +251,7 @@ components:
   api:
     replicas: 1
     image:
-      reference: ghcr.io/kuberploy/kuberploy-api:0.1.0-rc.455
+      reference: ghcr.io/kuberploy/kuberploy-api:0.1.0-rc.456
       pullPolicy: IfNotPresent
     port: 8080
     resources:
@@ -259,7 +260,7 @@ components:
   worker:
     replicas: 1
     image:
-      reference: ghcr.io/kuberploy/kuberploy-worker:0.1.0-rc.455
+      reference: ghcr.io/kuberploy/kuberploy-worker:0.1.0-rc.456
       pullPolicy: IfNotPresent
     resources:
       requests: {cpu: 50m, memory: 64Mi}
@@ -267,7 +268,7 @@ components:
   web:
     replicas: 1
     image:
-      reference: ghcr.io/kuberploy/kuberploy-web:0.1.0-rc.455
+      reference: ghcr.io/kuberploy/kuberploy-web:0.1.0-rc.456
       pullPolicy: IfNotPresent
     port: 8080
     resources:
@@ -275,7 +276,7 @@ components:
       limits: {cpu: 250m, memory: 128Mi}
   migration:
     image:
-      reference: ghcr.io/kuberploy/kuberploy-migration:0.1.0-rc.455
+      reference: ghcr.io/kuberploy/kuberploy-migration:0.1.0-rc.456
       pullPolicy: IfNotPresent
     resources:
       requests: {cpu: 25m, memory: 64Mi}

@@ -4,7 +4,12 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "@tanstack/react-router";
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearch,
+} from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { api, errorMessage } from "../api/client";
@@ -40,6 +45,9 @@ type EnvironmentForm = {
 
 export function ProjectPage() {
   const { projectId } = useParams({ from: "/projects/$projectId" });
+  const { gitEnvironmentId: requestedGitEnvironmentId } = useSearch({
+    from: "/projects/$projectId",
+  });
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<ProjectTab>("environments");
@@ -189,14 +197,29 @@ export function ProjectPage() {
     deleteAttempt.current = null;
     deleteProject.reset();
   }, [projectId]);
+  useEffect(() => {
+    setGitEnvironmentId(requestedGitEnvironmentId ?? null);
+    if (requestedGitEnvironmentId) setTab("environments");
+  }, [projectId, requestedGitEnvironmentId]);
+  const chooseGitEnvironment = (environmentId: string | null) => {
+    setGitEnvironmentId(environmentId);
+    void navigate({
+      to: "/projects/$projectId",
+      params: { projectId },
+      search: { gitEnvironmentId: environmentId ?? undefined },
+      replace: true,
+    });
+  };
   // The opened environment is a preference; whether the Git panel is actually
-  // open is derived from the environments this render can see, so an
-  // environment that disappears closes the panel in the same render.
+  // open is derived from this Project's visible environments and current read
+  // access, so a deep link cannot open another Project's or an unauthorized
+  // Environment's Git settings.
   const gitEnvironmentId =
     gitEnvironmentChoice !== null &&
     projectEnvironments.some(
       (environment) => environment.id === gitEnvironmentChoice,
-    )
+    ) &&
+    hasActionAtEnvironment("deployment-config:read", gitEnvironmentChoice)
       ? gitEnvironmentChoice
       : null;
   const loading =
@@ -375,8 +398,8 @@ export function ProjectPage() {
                         <Button
                           variant="secondary"
                           onClick={() =>
-                            setGitEnvironmentId((current) =>
-                              current === environment.id
+                            chooseGitEnvironment(
+                              gitEnvironmentId === environment.id
                                 ? null
                                 : environment.id,
                             )
@@ -418,7 +441,7 @@ export function ProjectPage() {
                   ) &&
                   hasActionAtEnvironment("app-sources:write", environment.id)
                 }
-                onClose={() => setGitEnvironmentId(null)}
+                onClose={() => chooseGitEnvironment(null)}
               />
             ))}
         </PageStack>

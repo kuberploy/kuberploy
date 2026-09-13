@@ -3,6 +3,8 @@ import { lstat, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runInNewContext } from "node:vm";
+import { JSDOM, VirtualConsole } from "jsdom";
 import {
   buildApiDocs,
   SWAGGER_UI_ASSETS,
@@ -18,6 +20,219 @@ function assert(condition, message) {
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+async function verifySwaggerChoices(directory, config) {
+  const errors = [];
+  const virtualConsole = new VirtualConsole();
+  virtualConsole.on("jsdomError", (error) => errors.push(error.message));
+  virtualConsole.on("error", (...args) =>
+    errors.push(args.map(String).join(" ")),
+  );
+  const dom = new JSDOM('<div id="swagger-ui"></div>', {
+    url: "https://docs.example.test/docs/",
+    runScripts: "dangerously",
+    pretendToBeVisual: true,
+    virtualConsole,
+  });
+  try {
+    dom.window.CSS.escape = dom.window.CSS.escape.bind(dom.window.CSS);
+    dom.window.matchMedia = () => ({
+      matches: false,
+      addEventListener() {},
+      removeEventListener() {},
+    });
+    dom.window.eval(
+      await readFile(join(directory, "swagger-ui-bundle.js"), "utf8"),
+    );
+    dom.window.eval(
+      await readFile(
+        join(directory, "swagger-ui-standalone-preset.js"),
+        "utf8",
+      ),
+    );
+    const bundle = dom.window.SwaggerUIBundle;
+    const spec = {
+      openapi: "3.0.3",
+      info: { title: "Choice regression", version: "1" },
+      servers: [{ url: "/" }],
+      paths: {
+        "/meta": {
+          get: {
+            parameters: [
+              {
+                name: "mode",
+                in: "query",
+                schema: { type: "string", enum: ["first", "second"] },
+              },
+              {
+                name: "flavors",
+                in: "query",
+                schema: {
+                  type: "array",
+                  items: { type: "string", enum: ["vanilla", "chocolate"] },
+                },
+              },
+            ],
+            responses: {
+              200: {
+                description: "Choices",
+                content: {
+                  "application/json": {
+                    schema: { type: "string" },
+                    examples: {
+                      first: { summary: "First example", value: "first" },
+                      second: { summary: "Second example", value: "second" },
+                    },
+                  },
+                  "application/problem+json": { schema: { type: "object" } },
+                },
+              },
+              400: {
+                description: "Only media type",
+                content: {
+                  "application/problem+json": { schema: { type: "object" } },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+    bundle({
+      ...config,
+      spec,
+      url: undefined,
+      docExpansion: "full",
+      defaultModelsExpandDepth: -1,
+      presets: [bundle.presets.apis, dom.window.SwaggerUIStandalonePreset],
+    });
+    const document = dom.window.document;
+    async function waitFor(check, message) {
+      const until = Date.now() + 5000;
+      while (!check() && Date.now() < until)
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      assert(check(), `${message} ${errors.join("; ")}`);
+    }
+    await waitFor(
+      () => document.querySelector(".opblock"),
+      "Swagger did not render the fixture operation.",
+    );
+    assert(
+      !document.querySelector("select"),
+      "Swagger rendered a native selector.",
+    );
+    assert(
+      document.querySelector("[data-installation-server]"),
+      "Installation server label disappeared.",
+    );
+    await waitFor(
+      () => document.querySelector('[role="listbox"][aria-label="Media Type"]'),
+      "Media controls did not render.",
+    );
+    const media = document.querySelector(
+      '[role="listbox"][aria-label="Media Type"]',
+    );
+    assert(media, "Multiple media types have no accessible choice control.");
+    const mediaOptions = media.querySelectorAll('[role="option"]');
+    const examples = document.querySelector(
+      '.examples-select [role="listbox"]',
+    );
+    assert(examples, "Named examples have no accessible choice control.");
+    examples.querySelectorAll('[role="option"]')[1].click();
+    await waitFor(
+      () =>
+        examples
+          .querySelectorAll('[role="option"]')[1]
+          .getAttribute("aria-selected") === "true",
+      "Named example selection did not update Swagger.",
+    );
+    mediaOptions[1].click();
+    await waitFor(
+      () => mediaOptions[1].getAttribute("aria-selected") === "true",
+      "Media selection did not update Swagger.",
+    );
+    assert(
+      document.querySelector(".docs-choice-single"),
+      "A single media type should remain readable.",
+    );
+    const mode = document.querySelector(
+      '[data-param-name="mode"] [role="listbox"]',
+    );
+    assert(
+      mode?.getAttribute("aria-disabled") === "true",
+      "Enum editing should be disabled before Try it out.",
+    );
+    mode.querySelectorAll('[role="option"]')[2].click();
+    assert(
+      mode
+        .querySelectorAll('[role="option"]')[2]
+        .getAttribute("aria-selected") === "false",
+      "Disabled enum changed value.",
+    );
+    document.querySelector(".try-out__btn").click();
+    await waitFor(
+      () => mode.getAttribute("aria-disabled") === "false",
+      "Try it out did not enable enum editing.",
+    );
+    mode.focus();
+    mode.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "End", bubbles: true }),
+    );
+    await waitFor(
+      () =>
+        mode
+          .querySelectorAll('[role="option"]')[2]
+          .getAttribute("aria-selected") === "true",
+      "Keyboard enum selection did not update Swagger.",
+    );
+    mode.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "Home", bubbles: true }),
+    );
+    await waitFor(
+      () =>
+        mode
+          .querySelectorAll('[role="option"]')[0]
+          .getAttribute("aria-selected") === "true",
+      "Optional enum could not be cleared.",
+    );
+    const multiple = document.querySelector(
+      '[data-param-name="flavors"] [role="listbox"]',
+    );
+    assert(
+      multiple?.getAttribute("aria-multiselectable") === "true",
+      "Array enum lost multiselect semantics.",
+    );
+    const multipleOptions = multiple.querySelectorAll('[role="option"]');
+    multipleOptions[1].click();
+    await waitFor(
+      () => multipleOptions[1].getAttribute("aria-selected") === "true",
+      "First array value was not selected.",
+    );
+    multipleOptions[2].click();
+    await waitFor(
+      () =>
+        multipleOptions[1].getAttribute("aria-selected") === "true" &&
+        multipleOptions[2].getAttribute("aria-selected") === "true",
+      "Array selection discarded an existing value.",
+    );
+    multiple.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: " ", bubbles: true }),
+    );
+    await waitFor(
+      () =>
+        multipleOptions[1].getAttribute("aria-selected") === "true" &&
+        multipleOptions[2].getAttribute("aria-selected") === "false",
+      "Keyboard did not toggle the active multiselect value.",
+    );
+    assert(
+      !document.querySelector("select"),
+      "Try it out introduced a native selector.",
+    );
+    assert(errors.length === 0, `Swagger choice errors: ${errors.join("; ")}`);
+  } finally {
+    dom.window.close();
+  }
 }
 
 async function verifyApiDocs(directory) {
@@ -101,6 +316,54 @@ async function verifyApiDocs(directory) {
       index.includes("!Array.isArray(window.SwaggerUIStandalonePreset)"),
     "Docs runtime asset guards are missing.",
   );
+
+  let config;
+  const window = {
+    SwaggerUIBundle: Object.assign(
+      (options) => {
+        config = options;
+      },
+      { presets: { apis: [] } },
+    ),
+    SwaggerUIStandalonePreset: [],
+    addEventListener: (_event, callback) => callback(),
+  };
+  const inlineScript = index.match(/<script>\s*([\s\S]*?)<\/script>/)?.[1];
+  assert(inlineScript, "Docs initializer is missing.");
+  runInNewContext(inlineScript, {
+    window,
+    document: { getElementById: () => ({}) },
+    console,
+  });
+  const selected = [];
+  const plugin = config.plugins[0]({
+    React: {
+      useEffect: (effect) => effect(),
+      createElement: (type, props, ...children) => ({ type, props, children }),
+    },
+  });
+  const Original = () => {};
+  const Servers = plugin.wrapComponents.Servers(Original);
+  const props = {
+    servers: { size: 1, first: () => new Map([["url", "/"]]) },
+    currentServer: "",
+    setSelectedServer: (value) => selected.push(value),
+  };
+  const rendered = Servers(props);
+  assert(
+    rendered.type === "div" && rendered.props["data-installation-server"],
+    "The only installation server should be a readable label.",
+  );
+  assert(
+    selected.length === 1 && selected[0] === "/",
+    "The relative installation server was not selected for API requests.",
+  );
+  assert(
+    Servers({ ...props, servers: { ...props.servers, size: 2 } }).type ===
+      Original,
+    "Alternate server contracts lost their normal selection behavior.",
+  );
+  await verifySwaggerChoices(directory, config);
 
   const nginx = await readFile(
     join(projectRoot, "nginx.conf.template"),

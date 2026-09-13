@@ -2,7 +2,10 @@ package helmdirect
 
 import (
 	"context"
+	"reflect"
 	"time"
+
+	"go.yaml.in/yaml/v3"
 )
 
 type ApplicationAPI interface {
@@ -12,13 +15,18 @@ type ApplicationAPI interface {
 }
 
 type ApplicationState struct {
-	Exists        bool
-	EnvironmentID string
-	Sync          string
-	Health        string
-	Operation     string
-	ConditionType string
-	ReconciledAt  *time.Time
+	Exists              bool
+	EnvironmentID       string
+	ApplicationID       string
+	ProjectID           string
+	ArgoProject         string
+	ObservedSource      map[string]any
+	ObservedDestination map[string]any
+	Sync                string
+	Health              string
+	Operation           string
+	ConditionType       string
+	ReconciledAt        *time.Time
 }
 
 type ArgoReconciler struct {
@@ -71,7 +79,7 @@ func (r ArgoReconciler) Reconcile(ctx context.Context, revision Revision) error 
 	if err != nil {
 		return err
 	}
-	if !state.Exists || state.ReconciledAt == nil || state.ReconciledAt.Before(revision.UpdatedAt) {
+	if !state.Exists || !state.observes(revision, manifest) {
 		return ErrPending
 	}
 	if state.ConditionType != "" {
@@ -84,6 +92,26 @@ func (r ArgoReconciler) Reconcile(ctx context.Context, revision Revision) error 
 		return ErrPending
 	}
 	return nil
+}
+
+// Argo's comparison records the complete source, values and destination it
+// observed. Its reconciledAt timestamp has second precision and can lag a
+// successful sync; it is not a reliable fence for the requested configuration.
+func (state ApplicationState) observes(revision Revision, manifest []byte) bool {
+	if state.EnvironmentID != revision.Target.EnvironmentID || state.ApplicationID != revision.Target.ApplicationID ||
+		state.ProjectID != revision.Target.ProjectID || state.ArgoProject != HelmAppProject {
+		return false
+	}
+	var expected struct {
+		Spec struct {
+			Source      map[string]any `yaml:"source"`
+			Destination map[string]any `yaml:"destination"`
+		} `yaml:"spec"`
+	}
+	if yaml.Unmarshal(manifest, &expected) != nil || len(expected.Spec.Source) == 0 || len(expected.Spec.Destination) == 0 {
+		return false
+	}
+	return reflect.DeepEqual(state.ObservedSource, expected.Spec.Source) && reflect.DeepEqual(state.ObservedDestination, expected.Spec.Destination)
 }
 
 func (r ArgoReconciler) deleteLegacyIfOwned(ctx context.Context, revision Revision, legacyName string) (bool, error) {

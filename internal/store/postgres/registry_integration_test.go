@@ -88,8 +88,10 @@ func TestRegistryLifecycleSQLPaths(t *testing.T) {
 		}
 	}
 	latestAt, oldAt := now.Add(-24*time.Hour), now.Add(-48*time.Hour)
-	latest := domain.RegistryRelease{ID: id.New(), RegistryTargetID: targetID, ServiceID: serviceID, Repository: repository, RootDigest: postgresRegistryDigest("a"), CreatedAt: old, SucceededAt: &latestAt, Availability: domain.RegistryArtifactPresent}
-	oldRelease := domain.RegistryRelease{ID: id.New(), RegistryTargetID: targetID, ServiceID: serviceID, Repository: repository, RootDigest: postgresRegistryDigest("b"), CreatedAt: old, SucceededAt: &oldAt, Availability: domain.RegistryArtifactPresent}
+	// Retention orders successful releases by creation time, not completion
+	// time. Equal timestamps would leave this fixture ordered by random IDs.
+	latest := domain.RegistryRelease{ID: id.New(), RegistryTargetID: targetID, ServiceID: serviceID, Repository: repository, RootDigest: postgresRegistryDigest("a"), CreatedAt: latestAt.Add(-time.Hour), SucceededAt: &latestAt, Availability: domain.RegistryArtifactPresent}
+	oldRelease := domain.RegistryRelease{ID: id.New(), RegistryTargetID: targetID, ServiceID: serviceID, Repository: repository, RootDigest: postgresRegistryDigest("b"), CreatedAt: oldAt.Add(-time.Hour), SucceededAt: &oldAt, Availability: domain.RegistryArtifactPresent}
 	for _, release := range []domain.RegistryRelease{latest, oldRelease} {
 		if _, replay, putErr := st.PutRegistryRelease(ctx, release); putErr != nil || replay {
 			t.Fatalf("put release replay=%v err=%v", replay, putErr)
@@ -128,6 +130,15 @@ func TestRegistryLifecycleSQLPaths(t *testing.T) {
 	plan, err := lifecycle.Preview(ctx, targetID, serviceID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, item := range plan.Items {
+		if item.ResourceKind != "release-manifest" {
+			continue
+		}
+		if item.Digest == oldRelease.RootDigest && item.Disposition != domain.RegistryCleanupDelete ||
+			item.Digest == latest.RootDigest && item.Disposition == domain.RegistryCleanupDelete {
+			t.Fatalf("retention preview selected the wrong release: %#v", item)
+		}
 	}
 	if _, claimed, err := lifecycle.Claim(ctx, plan.ID, "integration-worker", 10*time.Minute); err != nil || !claimed {
 		t.Fatalf("claim claimed=%v err=%v", claimed, err)
