@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canonicalBranchRef, gitRefLabel } from "./format";
+import { canonicalBranchRef, gitRefLabel, operationTone } from "./format";
 
 describe("Git ref formatting", () => {
   it("shows readable branch and tag names", () => {
@@ -11,5 +11,9 @@ describe("Git ref formatting", () => {
   it("restores the canonical branch ref used by the API", () => {
     expect(canonicalBranchRef("main")).toBe("refs/heads/main");
     expect(canonicalBranchRef("refs/heads/main")).toBe("refs/heads/main");
+  });
+
+  it("styles an actively progressing operation as busy", () => {
+    expect(operationTone("progressing")).toBe("busy");
   });
 });

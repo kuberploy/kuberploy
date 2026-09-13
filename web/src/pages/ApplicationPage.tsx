@@ -138,12 +138,18 @@ export function ApplicationPage() {
   const pullRequest = relatedOperations.find(
     (operation) => operation.pullRequest,
   )?.pullRequest;
+  // A terminal failed operation is the most recent user-visible outcome even
+  // when the last workload observation is still healthy or unavailable. Keep
+  // the failure visible in the page header until the operator starts a new
+  // operation; otherwise a failed Git write can look healthy at a glance.
   const health =
-    status.data?.state === "stopped"
-      ? "stopped"
-      : status.data?.state === "pending-stop"
-        ? "stopping"
-        : (status.data?.rolloutHealth ?? "unknown");
+    status.data?.operationStatus === "failed"
+      ? "failed"
+      : status.data?.state === "stopped"
+        ? "stopped"
+        : status.data?.state === "pending-stop"
+          ? "stopping"
+          : (status.data?.rolloutHealth ?? "unknown");
   const isStopped = status.data?.state === "stopped";
   const isStopping = status.data?.state === "pending-stop";
   const observedWorkloadState = isStopped

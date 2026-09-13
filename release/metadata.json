@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Desktop App pages keep stopped and stopping lifecycle cards aligned with the current state instead of showing cached workload observations. Connected Git SSH Apps expose Deploy, Rebuild, and build history using the existing source build workflow. ExternalDNS readiness follows the current Deployment rollout rather than an older ready Pod.",
+  "summary": "Desktop App pages keep failed, stopped, and stopping lifecycle outcomes visible instead of showing stale workload observations. App source cards expose the selected source clearly. Connected Git SSH Apps expose Deploy, Rebuild, and build history using the existing source build workflow. ExternalDNS readiness follows the current Deployment rollout rather than an older ready Pod.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.464"
+  "version": "0.1.0-rc.465"
 }

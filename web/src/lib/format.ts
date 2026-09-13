@@ -90,6 +90,7 @@ export function operationTone(
       "reconciling",
       "configpending",
       "gitcommitted",
+      "progressing",
     ].includes(normalized)
   )
     return "busy";

@@ -518,6 +518,26 @@ describe("application rollout truth", () => {
     expect(screen.getAllByText("Behind")).not.toHaveLength(0);
   });
 
+  it("keeps a failed operation visible over a stale healthy observation", async () => {
+    vi.mocked(api.deploymentStatus).mockResolvedValue({
+      state: "git-committed",
+      operationStatus: "failed",
+      desiredRevision: "a".repeat(40),
+      argoSyncStatus: "synced",
+      rolloutHealth: "healthy",
+      argoObservedRevision: "a".repeat(40),
+    });
+    renderApplication({ features: {}, capabilities: [] });
+
+    const header = (
+      await screen.findByRole("heading", { name: "Payments API" })
+    ).closest("header")!;
+    await waitFor(() =>
+      expect(within(header).getByText("Failed")).toBeInTheDocument(),
+    );
+    expect(within(header).queryByText("Healthy")).toBeNull();
+  });
+
   it("shows exact Kubernetes replica readiness and rollout condition", async () => {
     vi.mocked(api.deploymentStatus).mockResolvedValue({
       state: "git-committed",
