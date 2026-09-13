@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Browser session discovery handles signed-out pages without an expected authorization error while protected APIs retain their existing authentication requirements. The API contract includes the email field already returned in principal responses. DNS guidance distinguishes a ready integration from an unavailable platform prerequisite.",
+  "summary": "App source pages avoid requests that do not apply to OCI or Helm Apps. GitHub and Git SSH source setup discovers an unconfigured source without a browser network error through an optional empty response, while existing API responses, authentication, tenant authorization, and source editing remain unchanged.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.460"
+  "version": "0.1.0-rc.461"
 }

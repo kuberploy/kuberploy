@@ -10,6 +10,81 @@ import type { OperationWire } from "./types";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("typed API client", () => {
+  it("discovers an explicitly empty App source without a failed request", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await api.buildDefinitions("application/id")).toEqual({
+      items: [],
+      nextCursor: undefined,
+    });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "/v1/applications/application%2Fid/source?allowEmpty=true",
+    );
+  });
+
+  it.each([401, 403, 404, 503])(
+    "keeps source discovery HTTP %i visible as an error",
+    async (status) => {
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValue(
+            new Response(JSON.stringify({ code: "SourceUnavailable" }), {
+              status,
+            }),
+          ),
+      );
+      await expect(api.buildDefinitions("application-1")).rejects.toMatchObject(
+        { status, problem: { code: "SourceUnavailable" } },
+      );
+    },
+  );
+
+  it.each(["github", "git_ssh"])(
+    "still discovers a connected %s source safely",
+    async (sourceKind) => {
+      const source = {
+        id: "source-1",
+        applicationId: "application-1",
+        projectId: "project-1",
+        sourceKind,
+        registry: {
+          targetId: "registry-1",
+          mode: "managed",
+          server: "registry.example.test",
+          repositoryPrefix: "apps",
+          credential: "must-not-expose",
+        },
+        profile: {
+          resource: "standard",
+          timeoutSeconds: 900,
+          egress: "default",
+        },
+        platforms: ["linux/amd64"],
+        execution: { namespace: "must-not-expose" },
+      };
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValue(
+            new Response(JSON.stringify(source), { status: 200 }),
+          ),
+      );
+      const result = await api.buildDefinitions("application-1");
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]).toMatchObject({
+        id: "source-1",
+        applicationId: "application-1",
+        sourceKind,
+      });
+      expect(JSON.stringify(result)).not.toContain("must-not-expose");
+    },
+  );
+
   it("discovers nullable browser sessions while keeping me protected", async () => {
     const principal = {
       id: "user-1",

@@ -159,6 +159,86 @@ function setupHelmOverview(overrides: Partial<HelmReleaseStatus> = {}) {
 }
 
 describe("application source overview", () => {
+  it.each(["oci", "helm"] as const)(
+    "does not request a build source for a %s App with source-read access",
+    async (sourceKind) => {
+      vi.mocked(api.application).mockResolvedValue({
+        id: "application-1",
+        projectId: "project-1",
+        name: "Payments API",
+        sourceKind,
+      });
+      vi.mocked(api.capabilities).mockResolvedValue({
+        features: { builds: true, builder: true },
+        capabilities: [
+          {
+            scopeType: "application",
+            scopeId: "application-1",
+            actions: ["app-sources:read"],
+          },
+        ],
+      });
+      vi.mocked(api.buildDefinitions).mockRejectedValue(
+        new ApiError(404, { code: "BuildNotFound" }),
+      );
+      const user = userEvent.setup();
+      render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });
+
+      await screen.findByRole("heading", { name: "Payments API" });
+      await user.click(screen.getByRole("button", { name: "Source & build" }));
+
+      expect(
+        screen.getByText(
+          sourceKind === "oci"
+            ? "Deploy an existing image"
+            : "Helm Apps are not ready",
+        ),
+      ).toBeVisible();
+      expect(api.buildDefinitions).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["github", "git-ssh"] as const)(
+    "loads the %s App source for the authorized Project only",
+    async (sourceKind) => {
+      vi.mocked(api.application).mockResolvedValue({
+        id: "application-1",
+        projectId: "project-1",
+        name: "Payments API",
+        sourceKind,
+      });
+      const { client, Wrapper } = wrapper();
+      vi.mocked(api.capabilities).mockResolvedValue({
+        features: { builds: true, builder: true },
+        capabilities: [
+          {
+            scopeType: "project",
+            scopeId: "other-project",
+            actions: ["app-sources:read"],
+          },
+        ],
+      });
+      render(<ApplicationOverviewPage />, { wrapper: Wrapper });
+
+      await screen.findByRole("heading", { name: "Payments API" });
+      expect(api.buildDefinitions).not.toHaveBeenCalled();
+
+      client.setQueryData(["capabilities"], {
+        features: { builds: true, builder: true },
+        capabilities: [
+          {
+            scopeType: "project",
+            scopeId: "project-1",
+            actions: ["app-sources:read"],
+          },
+        ],
+      });
+      await waitFor(() =>
+        expect(api.buildDefinitions).toHaveBeenCalledWith("application-1"),
+      );
+    },
+  );
+
   it("shows the actual Helm release without a normal deployment", async () => {
     const read = setupHelmOverview();
     render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });

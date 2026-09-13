@@ -158,6 +158,119 @@ func (b *buildHTTPBackend) Definition(context.Context, string) (builds.BuildDefi
 func (b *buildHTTPBackend) Definitions(context.Context, string) ([]builds.BuildDefinition, error) {
 	return []builds.BuildDefinition{b.definition}, nil
 }
+
+type sourceDiscoveryHTTPBackend struct {
+	buildHTTPBackend
+	definitions []builds.BuildDefinition
+	readErr     error
+	readCalls   int
+}
+
+func (b *sourceDiscoveryHTTPBackend) Definitions(context.Context, string) ([]builds.BuildDefinition, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.readCalls++
+	return append([]builds.BuildDefinition(nil), b.definitions...), b.readErr
+}
+
+func TestAppSourceDiscoveryDistinguishesAuthorizedAbsence(t *testing.T) {
+	for _, sourceKind := range []string{"github", "git-ssh"} {
+		t.Run(sourceKind, func(t *testing.T) {
+			backend := &sourceDiscoveryHTTPBackend{}
+			f := newGitHubBuildHTTP(t, nil, nil, backend, ratelimit.NewMemoryLimiter(10_000))
+			f.bootstrap()
+			project := decode[domain.Project](t, f.request(http.MethodPost, "/v1/projects", "source-discovery-project", map[string]string{"name": "Discovery"}))
+			app := decode[domain.Application](t, f.request(http.MethodPost, "/v1/applications", "source-discovery-app", map[string]string{"name": "App", "projectId": project.ID, "sourceKind": sourceKind}))
+			path := "/v1/applications/" + app.ID + "/source"
+			for _, query := range []string{"", "?allowEmpty=false", "?allowEmpty=true"} {
+				response := f.request(http.MethodGet, path+query, "", nil)
+				body, _ := io.ReadAll(response.Body)
+				response.Body.Close()
+				want := http.StatusNotFound
+				if query == "?allowEmpty=true" {
+					want = http.StatusNoContent
+				}
+				if response.StatusCode != want || response.Header.Get("Cache-Control") != "no-store" || (want == http.StatusNoContent && len(body) != 0) {
+					t.Errorf("query=%q status=%d want=%d cache=%q bodyBytes=%d", query, response.StatusCode, want, response.Header.Get("Cache-Control"), len(body))
+				}
+			}
+			definition := builds.BuildDefinition{ID: "55555555-5555-4555-8555-555555555555", ServiceID: app.ID, ProjectID: project.ID, SourceKind: builds.SourceGitHub,
+				Spec: builds.DefinitionSpec{Execution: builds.ExecutionSettings{Namespace: "private-execution-field"}}}
+			if sourceKind == "git-ssh" {
+				definition.SourceKind = builds.SourceGitSSH
+			}
+			for _, test := range []struct {
+				name        string
+				definitions []builds.BuildDefinition
+				err         error
+				status      int
+			}{
+				{"connected", []builds.BuildDefinition{definition}, nil, http.StatusOK},
+				{"wrong-app", []builds.BuildDefinition{{ServiceID: "other-app", ProjectID: project.ID}}, nil, http.StatusNotFound},
+				{"wrong-project", []builds.BuildDefinition{{ServiceID: app.ID, ProjectID: "other-project"}}, nil, http.StatusNotFound},
+				{"ambiguous", []builds.BuildDefinition{definition, definition}, nil, http.StatusNotFound},
+				{"unavailable", nil, builds.ErrInfrastructure, http.StatusServiceUnavailable},
+			} {
+				backend.mu.Lock()
+				backend.definitions, backend.readErr = test.definitions, test.err
+				backend.mu.Unlock()
+				response := f.request(http.MethodGet, path+"?allowEmpty=true", "", nil)
+				body, _ := io.ReadAll(response.Body)
+				response.Body.Close()
+				if response.StatusCode != test.status || bytes.Contains(body, []byte("private-execution-field")) {
+					t.Errorf("%s status=%d want=%d", test.name, response.StatusCode, test.status)
+				}
+			}
+			backend.mu.Lock()
+			backend.definitions, backend.readErr = nil, nil
+			calls := backend.readCalls
+			backend.mu.Unlock()
+			for _, query := range []string{"?allowEmpty=", "?allowEmpty=1", "?allowEmpty=TRUE", "?allowEmpty=true&allowEmpty=false", "?allowEmpty=%zz"} {
+				response := f.request(http.MethodGet, path+query, "", nil)
+				response.Body.Close()
+				if response.StatusCode != http.StatusUnprocessableEntity {
+					t.Errorf("invalid query %q status=%d", query, response.StatusCode)
+				}
+			}
+			response := f.request(http.MethodGet, "/v1/applications/99999999-9999-4999-8999-999999999999/source?allowEmpty=true", "", nil)
+			response.Body.Close()
+			if response.StatusCode != http.StatusNotFound {
+				t.Errorf("missing App status=%d", response.StatusCode)
+			}
+			response, err := http.Get(f.server.URL + path + "?allowEmpty=true")
+			if err != nil {
+				t.Fatal(err)
+			}
+			response.Body.Close()
+			if response.StatusCode != http.StatusUnauthorized {
+				t.Errorf("anonymous status=%d", response.StatusCode)
+			}
+			invitation := decode[domain.UserInvitation](t, f.request(http.MethodPost, "/v1/users/invitations", "source-discovery-invite", map[string]string{"email": "no-source-access@example.test"}))
+			jar, err := cookiejar.New(nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			outsider := &http.Client{Jar: jar}
+			accepted := cloneRequestAs(t, outsider, f.server.URL, http.MethodPost, "/v1/auth/invitations/accept", "", map[string]string{
+				"token": invitation.Token, "displayName": "No project access", "password": "source discovery fixture password",
+			})
+			accepted.Body.Close()
+			if accepted.StatusCode != http.StatusCreated {
+				t.Fatalf("invitation status=%d", accepted.StatusCode)
+			}
+			response = cloneRequestAs(t, outsider, f.server.URL, http.MethodGet, path+"?allowEmpty=true", "", nil)
+			response.Body.Close()
+			if response.StatusCode != http.StatusNotFound {
+				t.Errorf("inaccessible App status=%d", response.StatusCode)
+			}
+			backend.mu.Lock()
+			defer backend.mu.Unlock()
+			if backend.readCalls != calls {
+				t.Errorf("invalid or unauthorized request reached source store: calls=%d want=%d", backend.readCalls, calls)
+			}
+		})
+	}
+}
 func (b *buildHTTPBackend) Repositories(context.Context, string) ([]builds.Repository, error) {
 	return append([]builds.Repository(nil), b.repositories...), nil
 }

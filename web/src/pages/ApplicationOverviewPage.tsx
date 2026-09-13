@@ -319,7 +319,11 @@ export function ApplicationOverviewPage() {
   const buildDefinitions = useQuery({
     queryKey: ["app-source", applicationId],
     queryFn: () => api.buildDefinitions(applicationId),
-    enabled: buildsConfigured && canReadBuildDefinitions,
+    enabled:
+      buildsConfigured &&
+      canReadBuildDefinitions &&
+      (application.data?.sourceKind === "github" ||
+        application.data?.sourceKind === "git-ssh"),
     retry: false,
   });
   const buildAttempts = useQuery({

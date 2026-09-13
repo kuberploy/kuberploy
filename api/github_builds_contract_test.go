@@ -24,6 +24,48 @@ type githubBuildOperation struct {
 	} `json:"responses"`
 }
 
+func TestAppSourceDiscoveryOpenAPIKeepsAbsenceOptIn(t *testing.T) {
+	var document struct {
+		Paths map[string]map[string]struct {
+			Parameters []struct {
+				Name     string
+				In       string
+				Required bool
+				Schema   struct {
+					Type    string
+					Default json.RawMessage
+				}
+			}
+			Responses map[string]json.RawMessage
+		}
+	}
+	if err := json.Unmarshal(OpenAPIJSON, &document); err != nil {
+		t.Fatal(err)
+	}
+	operation := document.Paths["/v1/applications/{id}/source"]["get"]
+	found := false
+	for _, parameter := range operation.Parameters {
+		if parameter.Name == "allowEmpty" {
+			found = parameter.In == "query" && !parameter.Required && parameter.Schema.Type == "boolean" && string(parameter.Schema.Default) == "false"
+		}
+	}
+	if !found {
+		t.Error("missing optional false-default allowEmpty boolean")
+	}
+	for _, status := range []string{"200", "204", "401", "404", "422", "503"} {
+		if _, exists := operation.Responses[status]; !exists {
+			t.Errorf("missing source response %s", status)
+		}
+	}
+	var response map[string]json.RawMessage
+	if err := json.Unmarshal(operation.Responses["204"], &response); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := response["content"]; exists {
+		t.Error("204 must not advertise a response body")
+	}
+}
+
 func TestGitHubSetupWebhookAndBuildOpenAPIContract(t *testing.T) {
 	var document struct {
 		OpenAPI    string                                     `json:"openapi"`

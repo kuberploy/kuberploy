@@ -214,7 +214,7 @@ describe("GitHub source-build API client", () => {
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       "/v1/github/installations",
       "/v1/github/installations/installation%2Fid/repositories",
-      "/v1/applications/application%2Fid/source",
+      "/v1/applications/application%2Fid/source?allowEmpty=true",
       "/v1/applications/application%2Fid/builds?limit=25",
     ]);
     expect(repositories.items).toHaveLength(1);

@@ -2274,25 +2274,18 @@ export const api = {
       idempotencyKey,
     ),
   buildDefinitions: (applicationId: string) =>
-    request<BuildDefinition>(
-      `/v1/applications/${encodeURIComponent(applicationId)}/source`,
-    )
-      .then((response) => {
-        const collection = asCollection([response]);
-        return {
-          items: collection.items
-            .slice(0, 1_000)
-            .map(safeBuildDefinition)
-            .filter((definition) => definition.applicationId === applicationId),
-          nextCursor: collection.nextCursor,
-        };
-      })
-      .catch((error: unknown) => {
-        if (error instanceof ApiError && error.status === 404) {
-          return { items: [] as BuildDefinition[], nextCursor: undefined };
-        }
-        throw error;
-      }),
+    request<BuildDefinition | undefined>(
+      `/v1/applications/${encodeURIComponent(applicationId)}/source?allowEmpty=true`,
+    ).then((response) => {
+      const collection = asCollection(response === undefined ? [] : [response]);
+      return {
+        items: collection.items
+          .slice(0, 1_000)
+          .map(safeBuildDefinition)
+          .filter((definition) => definition.applicationId === applicationId),
+        nextCursor: collection.nextCursor,
+      };
+    }),
   buildSecretProfiles: (applicationId: string) =>
     request<BuildSecretProfileCatalog>(
       `/v1/applications/${encodeURIComponent(applicationId)}/build-secret-profiles`,

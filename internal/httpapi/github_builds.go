@@ -1050,6 +1050,12 @@ func (s *Server) applicationBuildSource(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
+	query, queryErr := url.ParseQuery(r.URL.RawQuery)
+	allowEmpty, present := query["allowEmpty"]
+	if queryErr != nil || (present && (len(allowEmpty) != 1 || (allowEmpty[0] != "true" && allowEmpty[0] != "false"))) {
+		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "Use exactly one true or false value for allowEmpty.", FieldError{Pointer: "/query/allowEmpty", Code: "InvalidQueryParameter", Detail: "Use true or false."})
+		return
+	}
 	if s.builds == nil {
 		githubBuildUnavailable(w, r, "Source builds are not configured.")
 		return
@@ -1057,6 +1063,10 @@ func (s *Server) applicationBuildSource(w http.ResponseWriter, r *http.Request) 
 	definitions, err := s.builds.Definitions(r.Context(), application.ID)
 	if err != nil {
 		mappedGitHubBuildError(w, r, err)
+		return
+	}
+	if len(definitions) == 0 && query.Get("allowEmpty") == "true" {
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if len(definitions) != 1 || definitions[0].ServiceID != application.ID || definitions[0].ProjectID != application.ProjectID {
