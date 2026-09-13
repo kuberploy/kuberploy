@@ -5,5 +5,5 @@ dependencies:
 - name: kuberploy-argocd
   repository: file://../kuberploy-argocd
   version: 0.1.0-rc.465
-digest: sha256:56d69d1f7c08af9eb3b5d67cc0ed20ccce83d282eaf5805fede4b67d190f05b8
-generated: "2026-09-13T22:30:58.761587+07:00"
+digest: sha256:cdeeef6db903a122334a3d388b112ff36e1a91d9bb883de6d6ff8f2cc0dcbc48
+generated: "2026-08-14T13:37:13Z"
