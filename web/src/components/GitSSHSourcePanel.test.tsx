@@ -56,6 +56,9 @@ describe("Git SSH source key scope", () => {
     expect(
       await screen.findByRole("radio", { name: /App key/ }),
     ).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: /App key/ })).toHaveClass(
+      "aria-checked:border-mint",
+    );
     await user.click(
       await screen.findByRole("button", { name: "Generate deploy key" }),
     );
@@ -94,6 +97,9 @@ describe("Git SSH source key scope", () => {
     );
 
     await user.click(await screen.findByRole("radio", { name: /Project key/ }));
+    expect(screen.getByRole("radio", { name: /Project key/ })).toHaveClass(
+      "aria-checked:border-mint",
+    );
     expect(await screen.findByLabelText("SSH public key")).toHaveValue(
       "ssh-ed25519 AAAATEST",
     );

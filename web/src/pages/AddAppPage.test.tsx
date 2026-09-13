@@ -120,6 +120,9 @@ describe("Add App source flow", () => {
     render(<AddAppPage />, { wrapper: wrapper() });
 
     await user.click(await screen.findByRole("radio", { name: /OCI image/ }));
+    expect(screen.getByRole("radio", { name: /OCI image/ })).toHaveClass(
+      "aria-checked:border-mint",
+    );
     await user.type(
       screen.getByRole("textbox", { name: "App name" }),
       "Payments API",
