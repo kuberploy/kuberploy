@@ -10,7 +10,8 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
+import type { HelmReleaseStatus } from "../api/types";
 import { ApplicationOverviewPage } from "./ApplicationOverviewPage";
 
 const routeParams = vi.hoisted(
@@ -117,7 +118,246 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+function setupHelmOverview(overrides: Partial<HelmReleaseStatus> = {}) {
+  vi.mocked(api.application).mockResolvedValue({
+    id: "application-1",
+    projectId: "project-1",
+    name: "Valkey",
+    sourceKind: "helm",
+  });
+  vi.mocked(api.capabilities).mockResolvedValue({
+    features: { helmDeployments: true },
+    capabilities: [
+      {
+        scopeType: "environment",
+        scopeId: "environment-1",
+        actions: ["helm-releases:read"],
+      },
+    ],
+  });
+  const revision: HelmReleaseStatus = {
+    id: "helm-revision-1",
+    generation: 1,
+    releaseName: "valkey",
+    action: "deploy",
+    desiredEnabled: true,
+    source: {
+      kind: "helm-repository",
+      repositoryUrl: "https://valkey-io.github.io/valkey-helm",
+      chart: "valkey",
+      targetRevision: "0.11.0",
+    },
+    valuesYaml: "",
+    valuesDigest: `sha256:${"a".repeat(64)}`,
+    state: "applied",
+    requestId: "request-1",
+    createdAt: "2026-09-13T00:00:00Z",
+    updatedAt: "2026-09-13T00:00:01Z",
+    ...overrides,
+  };
+  return vi.spyOn(api, "helmRelease").mockResolvedValue(revision);
+}
+
 describe("application source overview", () => {
+  it("shows the actual Helm release without a normal deployment", async () => {
+    const read = setupHelmOverview();
+    render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });
+
+    expect(
+      await screen.findByRole("link", {
+        name: /Test.*Applied.*valkey.*0\.11\.0.*Open App/,
+      }),
+    ).toBeVisible();
+    expect(read).toHaveBeenCalledWith("application-1", "environment-1");
+    expect(screen.queryByText("Stopped")).toBeNull();
+    expect(screen.queryByText("Image pending")).toBeNull();
+    expect(screen.queryByText("Configure App")).toBeNull();
+  });
+
+  it.each([
+    [{ state: "pending", desiredEnabled: false }, "Pending"],
+    [{ state: "applied", desiredEnabled: false }, "Disabled"],
+    [{ state: "failed", desiredEnabled: true }, "Failed"],
+  ] as const)(
+    "distinguishes Helm release state %j",
+    async (revision, label) => {
+      setupHelmOverview(revision);
+      render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });
+
+      const card = await screen.findByRole("link", {
+        name: new RegExp(`Test.*${label}.*valkey.*Open App`),
+      });
+      expect(card).toBeVisible();
+      expect(within(card).queryByText("Stopped")).toBeNull();
+      expect(within(card).queryByText("Image pending")).toBeNull();
+    },
+  );
+
+  it("does not mistake a loading Helm release for a stopped App", async () => {
+    setupHelmOverview().mockReturnValue(new Promise(() => {}));
+    render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });
+
+    expect(
+      await screen.findByRole("link", {
+        name: /Test.*Loading.*Loading Helm release.*Open App/,
+      }),
+    ).toBeVisible();
+    expect(screen.queryByText("Stopped")).toBeNull();
+  });
+
+  it("offers Helm configuration only when the release is absent", async () => {
+    setupHelmOverview().mockRejectedValue(
+      new ApiError(404, { code: "HelmAppNotFound" }),
+    );
+    render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });
+
+    expect(
+      await screen.findByRole("link", {
+        name: /Test.*Not deployed.*Chart not configured.*Configure Helm/i,
+      }),
+    ).toBeVisible();
+    expect(screen.queryByText("Image pending")).toBeNull();
+  });
+
+  it.each([403, 404, 503])(
+    "shows Helm read failure %i instead of cached success",
+    async (status) => {
+      const read = setupHelmOverview();
+      const { client, Wrapper } = wrapper();
+      render(<ApplicationOverviewPage />, { wrapper: Wrapper });
+      await screen.findByRole("link", { name: /Test.*Applied.*Open App/ });
+
+      read.mockRejectedValue(
+        new ApiError(status, {
+          detail: "The Helm release could not be read.",
+        }),
+      );
+      await client.invalidateQueries({
+        queryKey: ["helm-release", "application-1", "environment-1"],
+      });
+      expect(
+        await screen.findByRole("link", {
+          name: /Test.*Unknown.*Helm release unavailable.*could not be read.*Open App/,
+        }),
+      ).toBeVisible();
+      expect(screen.queryByText("Applied")).toBeNull();
+      expect(screen.queryByText("Configure Helm")).toBeNull();
+    },
+  );
+
+  it("refreshes the overview when the shared Helm release query changes", async () => {
+    const read = setupHelmOverview();
+    const { client, Wrapper } = wrapper();
+    render(<ApplicationOverviewPage />, { wrapper: Wrapper });
+    await screen.findByRole("link", { name: /Test.*Applied.*Open App/ });
+
+    const previous = client.getQueryData<HelmReleaseStatus>([
+      "helm-release",
+      "application-1",
+      "environment-1",
+    ]);
+    expect(previous).toBeDefined();
+    read.mockResolvedValue({
+      ...previous!,
+      generation: 2,
+      action: "disable",
+      desiredEnabled: false,
+    });
+    await client.invalidateQueries({
+      queryKey: ["helm-release", "application-1", "environment-1"],
+    });
+    expect(
+      await screen.findByRole("link", {
+        name: /Test.*Disabled.*valkey.*Open App/,
+      }),
+    ).toBeVisible();
+  });
+
+  it("hides cached Helm details when scoped access disappears", async () => {
+    const read = setupHelmOverview();
+    const { client, Wrapper } = wrapper();
+    render(<ApplicationOverviewPage />, { wrapper: Wrapper });
+    await screen.findByRole("link", { name: /Test.*Applied.*Open App/ });
+    const readsBefore = read.mock.calls.length;
+
+    vi.mocked(api.capabilities).mockResolvedValue({
+      features: { helmDeployments: true },
+      capabilities: [
+        {
+          scopeType: "environment",
+          scopeId: "other-environment",
+          actions: ["helm.read"],
+        },
+      ],
+    });
+    await client.invalidateQueries({ queryKey: ["capabilities"] });
+    expect(
+      await screen.findByRole("link", {
+        name: /Test.*Unavailable.*Helm release access required.*Open App/,
+      }),
+    ).toBeVisible();
+    expect(screen.queryByText("Applied")).toBeNull();
+    expect(screen.queryByText(/valkey ·/)).toBeNull();
+    expect(read).toHaveBeenCalledTimes(readsBefore);
+  });
+
+  it("does not read Helm releases when the feature is unavailable", async () => {
+    const read = setupHelmOverview();
+    vi.mocked(api.capabilities).mockResolvedValue({
+      features: { helmDeployments: false },
+      capabilities: [
+        { scopeType: "platform", scopeId: "platform", actions: ["helm.read"] },
+      ],
+    });
+    render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });
+    expect(
+      await screen.findByRole("link", {
+        name: /Test.*Unavailable.*Helm Apps unavailable/,
+      }),
+    ).toBeVisible();
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it("reads only visible placed Helm instances in the App's project", async () => {
+    const read = setupHelmOverview();
+    vi.mocked(api.capabilities).mockResolvedValue({
+      features: { helmDeployments: true },
+      capabilities: [
+        { scopeType: "platform", scopeId: "platform", actions: ["helm.read"] },
+      ],
+    });
+    vi.mocked(api.environments).mockResolvedValue({
+      items: [
+        {
+          id: "environment-1",
+          projectId: "project-1",
+          name: "Test",
+          namespace: "test",
+        },
+        {
+          id: "unplaced",
+          projectId: "project-1",
+          name: "Unplaced",
+          namespace: "unplaced",
+        },
+        {
+          id: "other-project-env",
+          projectId: "other-project",
+          name: "Other",
+          namespace: "other",
+        },
+      ],
+    });
+    const placement = await api.environmentApps("environment-1");
+    vi.mocked(api.environmentApps).mockImplementation(async (id) =>
+      id === "environment-1" ? placement : { items: [] },
+    );
+    render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });
+    await screen.findByRole("link", { name: /Test.*Applied.*Open App/ });
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledWith("application-1", "environment-1");
+  });
+
   it("wraps every App overview section at narrow viewports", async () => {
     render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });
 

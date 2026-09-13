@@ -95,19 +95,15 @@ describe("appearance", () => {
 });
 
 describe("session logout", () => {
-  it("clears cached principal and tenant data after revocation", async () => {
+  it("marks the observed principal signed out after revocation", async () => {
     vi.spyOn(api, "logout").mockResolvedValue(undefined);
     const queryClient = renderShell({});
     queryClient.setQueryData(["me"], { id: "user-1" });
-    queryClient.setQueryData(["projects"], [{ id: "project-1" }]);
 
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
 
     await waitFor(() => expect(api.logout).toHaveBeenCalledTimes(1));
-    await waitFor(() =>
-      expect(queryClient.getQueryData(["me"])).toBeUndefined(),
-    );
-    expect(queryClient.getQueryData(["projects"])).toBeUndefined();
+    await waitFor(() => expect(queryClient.getQueryData(["me"])).toBeNull());
   });
 });
 

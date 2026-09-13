@@ -349,7 +349,25 @@ func (c *Client) MintInstallationToken(ctx context.Context, request TokenRequest
 		Repositories        []apiRepository   `json:"repositories"`
 	}
 	path := []string{"app", "installations", strconv.FormatInt(normalized.InstallationID, 10), "access_tokens"}
-	if err = c.doJSON(ctx, http.MethodPost, appToken, path, nil, body, http.StatusCreated, &response); err != nil {
+	err = c.doJSON(ctx, http.MethodPost, appToken, path, nil, body, http.StatusCreated, &response)
+	var providerError *APIError
+	if ctx.Err() == nil && errors.As(err, &providerError) && providerError.Class == APIErrorTransient &&
+		providerError.StatusCode >= 500 && providerError.StatusCode <= 599 && !providerError.RetryAt.After(c.clock.Now().UTC()) {
+		// GitHub can intermittently reject repository_ids while accepting its
+		// documented repository-name selector. Retry that exact authorized set
+		// once; the unchanged post-mint checks still require every immutable ID,
+		// owner, name and permission to match, including after a rename race.
+		names := make([]string, len(normalized.Repositories))
+		for i, repository := range normalized.Repositories {
+			names[i] = repository.Name
+		}
+		namedBody := struct {
+			Repositories []string    `json:"repositories"`
+			Permissions  Permissions `json:"permissions"`
+		}{Repositories: names, Permissions: normalized.Permissions}
+		err = c.doJSON(ctx, http.MethodPost, appToken, path, nil, namedBody, http.StatusCreated, &response)
+	}
+	if err != nil {
 		return InstallationToken{}, err
 	}
 	now := c.clock.Now().UTC()

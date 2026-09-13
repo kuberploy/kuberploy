@@ -11,7 +11,13 @@ import {
   useSearch,
 } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api } from "../api/client";
+import { api, ApiError, errorMessage } from "../api/client";
+import type {
+  Application,
+  Capability,
+  Environment,
+  Project,
+} from "../api/types";
 import { BuildDefinitionForm } from "../components/BuildDefinitionForm";
 import { BuildAttemptActions } from "../components/BuildAttemptActions";
 import { AutoDeployPoliciesPanel } from "../components/AutoDeployPoliciesPanel";
@@ -26,6 +32,7 @@ import {
 } from "../lib/buildAccess";
 import { formatDate, gitRefLabel, shortId } from "../lib/format";
 import { hasRegistryApplicationCapability } from "../lib/registryAccess";
+import { hasHelmCapability } from "../lib/helmAccess";
 import {
   Select,
   Button,
@@ -71,6 +78,97 @@ const sourceKinds: ReadonlyArray<readonly [SourceKind, IconName, string]> = [
 
 const instanceCardClass =
   "focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[-3px] hover:border-line-strong hover:shadow-[0_3px_12px_rgba(24_24_27_0.07)] [&>div]:flex [&>div]:items-center [&>div]:justify-between [&>div]:gap-3 [&>span:last-child]:inline-flex [&>span:last-child]:items-center [&>span:last-child]:gap-1.5 [&>span:last-child]:text-ink [&>span:last-child]:font-medium [&>span:last-child]:self-end [&>span:last-child]:text-xs [&>span:last-child_svg]:w-[13px] grid min-h-[140px] gap-4 p-4 border border-line rounded-[10px] bg-surface [&>strong]:overflow-hidden [&>strong]:text-meta [&>strong]:text-ellipsis [&>strong]:whitespace-nowrap";
+
+function HelmInstanceCard({
+  application,
+  environment,
+  project,
+  capabilities,
+  featureEnabled,
+}: {
+  application: Application;
+  environment: Environment;
+  project: Project;
+  capabilities: Capability[];
+  featureEnabled: boolean;
+}) {
+  const canRead =
+    featureEnabled &&
+    hasHelmCapability(
+      capabilities,
+      "helm.read",
+      application,
+      environment,
+      project,
+    );
+  const head = useQuery({
+    queryKey: ["helm-release", application.id, environment.id],
+    queryFn: () => api.helmRelease(application.id, environment.id),
+    enabled: canRead,
+    retry: false,
+    refetchInterval: (query) =>
+      !query.state.error && query.state.data?.state === "pending"
+        ? 3_000
+        : false,
+  });
+  // Helm releases have their own durable state, separate from image deployments.
+  // A cached success must not hide revoked access or a failed refresh.
+  const release = canRead && !head.isError ? head.data : undefined;
+  const notDeployed =
+    canRead &&
+    head.error instanceof ApiError &&
+    head.error.status === 404 &&
+    head.error.problem?.code === "HelmAppNotFound";
+  const status = !canRead
+    ? "unavailable"
+    : notDeployed
+      ? "not deployed"
+      : head.isError
+        ? "unknown"
+        : !release
+          ? "loading"
+          : release.state === "applied" && !release.desiredEnabled
+            ? "disabled"
+            : release.state;
+  const chart = release
+    ? `${release.source.chart ?? release.source.path ?? "Helm chart"} · ${release.source.targetRevision}`
+    : !featureEnabled
+      ? "Helm Apps unavailable"
+      : !canRead
+        ? "Helm release access required"
+        : notDeployed
+          ? "Chart not configured"
+          : head.isError
+            ? "Helm release unavailable"
+            : "Loading Helm release";
+  return (
+    <Link
+      to="/projects/$projectId/environments/$environmentId/apps/$applicationId"
+      params={{
+        projectId: project.id,
+        environmentId: environment.id,
+        applicationId: application.id,
+      }}
+      search={{ tab: "source", source: "helm", environmentId: environment.id }}
+      className={instanceCardClass}
+    >
+      <div>
+        <span className="inline-flex items-center gap-1.5 text-xs font-medium [&_svg]:w-3.5">
+          <Icon name="layers" />
+          {environment.name}
+        </span>
+        <StatusPill value={status} />
+      </div>
+      <strong title={chart}>{chart}</strong>
+      {canRead && head.isError && !notDeployed ? (
+        <small className="text-ink-soft">{errorMessage(head.error)}</small>
+      ) : null}
+      <span>
+        {notDeployed ? "Configure Helm" : "Open App"} <Icon name="arrow" />
+      </span>
+    </Link>
+  );
+}
 
 function applicationSourceTab(kind: string): SourceKind {
   return kind === "oci"
@@ -597,6 +695,18 @@ export function ApplicationOverviewPage() {
             {applicationInstances.length ? (
               <div className="grid grid-cols-[repeat(auto-fill,_minmax(min(100%,_300px),_1fr))] gap-4 mt-5">
                 {applicationInstances.map(({ environment, deployment }) => {
+                  if (application.data.sourceKind === "helm") {
+                    return (
+                      <HelmInstanceCard
+                        key={environment.id}
+                        application={application.data}
+                        environment={environment}
+                        project={project}
+                        capabilities={effectiveCapabilities}
+                        featureEnabled={features?.helmDeployments === true}
+                      />
+                    );
+                  }
                   const content = (
                     <>
                       <div>

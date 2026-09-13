@@ -91,14 +91,11 @@ export function AppShell({ user }: { user: Principal }) {
   });
   const logout = useMutation({
     mutationFn: api.logout,
-    // Remove every cached tenant projection as soon as the server revokes the
-    // session, then reset the observed `me` query so the root re-fetches it
-    // and transitions to the signed-out screen on the expected 401.
+    // Revocation already proves the signed-out state. Cancel pending reads so
+    // their old principal or tenant data cannot restore the previous session.
     onSuccess: async () => {
-      queryClient.removeQueries({
-        predicate: (query) => query.queryKey[0] !== "me",
-      });
-      await queryClient.resetQueries({ queryKey: ["me"], exact: true });
+      await queryClient.cancelQueries();
+      queryClient.setQueryData(["me"], null);
     },
   });
 

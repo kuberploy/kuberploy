@@ -6,9 +6,10 @@ import {
   Navigate,
   redirect,
 } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLayoutEffect, useState } from "react";
 import { api, isUnauthorized } from "./api/client";
+import type { Principal } from "./api/types";
 import { AppShell } from "./components/AppShell";
 import { AuthScreen } from "./components/AuthScreen";
 import { Page, Skeleton } from "./components/ui";
@@ -132,6 +133,7 @@ function RoutePendingPage() {
 }
 
 export function RootComponent() {
+  const queryClient = useQueryClient();
   const [invitationToken, setInvitationToken] = useState(() =>
     invitationTokenFromHash(window.location.hash),
   );
@@ -143,13 +145,28 @@ export function RootComponent() {
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
-  const me = useQuery({
+  const me = useQuery<Principal | null>({
     queryKey: ["me"],
     queryFn: api.me,
     retry: false,
-    staleTime: 60_000,
-    refetchOnWindowFocus: (query) => query.state.data !== undefined,
+    // A successful logout sets null; only an explicit session retry or a new
+    // login should replace that known state during this page's lifetime.
+    staleTime: (query) => (query.state.data === null ? Infinity : 60_000),
+    refetchOnMount: (query) => query.state.data !== null,
+    refetchOnReconnect: (query) => query.state.data !== null,
+    refetchOnWindowFocus: (query) => query.state.data != null,
   });
+  useLayoutEffect(() => {
+    if (me.data === null) {
+      // Tenant observers are now unmounted, so clearing their cache cannot
+      // make a still-mounted page recreate a revoked-session request. Keep
+      // the public metadata query used by the signed-out screen.
+      queryClient.removeQueries({
+        predicate: (query) =>
+          query.queryKey[0] !== "me" && query.queryKey[0] !== "meta",
+      });
+    }
+  }, [me.data, queryClient]);
   const finishAuthentication = () => {
     const destination = postAuthenticationDestination(window.location.pathname);
     if (destination) {
@@ -177,7 +194,7 @@ export function RootComponent() {
         <span className="inline-block size-3.5 animate-spin rounded-full border-2 border-current border-r-transparent ml-2.5 text-mint" />
       </div>
     );
-  if (me.error)
+  if (me.error || me.data === null)
     return (
       <AuthScreen
         connectionError={isUnauthorized(me.error) ? undefined : me.error}

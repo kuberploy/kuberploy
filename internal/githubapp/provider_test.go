@@ -261,6 +261,149 @@ func TestTokenRequestRejectsScopeBroadeningAndAmbiguousRepositoriesBeforeHTTP(t 
 	}
 }
 
+func TestMintInstallationTokenRetriesExactNamedScopeAfterTransientIDFailure(t *testing.T) {
+	for _, test := range []struct {
+		name             string
+		firstStatus      int
+		secondStatus     int
+		wrongRepository  bool
+		broadPermissions bool
+		want             error
+	}{
+		{name: "internal server error", firstStatus: 500},
+		{name: "bad gateway", firstStatus: 502},
+		{name: "same name now belongs to another repository", firstStatus: 500, wrongRepository: true, want: ErrOwnershipMismatch},
+		{name: "returned permissions widened", firstStatus: 500, broadPermissions: true, want: ErrScopeMismatch},
+		{name: "second failure is final", firstStatus: 500, secondStatus: 503},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := validTestConfig(t)
+			now := time.Date(2026, 9, 13, 9, 0, 0, 0, time.UTC)
+			permissions := Permissions{"metadata": PermissionRead, "contents": PermissionRead}
+			minted := "ghs_named_scope_test_credential_value"
+			mintCalls, scopeCalls := 0, 0
+			transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				switch request.URL.Path {
+				case "/app/installations/42":
+					return httpResponse(http.StatusOK, marshalFixture(t, apiInstallationFixture(cfg, 42, testOrganization, map[string]string{"metadata": "read", "contents": "read"})), nil), nil
+				case "/app/installations/42/access_tokens":
+					mintCalls++
+					if mintCalls > 2 || request.Method != http.MethodPost || request.Header.Get("Authorization") != "Bearer "+testAppToken().Reveal() || request.Header.Get("X-GitHub-Api-Version") != cfg.APIVersion {
+						t.Fatal("mint retry changed its bounded endpoint or authentication")
+					}
+					var body map[string]json.RawMessage
+					if err := json.NewDecoder(request.Body).Decode(&body); err != nil || len(body) != 2 {
+						t.Fatal("mint request must retain exactly one explicit repository selector and permissions")
+					}
+					var sentPermissions Permissions
+					if json.Unmarshal(body["permissions"], &sentPermissions) != nil || !equalPermissions(sentPermissions, permissions) {
+						t.Fatal("mint retry changed permissions")
+					}
+					if mintCalls == 1 {
+						var ids []int64
+						if json.Unmarshal(body["repository_ids"], &ids) != nil || !slices.Equal(ids, []int64{101, 102}) || body["repositories"] != nil {
+							t.Fatal("first mint did not use exact immutable repository IDs")
+						}
+						return httpResponse(test.firstStatus, `{}`, nil), nil
+					}
+					var names []string
+					if json.Unmarshal(body["repositories"], &names) != nil || !slices.Equal(names, []string{"service", "worker"}) || body["repository_ids"] != nil {
+						t.Fatal("fallback names differ from the normalized authorized repositories")
+					}
+					if test.secondStatus != 0 {
+						return httpResponse(test.secondStatus, `{}`, map[string]string{"Retry-After": "60"}), nil
+					}
+					returnedPermissions := clonePermissions(permissions)
+					if test.broadPermissions {
+						returnedPermissions["contents"] = PermissionWrite
+					}
+					return httpResponse(http.StatusCreated, marshalFixture(t, map[string]any{"token": minted, "expires_at": now.Add(time.Hour), "permissions": returnedPermissions, "repository_selection": "selected"}), nil), nil
+				case "/installation/repositories":
+					scopeCalls++
+					if request.Header.Get("Authorization") != "Bearer "+minted || request.URL.Query().Get("page") != "1" || request.URL.Query().Get("per_page") != "100" {
+						t.Fatal("post-mint exact scope check was bypassed or changed")
+					}
+					repositories := slices.Clone(testRepositories)
+					if test.wrongRepository {
+						repositories[0].ID = 999
+					}
+					return httpResponse(http.StatusOK, marshalFixture(t, map[string]any{"total_count": 2, "repositories": []any{apiRepositoryFixture(repositories[0], "Organization"), apiRepositoryFixture(repositories[1], "Organization")}}), nil), nil
+				default:
+					t.Fatalf("unexpected provider path %s", request.URL.Path)
+					return nil, nil
+				}
+			})
+			client, _ := NewClient(cfg, staticAppTokens{token: testAppToken()}, transport, &fixedClock{now: now})
+			token, err := client.MintInstallationToken(t.Context(), TokenRequest{InstallationID: 42, Account: testOrganization, Repositories: testRepositories, Permissions: permissions})
+			if mintCalls != 2 {
+				t.Fatalf("named compatibility request was not attempted exactly once: calls=%d err=%v", mintCalls, err)
+			}
+			if test.secondStatus != 0 {
+				var apiErr *APIError
+				if !errors.As(err, &apiErr) || apiErr.StatusCode != test.secondStatus || !apiErr.RetryAt.Equal(now.Add(time.Minute)) || !token.Authorization().empty() {
+					t.Fatalf("second failure did not preserve scheduling metadata: %v", err)
+				}
+				return
+			}
+			if test.want != nil {
+				if !errors.Is(err, test.want) || !token.Authorization().empty() {
+					t.Fatalf("named scope mismatch was accepted: %v", err)
+				}
+				return
+			}
+			if err != nil || scopeCalls != 1 || !slices.Equal(token.RepositoryIDs(), []int64{101, 102}) || token.InstallationID() != 42 || !equalPermissions(token.Permissions(), permissions) {
+				t.Fatalf("exact named compatibility failed: scopeCalls=%d err=%v", scopeCalls, err)
+			}
+		})
+	}
+}
+
+func TestMintInstallationTokenDoesNotRetryNamesAcrossFailureBoundaries(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		status    int
+		headers   map[string]string
+		transport bool
+		cancel    bool
+	}{
+		{name: "authentication", status: 401},
+		{name: "authorization", status: 403},
+		{name: "not found", status: 404},
+		{name: "invalid input", status: 422},
+		{name: "rate limit", status: 429},
+		{name: "explicit transient backoff", status: 503, headers: map[string]string{"Retry-After": "60"}},
+		{name: "transport uncertainty", transport: true},
+		{name: "canceled request", status: 500, cancel: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := validTestConfig(t)
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			mintCalls := 0
+			client, _ := NewClient(cfg, staticAppTokens{token: testAppToken()}, roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				if request.URL.Path == "/app/installations/42" {
+					return httpResponse(http.StatusOK, marshalFixture(t, apiInstallationFixture(cfg, 42, testOrganization, map[string]string{"metadata": "read", "contents": "read"})), nil), nil
+				}
+				if request.URL.Path != "/app/installations/42/access_tokens" {
+					t.Fatal("failed mint escaped into another provider operation")
+				}
+				mintCalls++
+				if test.transport {
+					return nil, errors.New("synthetic unknown transport outcome")
+				}
+				if test.cancel {
+					cancel()
+				}
+				return httpResponse(test.status, `{}`, test.headers), nil
+			}), &fixedClock{now: time.Date(2026, 9, 13, 9, 0, 0, 0, time.UTC)})
+			token, err := client.MintInstallationToken(ctx, TokenRequest{InstallationID: 42, Account: testOrganization, Repositories: testRepositories, Permissions: Permissions{"metadata": PermissionRead, "contents": PermissionRead}})
+			if err == nil || mintCalls != 1 || !token.Authorization().empty() {
+				t.Fatalf("failure fence bypassed: mintCalls=%d err=%v", mintCalls, err)
+			}
+		})
+	}
+}
+
 func TestMintFailsClosedOnPermissionOrRepositoryScopeBroadening(t *testing.T) {
 	cfg := validTestConfig(t)
 	now := time.Date(2026, 8, 9, 6, 0, 0, 0, time.UTC)

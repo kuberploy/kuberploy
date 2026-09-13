@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Source Deploy preserves configuration dependencies and replays accepted requests reliably. Protected Environment merges settle across separate Git branches. Registry cleanup remains usable between inventory updates, and GitHub retries follow provider timing. Build logs recover from transient startup failures, mobile timelines wrap long revisions, and stale configuration previews explain how to retry.",
+  "summary": "Helm App overview shows the actual release state and chart revision. GitHub installation token requests recover from transient repository-selector failures while preserving repository and permission checks. Signing out clears the browser session and tenant cache without requesting a revoked session.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.458"
+  "version": "0.1.0-rc.459"
 }
