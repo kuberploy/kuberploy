@@ -315,6 +315,92 @@ function renderApplication(capabilities: Capabilities) {
 }
 
 describe("application rollout truth", () => {
+  it("surfaces bootstrap capability failures and retries the page data", async () => {
+    const capabilities = vi
+      .spyOn(api, "capabilities")
+      .mockRejectedValueOnce(new Error("capabilities unavailable"))
+      .mockResolvedValue({ features: {}, capabilities: [] });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ApplicationPage />
+      </QueryClientProvider>,
+    );
+
+    expect(
+      await screen.findByText("Could not load this view"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("capabilities unavailable")).toBeInTheDocument();
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() =>
+      expect(screen.queryByText("Could not load this view")).toBeNull(),
+    );
+    expect(capabilities).toHaveBeenCalledTimes(2);
+  });
+
+  it("surfaces runtime status failures and clears stale status until retry", async () => {
+    vi.mocked(api.deploymentStatus)
+      .mockRejectedValueOnce(new Error("status endpoint unavailable"))
+      .mockResolvedValue({
+        state: "git-committed",
+        operationStatus: "succeeded",
+        argoSyncStatus: "synced",
+        rolloutHealth: "healthy",
+      });
+    renderApplication({ features: {}, capabilities: [] });
+
+    expect(
+      await screen.findByText("Runtime status unavailable"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("status endpoint unavailable")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getAllByText("Unknown").length).toBeGreaterThan(0);
+
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() =>
+      expect(screen.queryByText("Runtime status unavailable")).toBeNull(),
+    );
+    expect(screen.getAllByText("Healthy").length).toBeGreaterThan(0);
+  });
+
+  it("surfaces operation history failures with a retry action", async () => {
+    vi.mocked(api.operations)
+      .mockRejectedValueOnce(new Error("operation history unavailable"))
+      .mockResolvedValue({ items: [], truncated: false });
+    renderApplication({ features: {}, capabilities: [] });
+
+    expect(
+      await screen.findByText("Release history unavailable"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("operation history unavailable"),
+    ).toBeInTheDocument();
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() =>
+      expect(screen.queryByText("Release history unavailable")).toBeNull(),
+    );
+    expect(screen.getByText("No operations")).toBeInTheDocument();
+  });
+
+  it("loads operation history on the releases section", async () => {
+    const operations = vi.mocked(api.operations);
+    operations.mockClear();
+    const user = userEvent.setup();
+    renderApplication({ features: {}, capabilities: [] });
+
+    await user.click(await screen.findByRole("button", { name: "Releases" }));
+    await waitFor(() => expect(operations).toHaveBeenCalledWith(100));
+    expect(screen.getByText("No operations")).toBeInTheDocument();
+  });
+
   it.each([
     ["unstarted draft", "stopped", "unknown", "Stopped"],
     ["completed stop", "stopped", "missing", "Stopped"],

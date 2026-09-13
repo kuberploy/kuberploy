@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api, ApiError, type WorkloadLogOptions } from "../api/client";
 import { formatDate } from "../lib/format";
 import {
@@ -29,6 +29,8 @@ const runtimeLogByteLimit = 1_048_576;
 const boundedEventOptions = { limit: 50 } as const;
 const runtimeViewRetryDelay = 1_000;
 const runtimeViewRetryLimit = 180;
+const runtimeInventoryRetryInterval = 5_000;
+const runtimeInventoryRetryWindow = 5 * 60_000;
 
 export function retryTransientRuntimeView(
   failureCount: number,
@@ -203,14 +205,49 @@ export function LogsPanel({
   deploymentId: string;
 }) {
   const [tailLines, setTailLines] = useState<number>(200);
+  const inventoryRetry = useRef<{
+    scope: string;
+    startedAt: number;
+  } | null>(null);
+  const inventoryScope = `${applicationId}:${deploymentId}`;
   const workloads = useQuery({
     queryKey: ["workloads", applicationId],
     queryFn: () => api.workloads(applicationId),
     retry: false,
+    refetchInterval: (query) => {
+      // A successful inventory can briefly contain another Environment's
+      // workload while the selected App is being projected. Keep checking
+      // that exact deployment for a bounded window; never fall back to an
+      // unrelated workload or poll transport/auth failures automatically.
+      const items = query.state.data?.items;
+      if (
+        query.state.status !== "success" ||
+        query.state.error ||
+        !items?.length ||
+        items.some((item) => item.id === deploymentId)
+      ) {
+        inventoryRetry.current = null;
+        return false;
+      }
+      if (inventoryRetry.current?.scope !== inventoryScope) {
+        inventoryRetry.current = {
+          scope: inventoryScope,
+          startedAt: Date.now(),
+        };
+      }
+      return Date.now() - inventoryRetry.current.startedAt <
+        runtimeInventoryRetryWindow
+        ? runtimeInventoryRetryInterval
+        : false;
+    },
   });
   const workload = workloads.data?.items.find(
     (candidate) => candidate.id === deploymentId,
   );
+  // React Query keeps successful data while a background refetch fails. Do
+  // not continue querying or rendering that cached workload as if it were
+  // current; the inventory error must be the authoritative view state.
+  const liveWorkload = workloads.error ? undefined : workload;
   const [storedFilters, setStoredFilters] = useState<LogFilterState>({
     deploymentId,
     pod: "",
@@ -226,11 +263,11 @@ export function LogsPanel({
     limitBytes: runtimeLogByteLimit,
   };
   const mergedLogs = useQuery({
-    queryKey: ["workload-logs", workload?.id, boundedLogOptions],
-    queryFn: () => api.workloadLogs(workload!.id, boundedLogOptions),
-    enabled: Boolean(workload),
+    queryKey: ["workload-logs", liveWorkload?.id, boundedLogOptions],
+    queryFn: () => api.workloadLogs(liveWorkload!.id, boundedLogOptions),
+    enabled: Boolean(liveWorkload),
     retry: (failureCount, error) =>
-      retryTransientRuntimeView(failureCount, error, workload?.state),
+      retryTransientRuntimeView(failureCount, error, liveWorkload?.state),
     retryDelay: runtimeViewRetryDelay,
   });
   const filters = requestedFilters;
@@ -244,25 +281,32 @@ export function LogsPanel({
     filters.pod || filters.revision || filters.container,
   );
   const filteredLogs = useQuery({
-    queryKey: ["workload-logs", workload?.id, filteredLogOptions],
-    queryFn: () => api.workloadLogs(workload!.id, filteredLogOptions),
-    enabled: Boolean(workload) && hasLogFilter,
+    queryKey: ["workload-logs", liveWorkload?.id, filteredLogOptions],
+    queryFn: () => api.workloadLogs(liveWorkload!.id, filteredLogOptions),
+    enabled: Boolean(liveWorkload) && hasLogFilter,
     retry: (failureCount, error) =>
-      retryTransientRuntimeView(failureCount, error, workload?.state),
+      retryTransientRuntimeView(failureCount, error, liveWorkload?.state),
     retryDelay: runtimeViewRetryDelay,
   });
   const logs = hasLogFilter ? filteredLogs : mergedLogs;
   const events = useQuery({
-    queryKey: ["workload-events", workload?.id, boundedEventOptions],
-    queryFn: () => api.workloadEvents(workload!.id, boundedEventOptions),
-    enabled: Boolean(workload),
+    queryKey: ["workload-events", liveWorkload?.id, boundedEventOptions],
+    queryFn: () => api.workloadEvents(liveWorkload!.id, boundedEventOptions),
+    enabled: Boolean(liveWorkload),
     retry: (failureCount, error) =>
-      retryTransientRuntimeView(failureCount, error, workload?.state),
+      retryTransientRuntimeView(failureCount, error, liveWorkload?.state),
     retryDelay: runtimeViewRetryDelay,
   });
   const lines = logs.data?.lines ?? [];
   const runtimeInventoryMissing =
-    Boolean(workloads.data?.items.length) && workload === undefined;
+    Boolean(workloads.data?.items.length) && liveWorkload === undefined;
+  const retryInventory = () => {
+    inventoryRetry.current = {
+      scope: inventoryScope,
+      startedAt: Date.now(),
+    };
+    void workloads.refetch();
+  };
   const updateFilter = (field: keyof LogFilters, value: string) =>
     setStoredFilters({
       deploymentId,
@@ -280,7 +324,7 @@ export function LogsPanel({
         <PlaceholderBadge>
           {workloads.isPending
             ? "Loading"
-            : workload
+            : liveWorkload
               ? "Bounded snapshots"
               : "Unavailable"}
         </PlaceholderBadge>
@@ -292,26 +336,24 @@ export function LogsPanel({
       </p>
       {workloads.isPending ? (
         <Skeleton lines={7} />
-      ) : !workload ? (
-        workloads.error ? (
+      ) : workloads.error ? (
+        <ErrorPanel
+          error={workloads.error}
+          title="Logs unavailable"
+          onRetry={retryInventory}
+        />
+      ) : !liveWorkload ? (
+        runtimeInventoryMissing ? (
           <ErrorPanel
-            error={workloads.error}
-            title="Logs unavailable"
-            onRetry={() => void workloads.refetch()}
+            error="The selected App runtime was not returned by the scoped runtime inventory."
+            title="App runtime unavailable"
+            onRetry={retryInventory}
           />
         ) : (
           <EmptyState
             icon="logs"
-            title={
-              runtimeInventoryMissing
-                ? "App runtime unavailable"
-                : "No App runtime"
-            }
-            description={
-              runtimeInventoryMissing
-                ? "The selected App runtime was not returned by the scoped runtime inventory. No other workload was selected as a fallback."
-                : "The App has no workload available for a bounded runtime snapshot."
-            }
+            title="No App runtime"
+            description="The App has no workload available for a bounded runtime snapshot."
             action={<PlaceholderBadge>No data</PlaceholderBadge>}
             compact
           />
@@ -321,17 +363,17 @@ export function LogsPanel({
           <div className="grid grid-cols-[minmax(180px,_1.5fr)_minmax(160px,_1fr)_90px_auto] items-center gap-4 py-3 px-4 border border-line rounded-[9px] bg-surface-soft [&>div]:min-w-0 [&_span]:block [&_span]:mb-1 [&_span]:text-ink-faint [&_span]:text-xs [&_strong]:block [&_strong]:overflow-hidden [&_strong]:text-ink [&_strong]:text-meta [&_strong]:text-ellipsis [&_code]:block [&_code]:overflow-hidden [&_code]:text-ink [&_code]:text-meta [&_code]:text-ellipsis to-580:grid-cols-[1fr]">
             <div>
               <span>Deployment</span>
-              <strong>{workload.name}</strong>
+              <strong>{liveWorkload.name}</strong>
             </div>
             <div>
               <span>Namespace</span>
-              <code>{workload.namespace}</code>
+              <code>{liveWorkload.namespace}</code>
             </div>
             <div>
               <span>Replicas</span>
-              <strong>{workload.replicas}</strong>
+              <strong>{liveWorkload.replicas}</strong>
             </div>
-            <StatusPill value={workload.state} />
+            <StatusPill value={liveWorkload.state} />
           </div>
 
           <LogSourceFilters

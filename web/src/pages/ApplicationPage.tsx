@@ -71,7 +71,8 @@ export function ApplicationPage() {
   const operations = useQuery({
     queryKey: ["operations", 100],
     queryFn: () => api.operations(100),
-    enabled: tabChoice === "overview",
+    enabled: tabChoice === "overview" || tabChoice === "releases",
+    retry: false,
     refetchInterval: 5_000,
   });
   const capabilities = useQuery({
@@ -126,9 +127,19 @@ export function ApplicationPage() {
     retry: false,
     staleTime: 60_000,
   });
-  const loadError = application.error ?? deployment.error;
+  // A failed refresh must not leave the last status snapshot looking current.
+  // Keep the failure visible and fail closed until the operator retries it.
+  const liveStatus = status.error ? undefined : status.data;
+  const liveOperations = operations.error ? undefined : operations.data;
+  const loadError =
+    application.error ??
+    deployment.error ??
+    capabilities.error ??
+    environments.error ??
+    projects.error ??
+    me.error;
   const relatedOperations =
-    operations.data?.items.filter(
+    liveOperations?.items.filter(
       (operation) =>
         operation.target?.id === deploymentId ||
         operation.targetRef?.id === deploymentId ||
@@ -143,15 +154,15 @@ export function ApplicationPage() {
   // the failure visible in the page header until the operator starts a new
   // operation; otherwise a failed Git write can look healthy at a glance.
   const health =
-    status.data?.operationStatus === "failed"
+    liveStatus?.operationStatus === "failed"
       ? "failed"
-      : status.data?.state === "stopped"
+      : liveStatus?.state === "stopped"
         ? "stopped"
-        : status.data?.state === "pending-stop"
+        : liveStatus?.state === "pending-stop"
           ? "stopping"
-          : (status.data?.rolloutHealth ?? "unknown");
-  const isStopped = status.data?.state === "stopped";
-  const isStopping = status.data?.state === "pending-stop";
+          : (liveStatus?.rolloutHealth ?? "unknown");
+  const isStopped = liveStatus?.state === "stopped";
+  const isStopping = liveStatus?.state === "pending-stop";
   const observedWorkloadState = isStopped
     ? "stopped"
     : isStopping
@@ -342,8 +353,22 @@ export function ApplicationPage() {
         <ErrorPanel
           error={loadError}
           onRetry={() =>
-            void Promise.all([application.refetch(), deployment.refetch()])
+            void Promise.all([
+              application.refetch(),
+              deployment.refetch(),
+              capabilities.refetch(),
+              environments.refetch(),
+              projects.refetch(),
+              me.refetch(),
+            ])
           }
+        />
+      ) : null}
+      {status.error ? (
+        <ErrorPanel
+          error={status.error}
+          title="Runtime status unavailable"
+          onRetry={() => void status.refetch()}
         />
       ) : null}
       {stopOpen ? (
@@ -426,35 +451,35 @@ export function ApplicationPage() {
             <div className="grid gap-5">
               <section className="grid grid-cols-[repeat(auto-fill,_minmax(min(100%,_190px),_1fr))] gap-3 mb-4 to-1120:grid-cols-[repeat(3,_1fr)] to-580:grid-cols-[1fr]">
                 {[
-                  ["Desired state", status.data?.state, "git"],
-                  ["Operation", status.data?.operationStatus, "refresh"],
+                  ["Desired state", liveStatus?.state, "git"],
+                  ["Operation", liveStatus?.operationStatus, "refresh"],
                   [
                     "Argo sync",
                     observedWorkloadState ??
-                      status.data?.argoSyncStatus ??
+                      liveStatus?.argoSyncStatus ??
                       "unknown",
                     "refresh",
                   ],
                   [
                     "Rollout health",
                     observedWorkloadState ??
-                      status.data?.rolloutHealth ??
+                      liveStatus?.rolloutHealth ??
                       "unknown",
                     "deploy",
                   ],
                   [
                     "Ready replicas",
                     observedWorkloadState ??
-                      (status.data?.readyReplicas !== undefined &&
-                      status.data?.desiredReplicas !== undefined
-                        ? `${status.data.readyReplicas}/${status.data.desiredReplicas}`
+                      (liveStatus?.readyReplicas !== undefined &&
+                      liveStatus?.desiredReplicas !== undefined
+                        ? `${liveStatus.readyReplicas}/${liveStatus.desiredReplicas}`
                         : "unknown"),
                     "deploy",
                   ],
                   [
                     "Rollout condition",
                     observedWorkloadState ??
-                      status.data?.rolloutConditions?.find(
+                      liveStatus?.rolloutConditions?.find(
                         (condition) => condition.status === "True",
                       )?.type ??
                       "unknown",
@@ -462,9 +487,9 @@ export function ApplicationPage() {
                   ],
                   [
                     "Git revision",
-                    pullRequest && !status.data?.desiredRevision
+                    pullRequest && !liveStatus?.desiredRevision
                       ? `review-${pullRequest.state}`
-                      : status.data?.desiredRevision
+                      : liveStatus?.desiredRevision
                         ? "committed"
                         : "pending",
                     "git",
@@ -472,18 +497,18 @@ export function ApplicationPage() {
                   [
                     "Argo revision",
                     observedWorkloadState ??
-                      (status.data?.argoObservedRevision
-                        ? status.data.argoObservedRevision ===
-                          status.data.desiredRevision
+                      (liveStatus?.argoObservedRevision
+                        ? liveStatus.argoObservedRevision ===
+                          liveStatus.desiredRevision
                           ? "current"
                           : "behind"
                         : "unknown"),
                     "deploy",
                   ],
-                  ["DNS", status.data?.dnsStatus ?? "not reported", "route"],
+                  ["DNS", liveStatus?.dnsStatus ?? "not reported", "route"],
                   [
                     "Monitoring",
-                    status.data?.monitoringStatus ?? "not reported",
+                    liveStatus?.monitoringStatus ?? "not reported",
                     "metrics",
                   ],
                 ].map(([label, value, icon]) => (
@@ -545,7 +570,7 @@ export function ApplicationPage() {
                       <dt>Desired revision</dt>
                       <dd>
                         <code>
-                          {status.data?.desiredRevision ??
+                          {liveStatus?.desiredRevision ??
                             deployment.data.desiredRevision ??
                             deployment.data.configRevision ??
                             "Pending first projection"}
@@ -564,7 +589,7 @@ export function ApplicationPage() {
                             Pull request #{pullRequest.number} ·{" "}
                             {pullRequest.state}
                           </a>
-                          {!status.data?.desiredRevision ? (
+                          {!liveStatus?.desiredRevision ? (
                             <small>
                               Awaiting verified merge and target indexing; the
                               candidate is not desired state.
@@ -577,7 +602,7 @@ export function ApplicationPage() {
                       <dt>Observed revision</dt>
                       <dd>
                         <code>
-                          {status.data?.argoObservedRevision ?? "Not reported"}
+                          {liveStatus?.argoObservedRevision ?? "Not reported"}
                         </code>
                       </dd>
                     </div>
@@ -600,10 +625,20 @@ export function ApplicationPage() {
                       All releases <Icon name="arrow" />
                     </button>
                   </CardHeader>
-                  <OperationTimeline
-                    operations={relatedOperations.slice(0, 4)}
-                    empty="No operation has been correlated with this App runtime yet."
-                  />
+                  {operations.error ? (
+                    <ErrorPanel
+                      error={operations.error}
+                      title="Release history unavailable"
+                      onRetry={() => void operations.refetch()}
+                    />
+                  ) : operations.isPending ? (
+                    <Skeleton lines={4} />
+                  ) : (
+                    <OperationTimeline
+                      operations={relatedOperations.slice(0, 4)}
+                      empty="No operation has been correlated with this App runtime yet."
+                    />
+                  )}
                 </Card>
               </div>
             </div>
@@ -660,10 +695,20 @@ export function ApplicationPage() {
                   <h2>Operations & releases</h2>
                 </div>
               </CardHeader>
-              <OperationTimeline
-                operations={relatedOperations}
-                empty="No release operations are indexed for this App runtime."
-              />
+              {operations.error ? (
+                <ErrorPanel
+                  error={operations.error}
+                  title="Release history unavailable"
+                  onRetry={() => void operations.refetch()}
+                />
+              ) : operations.isPending ? (
+                <Skeleton lines={4} />
+              ) : (
+                <OperationTimeline
+                  operations={relatedOperations}
+                  empty="No release operations are indexed for this App runtime."
+                />
+              )}
               {helmEnvironment ? (
                 <DeploymentRollbackPanel
                   key={`${deployment.data.id}:${helmEnvironment.id}`}

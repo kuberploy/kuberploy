@@ -1,6 +1,7 @@
 import { selectOption } from "../test/selectOption";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   render,
   screen,
@@ -24,6 +25,7 @@ import {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -276,6 +278,47 @@ describe("deployment runtime panel", () => {
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
     expect(logs).not.toHaveBeenCalled();
     expect(events).not.toHaveBeenCalled();
+  });
+
+  it("does not render a cached workload after its inventory refresh fails", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    client.setQueryData(["workloads", "application-1"], {
+      items: [targetWorkload],
+    });
+    vi.spyOn(api, "workloads").mockRejectedValue(
+      new Error("inventory refresh failed"),
+    );
+
+    render(panel(), {
+      wrapper: ({ children }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      ),
+    });
+
+    expect(await screen.findByText("Logs unavailable")).toBeInTheDocument();
+    expect(screen.getByText("inventory refresh failed")).toBeInTheDocument();
+    expect(screen.queryByText(targetWorkload.name)).not.toBeInTheDocument();
+  });
+
+  it("refreshes a stale inventory until the selected workload appears", async () => {
+    vi.useFakeTimers();
+    const workloads = vi
+      .spyOn(api, "workloads")
+      .mockResolvedValueOnce({ items: [otherWorkload] })
+      .mockResolvedValue({ items: [targetWorkload] });
+    vi.spyOn(api, "workloadLogs").mockResolvedValue(logSnapshot);
+    vi.spyOn(api, "workloadEvents").mockResolvedValue(eventSnapshot);
+
+    render(panel(), { wrapper: wrapper() });
+
+    await act(() => vi.advanceTimersByTimeAsync(20));
+    expect(screen.getByText("App runtime unavailable")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    await act(() => vi.advanceTimersByTimeAsync(5_020));
+    expect(screen.getByText("server is ready")).toBeInTheDocument();
+    expect(workloads).toHaveBeenCalledTimes(2);
   });
 
   it("keeps the empty event snapshot visible when only logs fail", async () => {
