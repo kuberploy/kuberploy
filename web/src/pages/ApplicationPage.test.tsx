@@ -350,6 +350,47 @@ describe("application rollout truth", () => {
     },
   );
 
+  it.each([
+    ["stopped", "Stopped"],
+    ["pending-stop", "Stopping"],
+  ] as const)(
+    "does not show stale workload observations for a %s App",
+    async (state, expectedLabel) => {
+      vi.mocked(api.deploymentStatus).mockResolvedValue({
+        state,
+        operationStatus: "succeeded",
+        argoSyncStatus: "out-of-sync",
+        rolloutHealth: "progressing",
+        desiredReplicas: 1,
+        readyReplicas: 1,
+        rolloutConditions: [
+          { type: "Progressing", status: "True", reason: "OldObservation" },
+        ],
+        desiredRevision: "a".repeat(40),
+        argoObservedRevision: "a".repeat(40),
+      });
+
+      renderApplication({ features: {}, capabilities: [] });
+
+      const cardValue = async (label: string) =>
+        (await screen.findByText(label))
+          .closest("section")!
+          .querySelector('[data-slot="status-pill"]')!;
+
+      expect(await cardValue("Argo sync")).toHaveTextContent(expectedLabel);
+      expect(await cardValue("Rollout health")).toHaveTextContent(
+        expectedLabel,
+      );
+      expect(await cardValue("Ready replicas")).toHaveTextContent(
+        expectedLabel,
+      );
+      expect(await cardValue("Rollout condition")).toHaveTextContent(
+        expectedLabel,
+      );
+      expect(await cardValue("Argo revision")).toHaveTextContent(expectedLabel);
+    },
+  );
+
   it("shows only the authoritative Argo observed revision", async () => {
     const authoritativeRevision = "d".repeat(40);
     const staleStatusRevision = "b".repeat(40);

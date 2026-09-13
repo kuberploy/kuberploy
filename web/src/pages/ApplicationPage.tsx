@@ -144,6 +144,13 @@ export function ApplicationPage() {
       : status.data?.state === "pending-stop"
         ? "stopping"
         : (status.data?.rolloutHealth ?? "unknown");
+  const isStopped = status.data?.state === "stopped";
+  const isStopping = status.data?.state === "pending-stop";
+  const observedWorkloadState = isStopped
+    ? "stopped"
+    : isStopping
+      ? "stopping"
+      : undefined;
   const effectiveCapabilities = capabilities.data?.capabilities ?? [];
   const applicationProject = projects.data?.items.find(
     (project) => project.id === application.data?.projectId,
@@ -417,27 +424,34 @@ export function ApplicationPage() {
                   ["Operation", status.data?.operationStatus, "refresh"],
                   [
                     "Argo sync",
-                    status.data?.argoSyncStatus ?? "unknown",
+                    observedWorkloadState ??
+                      status.data?.argoSyncStatus ??
+                      "unknown",
                     "refresh",
                   ],
                   [
                     "Rollout health",
-                    status.data?.rolloutHealth ?? "unknown",
+                    observedWorkloadState ??
+                      status.data?.rolloutHealth ??
+                      "unknown",
                     "deploy",
                   ],
                   [
                     "Ready replicas",
-                    status.data?.readyReplicas !== undefined &&
-                    status.data?.desiredReplicas !== undefined
-                      ? `${status.data.readyReplicas}/${status.data.desiredReplicas}`
-                      : "unknown",
+                    observedWorkloadState ??
+                      (status.data?.readyReplicas !== undefined &&
+                      status.data?.desiredReplicas !== undefined
+                        ? `${status.data.readyReplicas}/${status.data.desiredReplicas}`
+                        : "unknown"),
                     "deploy",
                   ],
                   [
                     "Rollout condition",
-                    status.data?.rolloutConditions?.find(
-                      (condition) => condition.status === "True",
-                    )?.type ?? "unknown",
+                    observedWorkloadState ??
+                      status.data?.rolloutConditions?.find(
+                        (condition) => condition.status === "True",
+                      )?.type ??
+                      "unknown",
                     "refresh",
                   ],
                   [
@@ -451,12 +465,13 @@ export function ApplicationPage() {
                   ],
                   [
                     "Argo revision",
-                    status.data?.argoObservedRevision
-                      ? status.data.argoObservedRevision ===
-                        status.data.desiredRevision
-                        ? "current"
-                        : "behind"
-                      : "unknown",
+                    observedWorkloadState ??
+                      (status.data?.argoObservedRevision
+                        ? status.data.argoObservedRevision ===
+                          status.data.desiredRevision
+                          ? "current"
+                          : "behind"
+                        : "unknown"),
                     "deploy",
                   ],
                   ["DNS", status.data?.dnsStatus ?? "not reported", "route"],
