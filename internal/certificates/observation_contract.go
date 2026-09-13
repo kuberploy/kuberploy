@@ -269,9 +269,19 @@ func CertificateObservationTargetDigest(binding secrets.Binding, secretVersion s
 }
 
 func validateActiveCertificateTarget(binding secrets.Binding, secretVersion secrets.Version, attestation Version) error {
+	if validateCertificateTargetIdentity(binding, secretVersion, attestation) != nil ||
+		binding.State != secrets.BindingReady || secretVersion.Number != binding.ActiveVersion || secretVersion.State != secrets.VersionActive {
+		return ErrInvalid
+	}
+	return nil
+}
+
+// Certificate identity remains immutable when rotation retains a formerly
+// active version. Callers must check lifecycle eligibility separately so a
+// normal rotation is not mistaken for corrupted binding or provider metadata.
+func validateCertificateTargetIdentity(binding secrets.Binding, secretVersion secrets.Version, attestation Version) error {
 	if binding.Validate() != nil || secretVersion.Validate() != nil || attestation.ValidateFor(binding, secretVersion) != nil ||
-		binding.Purpose != secrets.PurposeTLSCertificate || binding.Provider != secrets.ProviderSealedSecrets || binding.State != secrets.BindingReady ||
-		secretVersion.BindingID != binding.ID || secretVersion.Number != binding.ActiveVersion || secretVersion.State != secrets.VersionActive ||
+		binding.Purpose != secrets.PurposeTLSCertificate || binding.Provider != secrets.ProviderSealedSecrets || secretVersion.BindingID != binding.ID ||
 		secretVersion.Provider != secrets.ProviderSealedSecrets || secretVersion.TargetSecretType != secrets.TargetSecretTLS || secretVersion.Artifact == nil ||
 		!slices.Equal(secretVersion.Deliveries, certificateDeliveries()) ||
 		secretVersion.Artifact.Provider != secrets.ProviderSealedSecrets || secretVersion.Artifact.TargetSecretType != secrets.TargetSecretTLS ||

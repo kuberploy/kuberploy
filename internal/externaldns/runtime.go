@@ -18,7 +18,7 @@ var ErrRuntimeUnavailable = errors.New("external-dns operational runtime is unav
 
 // ManagedRuntimeTemplate is the immutable operator-owned half of every
 // dynamic managed integration. UI input cannot select an image, namespace,
-// ServiceAccount, arbitrary argument, URL, or Kubernetes payload.
+// ServiceAccount prefix, arbitrary argument, URL, or Kubernetes payload.
 type ManagedRuntimeTemplate struct {
 	Namespace, Version, Image, ServiceAccount string
 }
@@ -35,6 +35,10 @@ func (t ManagedRuntimeTemplate) Validate() error {
 }
 
 func ManagedProfile(item domain.ExternalDNSIntegration, t ManagedRuntimeTemplate) (edge.ExternalDNSProfile, error) {
+	return managedProfile(item, t, false)
+}
+
+func managedProfile(item domain.ExternalDNSIntegration, t ManagedRuntimeTemplate, legacy bool) (edge.ExternalDNSProfile, error) {
 	if t.Validate() != nil || Validate(item) != nil || item.Mode != ModeManaged || item.Lifecycle != "active" || item.RuntimeRevision < 1 {
 		return edge.ExternalDNSProfile{}, ErrRuntimeUnavailable
 	}
@@ -44,10 +48,17 @@ func ManagedProfile(item domain.ExternalDNSIntegration, t ManagedRuntimeTemplate
 	}
 	args := managedArguments(item)
 	contract, _ := json.Marshal(struct {
-		Contract, Integration, Image string
-		Revision                     int64
-		Arguments                    []string
-	}{"external-dns-managed-deployment.v1", item.ID, t.Image, item.RuntimeRevision, args})
+		Contract, Integration, Image, ServiceAccount string
+		Revision                                     int64
+		Arguments                                    []string
+	}{"external-dns-managed-deployment.v2", item.ID, t.Image, managedServiceAccount(item, t), item.RuntimeRevision, args})
+	if legacy {
+		contract, _ = json.Marshal(struct {
+			Contract, Integration, Image string
+			Revision                     int64
+			Arguments                    []string
+		}{"external-dns-managed-deployment.v1", item.ID, t.Image, item.RuntimeRevision, args})
+	}
 	p := edge.ExternalDNSProfile{IntegrationID: item.ID, Revision: item.RuntimeRevision, Mode: edge.ModeManaged, Namespace: t.Namespace, Version: t.Version,
 		Deployment: edge.DeploymentExpectation{Name: name, ContainerName: "external-dns", Image: t.Image, SpecDigest: digest(contract)}, ProfileConfigMap: name + "-profile",
 		LabelFilter: "kuberploy.io/dns-integration=" + item.Slug, AnnotationFilter: "", ProviderKind: item.ProviderKind, CredentialSecretRef: item.CredentialSecretRef,
@@ -57,6 +68,16 @@ func ManagedProfile(item domain.ExternalDNSIntegration, t ManagedRuntimeTemplate
 		return edge.ExternalDNSProfile{}, ErrRuntimeUnavailable
 	}
 	return p, nil
+}
+
+// Each independently reconciled bundle owns its own account. Preserve the
+// complete integration identity while keeping the operator prefix DNS-safe.
+func managedServiceAccount(item domain.ExternalDNSIntegration, t ManagedRuntimeTemplate) string {
+	prefix := t.ServiceAccount
+	if len(prefix) > 30 {
+		prefix = strings.TrimRight(prefix[:30], "-")
+	}
+	return prefix + "-" + strings.ReplaceAll(item.ID, "-", "")
 }
 
 func managedArguments(item domain.ExternalDNSIntegration) []string {
@@ -86,23 +107,33 @@ func managedCredentialSources(item domain.ExternalDNSIntegration) map[string]any
 // YAML). Credential values are never read; only exact Secret and ConfigMap
 // references are materialized.
 func RenderManagedBundle(item domain.ExternalDNSIntegration, t ManagedRuntimeTemplate) ([]byte, edge.ExternalDNSProfile, error) {
-	p, err := ManagedProfile(item, t)
+	return renderManagedBundle(item, t, false)
+}
+
+// The v1 shape is retained only to recover a known pending publication or
+// delete its exact preimage after upgrading from the shared-account renderer.
+func renderManagedBundle(item domain.ExternalDNSIntegration, t ManagedRuntimeTemplate, legacy bool) ([]byte, edge.ExternalDNSProfile, error) {
+	p, err := managedProfile(item, t, legacy)
 	if err != nil {
 		return nil, edge.ExternalDNSProfile{}, err
 	}
 	labels := map[string]any{"app.kubernetes.io/name": "external-dns", "app.kubernetes.io/managed-by": "kuberploy", "app.kubernetes.io/version": p.Version, "kuberploy.io/dns-integration": item.ID}
 	annotations := map[string]any{"kuberploy.io/edge-spec-digest": p.Deployment.SpecDigest, "kuberploy.io/provider-config-ref": item.ProviderConfigRef, "kuberploy.io/egress-config-ref": item.EgressConfigRef, "kuberploy.io/runtime-revision": fmt.Sprint(item.RuntimeRevision)}
 	profileData := p.ProfileData()
+	serviceAccount := managedServiceAccount(item, t)
+	if legacy {
+		serviceAccount = t.ServiceAccount
+	}
 	runtimeContainer := map[string]any{"name": "external-dns", "image": t.Image, "args": managedArguments(item), "securityContext": map[string]any{"allowPrivilegeEscalation": false, "capabilities": map[string]any{"drop": []string{"ALL"}}, "readOnlyRootFilesystem": true, "runAsGroup": int64(65532), "runAsNonRoot": true, "runAsUser": int64(65532)}, "resources": map[string]any{"requests": map[string]any{"cpu": "25m", "memory": "64Mi"}, "limits": map[string]any{"cpu": "500m", "memory": "256Mi"}}}
 	for key, value := range managedCredentialSources(item) {
 		runtimeContainer[key] = value
 	}
 	objects := []any{
-		map[string]any{"apiVersion": "v1", "kind": "ServiceAccount", "metadata": map[string]any{"name": t.ServiceAccount, "namespace": t.Namespace, "labels": labels}},
+		map[string]any{"apiVersion": "v1", "kind": "ServiceAccount", "metadata": map[string]any{"name": serviceAccount, "namespace": t.Namespace, "labels": labels}},
 		map[string]any{"apiVersion": "v1", "kind": "ConfigMap", "metadata": map[string]any{"name": p.ProfileConfigMap, "namespace": t.Namespace, "labels": labels}, "data": profileData},
-		map[string]any{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": map[string]any{"name": p.Deployment.Name, "namespace": t.Namespace, "labels": labels, "annotations": annotations}, "spec": map[string]any{"replicas": 1, "selector": map[string]any{"matchLabels": map[string]any{"kuberploy.io/dns-integration": item.ID}}, "template": map[string]any{"metadata": map[string]any{"labels": labels}, "spec": map[string]any{"serviceAccountName": t.ServiceAccount, "securityContext": map[string]any{"fsGroup": int64(65534), "runAsNonRoot": true, "seccompProfile": map[string]any{"type": "RuntimeDefault"}}, "containers": []any{runtimeContainer}}}}},
+		map[string]any{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": map[string]any{"name": p.Deployment.Name, "namespace": t.Namespace, "labels": labels, "annotations": annotations}, "spec": map[string]any{"replicas": 1, "selector": map[string]any{"matchLabels": map[string]any{"kuberploy.io/dns-integration": item.ID}}, "template": map[string]any{"metadata": map[string]any{"labels": labels}, "spec": map[string]any{"serviceAccountName": serviceAccount, "securityContext": map[string]any{"fsGroup": int64(65534), "runAsNonRoot": true, "seccompProfile": map[string]any{"type": "RuntimeDefault"}}, "containers": []any{runtimeContainer}}}}},
 		map[string]any{"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRole", "metadata": map[string]any{"name": p.Deployment.Name, "labels": labels}, "rules": []any{map[string]any{"apiGroups": []string{"networking.k8s.io"}, "resources": []string{"ingresses"}, "verbs": []string{"get", "list", "watch"}}}},
-		map[string]any{"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRoleBinding", "metadata": map[string]any{"name": p.Deployment.Name, "labels": labels}, "subjects": []any{map[string]any{"kind": "ServiceAccount", "name": t.ServiceAccount, "namespace": t.Namespace}}, "roleRef": map[string]any{"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": p.Deployment.Name}},
+		map[string]any{"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRoleBinding", "metadata": map[string]any{"name": p.Deployment.Name, "labels": labels}, "subjects": []any{map[string]any{"kind": "ServiceAccount", "name": serviceAccount, "namespace": t.Namespace}}, "roleRef": map[string]any{"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": p.Deployment.Name}},
 	}
 	var out bytes.Buffer
 	for index, object := range objects {

@@ -3,6 +3,7 @@ package externaldns
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path"
@@ -227,5 +228,112 @@ func TestProtectedPublisherRecoversAcceptedPushWithoutDuplicateCommit(t *testing
 	}
 	if next := publicationGit(t, "", "--git-dir", f.remote, "rev-parse", "refs/heads/main"); next != first {
 		t.Fatal("recovery created another commit")
+	}
+}
+
+func TestProtectedPublisherDeletesOnlyExactLegacyBundle(t *testing.T) {
+	for _, substituted := range []bool{false, true} {
+		t.Run(fmt.Sprint(substituted), func(t *testing.T) {
+			f := newPublicationFixture(t)
+			item := runtimeIntegration()
+			legacy, _, err := renderManagedBundle(item, f.config.Template, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if substituted {
+				legacy = []byte(strings.ReplaceAll(string(legacy), "cloudflare-credentials", "another-provider-credential"))
+			}
+			documentPath := path.Join(gitprojection.PlatformPrefix(), "argocd", "platform", "external-dns", item.ID+".yaml")
+			f.advance(t, documentPath, legacy, time.Second)
+			base := f.binding.IndexedRevision
+			item.Lifecycle = "deactivated"
+			receipt, err := f.publisher(t, f.store).Reconcile(t.Context(), item)
+			if substituted {
+				if !errors.Is(err, gitprojection.ErrConflict) || publicationGit(t, "", "--git-dir", f.remote, "rev-parse", "refs/heads/main") != base {
+					t.Fatalf("changed legacy content was not fenced: %#v %v", receipt, err)
+				}
+				return
+			}
+			if err != nil || !receipt.Deleted || !receipt.Changed {
+				t.Fatalf("legacy deactivation failed: %#v %v", receipt, err)
+			}
+			if publicationGit(t, "", "--git-dir", f.remote, "ls-tree", "-r", "--name-only", receipt.CommittedRevision, "--", documentPath) != "" || publicationGit(t, "", "--git-dir", f.remote, "show", receipt.CommittedRevision+":README.md") != "platform" {
+				t.Fatal("deactivation did not delete only the legacy path")
+			}
+		})
+	}
+}
+
+func TestProtectedPublisherRecoversOnlyKnownExpiredLegacyOperation(t *testing.T) {
+	for _, scenario := range []string{"expired", "foreign-active", "foreign-operation", "changed-path"} {
+		t.Run(scenario, func(t *testing.T) {
+			f := newPublicationFixture(t)
+			item := runtimeIntegration()
+			legacy, _, err := renderManagedBundle(item, f.config.Template, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			documentPath := path.Join(gitprojection.PlatformPrefix(), "argocd", "platform", "external-dns", item.ID+".yaml")
+			operation := externalDNSOperationID(f.config, item, gitprojection.MutationUpsert, digest(legacy))
+			if scenario == "foreign-operation" {
+				operation = "44444444-4444-4444-8444-444444444444"
+			}
+			lease := f.now.Add(90 * time.Second)
+			reservation := gitprojection.PathReservation{BindingID: f.binding.ID, TargetRef: f.binding.TargetRef, Path: documentPath, OperationID: operation, Owner: "previous-worker:legacy", BaseRevision: f.binding.IndexedRevision, State: gitprojection.ReservationCandidate, LeaseUntil: &lease, CreatedAt: f.now, UpdatedAt: f.now}
+			if _, _, err = f.store.AcquirePath(t.Context(), reservation, f.now, 90*time.Second); err != nil {
+				t.Fatal(err)
+			}
+			elapsed := 2 * time.Minute
+			if scenario == "foreign-active" {
+				elapsed = time.Minute
+			}
+			if scenario == "changed-path" {
+				f.advance(t, documentPath, legacy, elapsed)
+			} else {
+				f.advance(t, "unrelated.md", []byte("preserved\n"), elapsed)
+			}
+			publisher := f.publisher(t, f.store)
+			if _, err = publisher.Reconcile(t.Context(), item); err == nil {
+				t.Fatal("first legacy recovery must retry or reject")
+			}
+			kept, reservationErr := f.store.PathReservation(t.Context(), f.binding.ID, f.binding.TargetRef, documentPath)
+			if scenario != "expired" {
+				if reservationErr != nil || kept.OperationID != reservation.OperationID || kept.BaseRevision != reservation.BaseRevision {
+					t.Fatalf("unproven reservation was changed: %#v %v", kept, reservationErr)
+				}
+				return
+			}
+			if !errors.Is(reservationErr, gitprojection.ErrNotFound) {
+				t.Fatal("known expired legacy candidate remains reserved")
+			}
+			receipt, err := publisher.Reconcile(t.Context(), item)
+			if err != nil || !receipt.Changed {
+				t.Fatalf("fresh publication after legacy recovery failed: %#v %v", receipt, err)
+			}
+			expected, _, _ := RenderManagedBundle(item, f.config.Template)
+			if publicationGit(t, "", "--git-dir", f.remote, "show", receipt.CommittedRevision+":"+documentPath) != strings.TrimSpace(string(expected)) {
+				t.Fatal("legacy recovery did not publish current account ownership")
+			}
+		})
+	}
+}
+
+func TestProtectedPublisherRecoversAcceptedLegacyPushBeforeUpgrade(t *testing.T) {
+	f := newPublicationFixture(t)
+	item := runtimeIntegration()
+	legacy, _, err := renderManagedBundle(item, f.config.Template, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publisher := f.publisher(t, &publicationLostReceiptStore{Store: f.store, fail: true})
+	if _, err = publisher.publish(t.Context(), item, legacy, gitprojection.MutationUpsert); err == nil {
+		t.Fatal("expected lost legacy publication receipt")
+	}
+	first := publicationGit(t, "", "--git-dir", f.remote, "rev-parse", "refs/heads/main")
+	if _, err = publisher.Reconcile(t.Context(), item); !errors.Is(err, gitprojection.ErrStale) {
+		t.Fatalf("accepted legacy publication did not wait for projection: %v", err)
+	}
+	if next := publicationGit(t, "", "--git-dir", f.remote, "rev-parse", "refs/heads/main"); next != first {
+		t.Fatal("legacy recovery created a duplicate commit")
 	}
 }

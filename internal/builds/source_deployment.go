@@ -54,11 +54,14 @@ type SourceDeploymentCommand struct {
 	Execution                                                      ExecutionSettings
 	SourceDeploymentGeneration                                     int64
 	SourceConfigETag                                               string
-	ConfigIntent                                                   []byte
-	TemplateDigest                                                 string
-	IdempotencyKey, Fingerprint, RequestID                         string
-	AcceptedAt                                                     time.Time
-	StartDraft                                                     bool
+	// SourceProjectionETag fences the database snapshot used at acceptance.
+	// SourceConfigETag remains the Git authority token checked at publication.
+	SourceProjectionETag                   string
+	ConfigIntent                           []byte
+	TemplateDigest                         string
+	IdempotencyKey, Fingerprint, RequestID string
+	AcceptedAt                             time.Time
+	StartDraft                             bool
 }
 
 type SourceDeploymentIntent struct {
@@ -263,10 +266,12 @@ func (command SourceDeploymentCommand) validate() error {
 		return ErrInvalid
 	}
 	if command.SourceConfigETag == "" {
-		if !command.StartDraft || len(command.ConfigIntent) != 0 || command.TemplateDigest != "" {
+		if !command.StartDraft || command.SourceProjectionETag != "" || len(command.ConfigIntent) != 0 || command.TemplateDigest != "" {
 			return ErrInvalid
 		}
 	} else if !configETagRE.MatchString(command.SourceConfigETag) || !appconfig.ValidateAutoDeployIntentTemplate(command.ConfigIntent, command.TemplateDigest) {
+		return ErrInvalid
+	} else if !configETagRE.MatchString(command.SourceProjectionETag) {
 		return ErrInvalid
 	}
 	switch command.Mode {

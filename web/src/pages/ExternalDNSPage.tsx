@@ -706,7 +706,7 @@ export function ExternalDNSPage() {
                     label="Allowed domain suffixes"
                     required
                     error={errors.suffixes}
-                    hint="One lowercase suffix per line; every route host must be inside one suffix."
+                    hint="One lowercase suffix per line; every route host must be inside one suffix. Cloudflare subdomains also require the parent zone ID in the provider configuration."
                   >
                     <textarea
                       rows={4}
@@ -777,7 +777,12 @@ export function ExternalDNSPage() {
                           label={label}
                           required
                           error={errors[key]}
-                          hint="Opaque Kubernetes reference only; never enter a secret or URL."
+                          hint={
+                            key === "providerConfigRef" &&
+                            draft.providerKind === "cloudflare"
+                              ? "Name of the provider ConfigMap. For Cloudflare subdomains, set EXTERNAL_DNS_ZONE_ID_FILTER in that ConfigMap to the parent zone ID. Keep the allowed suffixes limited to the hostnames you want to manage."
+                              : "Opaque Kubernetes reference only; never enter a secret or URL."
+                          }
                         >
                           <input
                             value={draft[key]}

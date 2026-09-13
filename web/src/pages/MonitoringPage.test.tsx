@@ -164,7 +164,7 @@ describe("monitoring dashboards", () => {
 
     render(<MonitoringPage />, { wrapper: wrapper() });
 
-    expect(await screen.findByText("No monitoring scope")).toBeInTheDocument();
+    expect(await screen.findByText("Monitoring access required")).toBeInTheDocument();
     expect(metrics).not.toHaveBeenCalled();
   });
 
@@ -280,9 +280,9 @@ describe("monitoring dashboards", () => {
 
     render(<MonitoringPage />, { wrapper: wrapper() });
 
-    expect(
-      await screen.findByText("Metrics are explicitly unavailable"),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Monitoring unavailable",
+    );
     expect(
       screen.getByText("The provider is offline; values are unknown."),
     ).toBeInTheDocument();

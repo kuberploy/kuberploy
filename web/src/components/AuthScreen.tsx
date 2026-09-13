@@ -210,27 +210,27 @@ export function AuthScreen({
             Kubernetes, without the ceremony
           </Eyebrow>
           <h1>
-            Ship from a digest.
+            Deploy Apps
             <br />
-            Reconcile from Git.
+            to Kubernetes.
           </h1>
           <p>
-            A self-hosted control plane for content-addressed releases, explicit
-            routes, and an honest view of what Argo CD is doing.
+            Build from Git, deploy container images or Helm charts, and manage
+            domains, logs, and updates from one place.
           </p>
           <div
             className="flex w-max items-center gap-3 mt-8 py-3 px-3 border border-[rgba(255,_255,_255,_0.08)] rounded-[9px] text-[#b6c9bf] bg-[rgba(255,_255,_255,_0.03)] font-mono text-meta [&_svg]:w-[13px] [&_svg]:text-mint"
             aria-label="Kuberploy App delivery flow"
           >
-            <span>OCI image</span>
+            <span>Choose a source</span>
             <Icon name="arrow" />
-            <span>Git commit</span>
+            <span>Deploy</span>
             <Icon name="arrow" />
-            <span>Argo sync</span>
+            <span>Running App</span>
           </div>
         </div>
         <small className="relative text-ink-soft text-meta">
-          Your workloads keep running even when the control plane is offline.
+          Your deployed Apps keep running when Kuberploy is offline.
         </small>
       </section>
 

@@ -3002,8 +3002,20 @@ export const api = {
         body: { sourceOperationId },
       },
     ).then(normalizeOperation),
-  deploymentConfig: (id: string) =>
-    request<ConfigBundle>(`/v1/deployments/${encodeURIComponent(id)}/config`),
+  deploymentConfig: (
+    id: string,
+    fence?: { atLeastRevision: string; waitSeconds?: number },
+  ) => {
+    const query = new URLSearchParams();
+    if (fence) {
+      query.set("atLeastRevision", fence.atLeastRevision);
+      if (fence.waitSeconds !== undefined)
+        query.set("waitSeconds", String(fence.waitSeconds));
+    }
+    return request<ConfigBundle>(
+      `/v1/deployments/${encodeURIComponent(id)}/config${query.size ? `?${query}` : ""}`,
+    );
+  },
   validateDeploymentConfig: (id: string, change: ConfigChange) =>
     request<ConfigValidation>(
       `/v1/deployments/${encodeURIComponent(id)}/config/validate`,

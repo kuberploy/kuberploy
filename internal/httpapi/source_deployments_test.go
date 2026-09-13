@@ -5,11 +5,13 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/kuberploy/kuberploy/internal/builds"
 	"github.com/kuberploy/kuberploy/internal/domain"
+	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/httpapi"
 	"github.com/kuberploy/kuberploy/internal/ratelimit"
 	"github.com/kuberploy/kuberploy/internal/store"
@@ -64,8 +66,26 @@ func TestSourceDeploymentEndpointAcceptsOneDurableCommand(t *testing.T) {
 		t.Fatalf("status=%d problem=%+v", r.StatusCode, problem)
 	}
 	if fake.command.DeploymentID != operation.TargetID || fake.command.ApplicationID != application.ID ||
-		fake.command.EnvironmentID != environment.ID || fake.command.ProjectID != project.ID || len(fake.command.ConfigIntent) == 0 {
+		fake.command.EnvironmentID != environment.ID || fake.command.ProjectID != project.ID || len(fake.command.ConfigIntent) == 0 ||
+		fake.command.SourceConfigETag != config.ETag || fake.command.SourceProjectionETag != config.ETag {
 		t.Fatalf("status=%d command=%+v", r.StatusCode, fake.command)
+	}
+
+	binding := projectedHTTPBinding(t, project.ID, environment.ID, time.Now().UTC().Add(-time.Minute))
+	document, err := gitprojection.NewDocument(binding, 1, application.ID, binding.IndexedRevision, binding.IndexedRevision,
+		strings.Repeat("e", 40), config.RawYAML, nil, nil, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitETag := `"sha256:` + strings.Repeat("b", 64) + `"`
+	backend := &projectionHTTPBackend{bundle: gitprojection.Bundle{ETag: gitETag, Documents: []gitprojection.Document{document},
+		Dependencies: []gitprojection.DependencyState{{Path: "tenants/" + project.ID + "/variables.yaml"}, {Path: binding.Prefix + "/variables.yaml"}}}}
+	f.server.Close()
+	f.server = httptest.NewServer(httpapi.New(httpapi.Options{Store: f.store, SourceDeployments: fake, GitProjection: backend,
+		GitProjectionReadiness: &projectionHTTPReadiness{}, HighRiskLimiter: ratelimit.NewMemoryLimiter(10_000)}))
+	r = f.request(http.MethodPost, "/v1/deployments/"+operation.TargetID+"/source-build", "source-api-command-git", map[string]string{"mode": "deploy"})
+	if r.StatusCode != http.StatusAccepted || fake.command.SourceConfigETag != gitETag || fake.command.SourceProjectionETag != config.ETag {
+		t.Fatalf("Git-backed acceptance status=%d Git ETag=%s projection ETag=%s", r.StatusCode, fake.command.SourceConfigETag, fake.command.SourceProjectionETag)
 	}
 }
 
@@ -102,7 +122,7 @@ func TestSourceDeploymentEndpointStartsNewSourceAppDraft(t *testing.T) {
 		problem := decode[httpapi.Problem](t, r)
 		t.Fatalf("status=%d problem=%+v", r.StatusCode, problem)
 	}
-	if !fake.command.StartDraft || fake.command.SourceConfigETag != "" || len(fake.command.ConfigIntent) != 0 ||
+	if !fake.command.StartDraft || fake.command.SourceConfigETag != "" || fake.command.SourceProjectionETag != "" || len(fake.command.ConfigIntent) != 0 ||
 		fake.command.DeploymentID != deployments[0].ID || fake.command.EnvironmentID != environment.ID {
 		t.Fatalf("draft command=%+v", fake.command)
 	}

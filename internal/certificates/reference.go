@@ -221,7 +221,8 @@ func (c referenceCandidate) validate(expectedScope secrets.Scope, ref Reference,
 		c.Binding.Purpose != secrets.PurposeTLSCertificate || c.Binding.Provider != secrets.ProviderSealedSecrets {
 		return ErrNotFound
 	}
-	if c.Binding.ActiveVersion != ref.Version || c.Version.Number != ref.Version {
+	if c.Binding.State != secrets.BindingReady || c.Binding.ActiveVersion != ref.Version ||
+		c.Version.Number != ref.Version || c.Version.State != secrets.VersionActive {
 		return ErrNotReady
 	}
 	if now.UTC().Before(c.Certificate.NotBefore) || !now.UTC().Before(c.Certificate.NotAfter) {
@@ -234,7 +235,7 @@ func (c referenceCandidate) validate(expectedScope secrets.Scope, ref Reference,
 }
 
 func (c referenceCandidate) validateIdentity() error {
-	if validateActiveCertificateTarget(c.Binding, c.Version, c.Certificate) != nil || c.Resolved.Validate() != nil {
+	if validateCertificateTargetIdentity(c.Binding, c.Version, c.Certificate) != nil || c.Resolved.Validate() != nil {
 		return ErrConflict
 	}
 	targetName := secrets.TargetSecretName(c.Binding, c.Version.Number)

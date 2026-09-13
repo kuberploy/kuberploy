@@ -509,6 +509,49 @@ func TestCustomCertificatePreviewAndSaveRevalidateExactReference(t *testing.T) {
 	if response.StatusCode != http.StatusServiceUnavailable || unavailable.Code != "CertificateReferenceRuntimeUnavailable" || !unavailable.Retryable {
 		t.Fatalf("certificate observation outage was not retryable 503: status=%d problem=%#v", response.StatusCode, unavailable)
 	}
+
+	// A completed projection can contain the now-retained v1 reference with a
+	// readiness diagnostic. Its exact Git bytes must remain a writable base
+	// for selecting the freshly observed v2 through normal preview and save.
+	retained := appconfig.Apply(snapshot.ConfigRaw, change)
+	if len(retained.Diagnostics) != 0 {
+		t.Fatalf("retained certificate fixture invalid: %#v", retained.Diagnostics)
+	}
+	document, err = gitprojection.NewDocument(binding, 1, application.Value.ID, binding.IndexedRevision, binding.IndexedRevision,
+		strings.Repeat("f", 40), retained.Raw, retained.Parsed, []gitprojection.Diagnostic{{
+			Code: "CustomCertificateNotReady", Detail: "The pinned version was retained after rotation.", Pointer: "/spec/routes/0/tls/secretRef/version",
+		}}, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = fixture.store.PutProjectionDocument(t.Context(), document); err != nil {
+		t.Fatal(err)
+	}
+	etag, err = gitprojection.StrongETag(binding, []gitprojection.Document{document}, nil, chartDigest, "appconfig-v1alpha1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend.bundle.Documents, backend.bundle.ETag = []gitprojection.Document{document}, etag
+	backend.plan.ExpectedETag = etag
+	certificateBackend.err = nil
+	replace := appconfig.Change{Mode: "jsonPatch", Patch: []appconfig.PatchOperation{{
+		Op: "replace", Path: "/spec/routes/0/tls/secretRef/version", Value: 2,
+	}}}
+	response = configRequest(t, fixture, http.MethodPost, path+"/preview", "", replace, map[string]string{"If-Match": etag})
+	preview = decode[previewWire](t, response)
+	if response.StatusCode != http.StatusOK || preview.PreviewToken == "" {
+		t.Fatalf("retained-v1 replacement preview status=%d body=%#v", response.StatusCode, preview)
+	}
+	response = configRequest(t, fixture, http.MethodPut, path, "certificate-reference-replace-v2", replace,
+		map[string]string{"If-Match": etag, "Preview-Token": preview.PreviewToken})
+	replaced := decode[domain.Operation](t, response)
+	if response.StatusCode != http.StatusAccepted {
+		t.Fatalf("retained-v1 replacement save status=%d operation=%#v", response.StatusCode, replaced)
+	}
+	command, err := fixture.store.AcceptedGitWriteCommand(replaced.ID)
+	if err != nil || command.Plan.ExpectedETag != etag || string(command.Content) != string(appconfig.Apply(document.Raw, replace).Raw) {
+		t.Fatalf("replacement did not preserve exact Git precondition and v2: %v", err)
+	}
 }
 
 func TestArgoCapabilityRequiresBothGitAndProductionReadiness(t *testing.T) {

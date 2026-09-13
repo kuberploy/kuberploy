@@ -97,7 +97,7 @@ builder node pool. Inclusion of this boundary does not claim that the build
 controller or build API is enabled.
 
 Each native build pushes an untagged, content-addressed platform manifest.
-After all twelve builds complete, the assembly job verifies each child digest's
+After all native builds complete, the assembly job verifies each child digest's
 reported architecture and creates one uniquely tagged
 `candidate-RUN_ID-RUN_ATTEMPT` OCI index per component. It refuses an existing
 candidate tag and verifies that every index contains exactly the expected

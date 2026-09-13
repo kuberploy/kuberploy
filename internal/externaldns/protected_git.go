@@ -62,7 +62,45 @@ func (p *ProtectedPublisher) Reconcile(ctx context.Context, item domain.External
 	} else if item.Lifecycle != "active" {
 		return PublicationReceipt{}, ErrRuntimeUnavailable
 	}
-	return p.publish(ctx, item, content, action)
+	legacy, _, err := renderManagedBundle(itemForRendering(item), p.config.Template, true)
+	if err != nil {
+		return PublicationReceipt{}, err
+	}
+	// An upgrade changes the content-derived operation identity. Finish only
+	// an exactly reproducible v1 operation before publishing the new shape;
+	// publish still enforces ownership, lease, history, and preimage checks.
+	binding, err := p.store.Binding(ctx, p.config.BindingID)
+	if err != nil {
+		return PublicationReceipt{}, err
+	}
+	documentPath := path.Join(gitprojection.PlatformPrefix(), "argocd", "platform", "external-dns", item.ID+".yaml")
+	reservation, reservationErr := p.store.PathReservation(ctx, binding.ID, binding.TargetRef, documentPath)
+	if reservationErr == nil {
+		for _, previousAction := range []gitprojection.MutationAction{gitprojection.MutationUpsert, action} {
+			if reservation.OperationID != externalDNSOperationID(p.config, item, previousAction, digest(legacy)) {
+				continue
+			}
+			receipt, recoverErr := p.publish(ctx, item, legacy, previousAction)
+			if recoverErr != nil {
+				return PublicationReceipt{}, recoverErr
+			}
+			if previousAction == gitprojection.MutationDelete {
+				return receipt, nil
+			}
+			// Wait for projection to retire the completed reservation before
+			// attempting the replacement (or the requested deactivation).
+			return PublicationReceipt{}, gitprojection.ErrStale
+		}
+	} else if !errors.Is(reservationErr, gitprojection.ErrNotFound) {
+		return PublicationReceipt{}, reservationErr
+	}
+	receipt, err := p.publish(ctx, item, content, action)
+	if action == gitprojection.MutationDelete && errors.Is(err, gitprojection.ErrConflict) {
+		// A deactivated v1 integration never receives an active v2 upsert.
+		// Accept only its byte-exact legacy catalog rendering for deletion.
+		return p.publish(ctx, item, legacy, action)
+	}
+	return receipt, err
 }
 
 func itemForRendering(item domain.ExternalDNSIntegration) domain.ExternalDNSIntegration {

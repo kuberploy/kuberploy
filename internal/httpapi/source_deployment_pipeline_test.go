@@ -3,17 +3,23 @@ package httpapi
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/appconfig"
+	"github.com/kuberploy/kuberploy/internal/autodeploy"
 	"github.com/kuberploy/kuberploy/internal/builds"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/store/memory"
 )
 
-type sourceDraftProjection struct{ plan gitprojection.WritePlan }
+type sourceDraftProjection struct {
+	plan   gitprojection.WritePlan
+	bundle *gitprojection.Bundle
+}
 type sourceDraftReady struct{}
 
 func (sourceDraftReady) Probe(context.Context) error { return nil }
@@ -22,7 +28,10 @@ func (p sourceDraftProjection) PlanMutation(context.Context, string, string, str
 	return p.plan, nil
 }
 
-func (sourceDraftProjection) Bundle(context.Context, string, domain.Deployment, string, time.Duration) (gitprojection.Bundle, error) {
+func (p sourceDraftProjection) Bundle(context.Context, string, domain.Deployment, string, time.Duration) (gitprojection.Bundle, error) {
+	if p.bundle != nil {
+		return *p.bundle, nil
+	}
 	return gitprojection.Bundle{}, gitprojection.ErrNotFound
 }
 
@@ -86,5 +95,27 @@ func TestSourceDeploymentStartsNewAppDraftWithDefaultRuntime(t *testing.T) {
 	}
 	if len(started.ConfigRaw) == 0 {
 		t.Fatal("started source draft has no AppConfig")
+	}
+
+	// Database acceptance and Git publication fence different authorities.
+	// A successful build must not publish over a newer Git configuration.
+	intent, digest, diagnostics := appconfig.AutoDeployIntentTemplate(started.ConfigRaw)
+	if len(diagnostics) != 0 {
+		t.Fatal(diagnostics)
+	}
+	oldGitETag := `"sha256:` + strings.Repeat("1", 64) + `"`
+	bundle := gitprojection.Bundle{ETag: `"sha256:` + strings.Repeat("2", 64) + `"`, Documents: []gitprojection.Document{{
+		Path: configGitPath(started), ApplicationID: application.Value.ID, Valid: true, Raw: started.ConfigRaw}}}
+	server.gitProjection = sourceDraftProjection{bundle: &bundle}
+	submission.IntentID, submission.AttemptID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", "ffffffff-ffff-4fff-8fff-ffffffffffff"
+	submission.StartDraft, submission.SourceConfigETag = false, oldGitETag
+	submission.ConfigIntent, submission.TemplateDigest = intent, digest
+	submission.SourceDeploymentGeneration = started.Generation
+	before := st.OutboxCount()
+	if _, err = server.SubmitSourceDeployment(ctx, submission); !errors.Is(err, autodeploy.ErrConflict) {
+		t.Fatalf("newer Git configuration did not reject source publication: %v", err)
+	}
+	if st.OutboxCount() != before {
+		t.Fatal("stale Git configuration published an operation")
 	}
 }

@@ -315,9 +315,9 @@ export function MonitoringPage() {
   return (
     <Page>
       <PageHeader
-        eyebrow="Bounded recording-rule catalog"
+        eyebrow="Resource usage and App health"
         title="Monitoring"
-        description="Namespace and platform views use named metrics and opaque authorized scope IDs. Free-form PromQL is never sent by this UI."
+        description="Monitor resource use and App health across your Projects and Environments."
         actions={
           <StatusPill
             value={monitoringAvailable ? "available" : "disabled"}
@@ -353,8 +353,8 @@ export function MonitoringPage() {
       ) : loadError ? null : !selectedScope ? (
         <EmptyState
           icon="metrics"
-          title="No monitoring scope"
-          description="An effective metrics:read grant covering a project, environment, or namespace is required. Global metrics require an explicit platform-admin capability."
+          title="Monitoring access required"
+          description="Ask an administrator for monitoring access to your Project or Environment. Platform-wide monitoring is available to platform administrators."
           action={<PlaceholderBadge>Access not granted</PlaceholderBadge>}
         />
       ) : (
@@ -368,7 +368,7 @@ export function MonitoringPage() {
               <span>
                 <strong>Dashboard scope</strong>
                 <small>
-                  Only scopes covered by effective grants are listed.
+                  Choose a Project or Environment you can monitor.
                 </small>
               </span>
             </div>
@@ -392,10 +392,10 @@ export function MonitoringPage() {
             <Notice tone="warning" role="status">
               <Icon name="metrics" />
               <div>
-                <strong>Metrics are explicitly unavailable</strong>
+                <strong>Monitoring unavailable</strong>
                 <p>
                   {monitoring.data?.message ??
-                    "No healthy Prometheus-compatible query boundary is currently available."}
+                    "The monitoring service is not connected. Ask an administrator to check its setup."}
                 </p>
               </div>
             </Notice>

@@ -1,6 +1,13 @@
 import { selectOption } from "../test/selectOption";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { PropsWithChildren } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -10,6 +17,7 @@ import { BuildLogsPanel } from "./BuildLogsPanel";
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -74,6 +82,109 @@ class FakeEventSource {
 }
 
 describe("source-build log panel", () => {
+  it.each([404, 410])(
+    "recovers an active missing source after HTTP %i",
+    async (status) => {
+      vi.useFakeTimers();
+      const request = vi
+        .spyOn(api, "buildLogSnapshot")
+        .mockRejectedValueOnce(
+          new ApiError(status, {
+            title: "Source missing",
+            status,
+            detail: "Builder logs are starting.",
+          }),
+        )
+        .mockResolvedValue(snapshot);
+      render(<BuildLogsPanel attemptId="starting-attempt" active />, {
+        wrapper: wrapper(),
+      });
+      await act(() => vi.advanceTimersByTimeAsync(20));
+      expect(
+        screen.getByRole("heading", { name: "Waiting for build logs" }),
+      ).toBeInTheDocument();
+      expect(request).toHaveBeenCalledTimes(1);
+      await act(() => vi.advanceTimersByTimeAsync(5_020));
+      expect(screen.getByText("snapshot output")).toBeInTheDocument();
+      await act(() => vi.advanceTimersByTimeAsync(15_000));
+      expect(request).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each([401, 403])(
+    "never polls an access failure after HTTP %i",
+    async (status) => {
+      vi.useFakeTimers();
+      const request = vi
+        .spyOn(api, "buildLogSnapshot")
+        .mockRejectedValue(
+          new ApiError(status, {
+            title: "Access denied",
+            status,
+            detail: "Build log access denied.",
+          }),
+        );
+      render(<BuildLogsPanel attemptId="denied-attempt" active />, {
+        wrapper: wrapper(),
+      });
+      await act(() => vi.advanceTimersByTimeAsync(20));
+      expect(
+        screen.getByRole("heading", { name: "Build logs unavailable" }),
+      ).toBeInTheDocument();
+      await act(() => vi.advanceTimersByTimeAsync(30_000));
+      expect(request).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("stops pending source checks when the attempt becomes terminal", async () => {
+    vi.useFakeTimers();
+    const request = vi
+      .spyOn(api, "buildLogSnapshot")
+      .mockRejectedValue(
+        new ApiError(404, {
+          title: "Source missing",
+          status: 404,
+          detail: "Builder Pod is absent.",
+        }),
+      );
+    const view = render(<BuildLogsPanel attemptId="ending-attempt" active />, {
+      wrapper: wrapper(),
+    });
+    await act(() => vi.advanceTimersByTimeAsync(20));
+    view.rerender(<BuildLogsPanel attemptId="ending-attempt" active={false} />);
+    await act(() => vi.advanceTimersByTimeAsync(30_000));
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByText(/live build source has ended or was removed/),
+    ).toBeInTheDocument();
+  });
+
+  it("bounds automatic source checks and lets the user refresh afterward", async () => {
+    vi.useFakeTimers();
+    const request = vi
+      .spyOn(api, "buildLogSnapshot")
+      .mockRejectedValue(
+        new ApiError(404, {
+          title: "Source missing",
+          status: 404,
+          detail: "Builder Pod is absent.",
+        }),
+      );
+    render(<BuildLogsPanel attemptId="slow-attempt" active />, {
+      wrapper: wrapper(),
+    });
+    await act(() => vi.advanceTimersByTimeAsync(310_000));
+    const boundedRequests = request.mock.calls.length;
+    expect(boundedRequests).toBeGreaterThan(1);
+    expect(boundedRequests).toBeLessThanOrEqual(61);
+    await act(() => vi.advanceTimersByTimeAsync(30_000));
+    expect(request).toHaveBeenCalledTimes(boundedRequests);
+    request.mockResolvedValue(snapshot);
+    fireEvent.click(screen.getByRole("button", { name: "Refresh snapshot" }));
+    await act(() => vi.advanceTimersByTimeAsync(20));
+    expect(screen.getByText("snapshot output")).toBeInTheDocument();
+  });
+
   it("uses bounded selectors and presents source, status, reconnect and gaps", async () => {
     const user = userEvent.setup();
     const snapshotRequest = vi

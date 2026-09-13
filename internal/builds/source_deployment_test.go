@@ -37,7 +37,8 @@ func sourceCommand(t *testing.T, definition BuildDefinition, mode SourceDeployme
 		EnvironmentID: sourceEnvironment, DeploymentID: sourceDeploymentID, Mode: mode, DefinitionID: definition.ID,
 		ExpectedDefinitionDigest: definition.DefinitionDigest, SourceAttemptID: sourceAttempt, CommitSHA: strings.Repeat("a", 40),
 		Execution: definition.Spec.Execution, SourceDeploymentGeneration: 1, SourceConfigETag: `"cfg-sha256-` + strings.Repeat("2", 64) + `"`,
-		ConfigIntent: intent, TemplateDigest: digest, IdempotencyKey: "source-deploy-key-0001", Fingerprint: "sha256:" + strings.Repeat("3", 64),
+		SourceProjectionETag: `"cfg-sha256-` + strings.Repeat("2", 64) + `"`,
+		ConfigIntent:         intent, TemplateDigest: digest, IdempotencyKey: "source-deploy-key-0001", Fingerprint: "sha256:" + strings.Repeat("3", 64),
 		RequestID: "request-source-1", AcceptedAt: now}
 }
 

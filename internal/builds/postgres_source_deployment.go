@@ -60,7 +60,7 @@ func (s *PostgreSQLStore) AcceptSourceDeployment(ctx context.Context, command So
 		return SourceDeploymentAcceptance{}, classifyPostgres(err)
 	}
 	if projectID != command.ProjectID || applicationID != command.ApplicationID || environmentID != command.EnvironmentID ||
-		deploymentGeneration != command.SourceDeploymentGeneration || configETag != command.SourceConfigETag ||
+		deploymentGeneration != command.SourceDeploymentGeneration || configETag != command.SourceProjectionETag ||
 		(command.StartDraft != (state == "stopped")) {
 		return SourceDeploymentAcceptance{}, ErrConflict
 	}

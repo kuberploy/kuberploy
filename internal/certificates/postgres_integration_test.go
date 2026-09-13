@@ -274,6 +274,35 @@ func TestPostgreSQLCertificateAttestationContract(t *testing.T) {
 		t.Fatalf("guarded certificate deletion error=%v", err)
 	}
 
+	// Rotation retains the certificate currently pinned by Git. That ordinary
+	// lifecycle state must produce a semantic diagnostic rather than aborting
+	// projection activation forever and preventing selection of the new version.
+	rotated, err := service.Rotate(ctx, RotateRequest{
+		ActorID: actorID, BindingID: created.Binding.ID, ExpectedActiveVersion: 1,
+		IdempotencyKey: "postgres-certificate-rotation", RequestID: "postgres-certificate-rotation",
+		Material: newCertificateMaterial(t, "api.example.test"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = secretService.ReconcileVersion(ctx, rotated.Version.ID, "postgres-certificate-v2-ready"); err != nil {
+		t.Fatal(err)
+	}
+	tx, err = pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = referenceResolver.ResolveCertificateReferenceTx(ctx, tx, scope, ref, "api.example.test", readyAt.Add(3*time.Second))
+	_ = tx.Rollback(ctx)
+	if !errors.Is(err, ErrNotReady) {
+		t.Fatalf("rotated Git-pinned certificate must be repairable, got %v", err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM secret_binding_references
+		WHERE binding_id=$1 AND version_id=$2 AND kind='git-current' AND reference_id=$3 AND revision=$4`,
+		created.Binding.ID, created.Version.ID, referenceID, revision).Scan(&references); err != nil || references != 1 {
+		t.Fatalf("rotation changed the current Git deletion guard: count=%d err=%v", references, err)
+	}
+
 	deletedRevision := strings.Repeat("8", 40)
 	tx, err = pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {

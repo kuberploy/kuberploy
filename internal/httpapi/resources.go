@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -509,10 +510,26 @@ func (s *Server) redeployDeployment(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, r, http.StatusConflict, "DeploymentConfigUnavailable", "App configuration unavailable", "The App has no saved configuration to deploy.")
 		return
 	}
+	parsed, _, diagnostics := appconfig.ParseAndValidate(deployment.ConfigRaw)
+	if len(diagnostics) != 0 {
+		writeProblem(w, r, http.StatusInternalServerError, "StoredConfigInvalid", "Stored configuration is invalid", "The saved App configuration failed server validation.")
+		return
+	}
+	// Reload must change the Pod template even when the image and every user
+	// setting stay the same. Keep retries bound to one opaque managed marker.
+	runtime := parsed["spec"].(map[string]any)["runtime"].(map[string]any)
+	runtime["configRevision"] = "reload-" + fingerprint(struct {
+		Contract, DeploymentID, IdempotencyKey string
+	}{"deployment-reload.v1", deployment.ID, key})
+	configRaw, err := json.Marshal(parsed)
+	if err != nil {
+		writeProblem(w, r, http.StatusInternalServerError, "StoredConfigInvalid", "Stored configuration is invalid", "The saved App configuration could not be prepared for reload.")
+		return
+	}
 	create := domain.CreateDeployment{
 		EnvironmentID: deployment.EnvironmentID, ApplicationID: deployment.ApplicationID, Image: deployment.Image,
 		Replicas: deployment.Replicas, Port: deployment.Port, Environment: deployment.Environment,
-		Route: deployment.Route, Runtime: deployment.Runtime, ConfigRaw: deployment.ConfigRaw,
+		Route: deployment.Route, Runtime: deployment.Runtime, ConfigRaw: configRaw,
 	}
 	fp := fingerprint(deploymentRedeployFingerprint{DeploymentID: deployment.ID})
 	s.submitDeployment(w, r, actor, key, fp, create, false)

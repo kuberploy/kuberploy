@@ -1,7 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Application, ConfigChange, Deployment } from "../api/types";
-import { api, errorMessage } from "../api/client";
+import type {
+  Application,
+  ConfigBundle,
+  ConfigChange,
+  Deployment,
+  Operation,
+} from "../api/types";
+import { ApiError, api, errorMessage } from "../api/client";
 import {
   applyGuidedConfig,
   defaultConfigYaml,
@@ -10,6 +16,7 @@ import {
 } from "../lib/configDraft";
 import {
   Button,
+  buttonVariants,
   CopyButton,
   EmptyState,
   Eyebrow,
@@ -22,13 +29,54 @@ import { GuidedConfigForm } from "./GuidedConfigForm";
 import { MonacoYamlEditor } from "./MonacoYamlEditor";
 import { hasDeploymentConfigCapability } from "../lib/configAccess";
 
-export function ConfigEditor({
-  deployment,
-  application,
-}: {
+type ConfigEditorProps = {
   deployment: Deployment;
   application: Application;
-}) {
+};
+
+const successfulSaveStates = new Set(["succeeded", "healthy"]);
+const terminalSaveStates = new Set([
+  ...successfulSaveStates,
+  "failed",
+  "degraded",
+  "cancelled",
+  "superseded",
+]);
+const savePollWindow = 15 * 60_000;
+
+export function ConfigEditor(props: ConfigEditorProps) {
+  const { deployment, application } = props;
+  if (
+    deployment.state === "stopped" &&
+    !deployment.image &&
+    !deployment.source?.reference &&
+    (application.sourceKind === "github" ||
+      application.sourceKind === "git-ssh")
+  ) {
+    const source = application.sourceKind === "git-ssh" ? "ssh" : "build";
+    const query = new URLSearchParams({
+      tab: "source",
+      source,
+      environmentId: deployment.environmentId,
+    });
+    const href = `/projects/${encodeURIComponent(application.projectId)}/environments/${encodeURIComponent(deployment.environmentId)}/apps/${encodeURIComponent(application.id)}?${query}`;
+    return (
+      <EmptyState
+        icon="code"
+        title="Build this App first"
+        description="Connect your repository in Source & build, then choose Deploy. After the first image is built, you can configure its ports, health checks, resources, and public access here."
+        action={
+          <a href={href} className={buttonVariants()}>
+            Open Source & build <Icon name="arrow" />
+          </a>
+        }
+      />
+    );
+  }
+  return <SavedConfigEditor key={deployment.id} {...props} />;
+}
+
+function SavedConfigEditor({ deployment, application }: ConfigEditorProps) {
   const queryClient = useQueryClient();
   const bundle = useQuery({
     queryKey: ["deployment-config", deployment.id],
@@ -114,6 +162,18 @@ export function ConfigEditor({
   });
   const [tab, setTab] = useState<"form" | "yaml" | "rendered">("form");
   const [rawYaml, setRawYaml] = useState("");
+  // Keep the draft's original CAS base through unrelated background refreshes.
+  // Only this editor's completed publication advances it automatically.
+  const [baseConfig, setBaseConfig] = useState<ConfigBundle | null>(null);
+  const [saved, setSaved] = useState<{
+    operation: Operation;
+    rawYaml: string;
+    startedAt: number;
+  } | null>(null);
+  const [appliedOperationId, setAppliedOperationId] = useState<string | null>(
+    null,
+  );
+  const [publicationConflict, setPublicationConflict] = useState(false);
   const [preview, setPreview] = useState<{
     value: Awaited<ReturnType<typeof api.previewDeploymentConfig>>;
     etag: string;
@@ -124,7 +184,7 @@ export function ConfigEditor({
   const rawYamlRef = useRef(rawYaml);
   rawYamlRef.current = rawYaml;
 
-  const serverDocument = bundle.data?.documents[0];
+  const serverDocument = baseConfig?.documents[0];
   const fallback = useMemo(
     () =>
       defaultConfigYaml({
@@ -143,9 +203,13 @@ export function ConfigEditor({
   );
 
   useEffect(() => {
-    if (bundle.isPending || rawYaml) return;
-    setRawYaml(serverDocument?.rawYaml ?? serverDocument?.rawYAML ?? fallback);
-  }, [bundle.isPending, fallback, rawYaml, serverDocument]);
+    if (bundle.isPending || baseConfig) return;
+    if (bundle.data) setBaseConfig(bundle.data);
+    if (!rawYaml) {
+      const document = bundle.data?.documents[0];
+      setRawYaml(document?.rawYaml ?? document?.rawYAML ?? fallback);
+    }
+  }, [baseConfig, bundle.data, bundle.isPending, fallback, rawYaml]);
 
   const yamlError = rawYaml ? validateYaml(rawYaml) : null;
   const guidedDraft = useMemo(() => {
@@ -187,7 +251,7 @@ export function ConfigEditor({
     },
   });
   const matchingPreview =
-    preview && preview.etag === bundle.data?.etag && preview.rawYaml === rawYaml
+    preview && preview.etag === baseConfig?.etag && preview.rawYaml === rawYaml
       ? preview.value
       : null;
   const saveMutation = useMutation({
@@ -206,26 +270,160 @@ export function ConfigEditor({
         input.previewToken,
         input.idempotencyKey,
       ),
-    onSuccess: async (_value, input) => {
+    onSuccess: (value, input) => {
       if (input.deploymentId !== deployment.id) return;
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: ["deployment-config", deployment.id],
-        }),
-        queryClient.invalidateQueries({ queryKey: ["operations"] }),
-        queryClient.invalidateQueries({
-          queryKey: ["deployment-status", deployment.id],
-        }),
-      ]);
-      if (rawYamlRef.current !== input.rawYaml) return;
+      setSaved({
+        operation: value,
+        rawYaml: input.rawYaml,
+        startedAt: Date.now(),
+      });
       setPreview(null);
-      const refreshed = queryClient.getQueryData<
-        Awaited<ReturnType<typeof api.deploymentConfig>>
-      >(["deployment-config", deployment.id]);
-      const refreshedDocument = refreshed?.documents[0];
-      setRawYaml(
-        refreshedDocument?.rawYaml ?? refreshedDocument?.rawYAML ?? "",
-      );
+      setPublicationConflict(false);
+      void queryClient.invalidateQueries({ queryKey: ["operations"] });
+    },
+  });
+
+  const operation = useQuery({
+    queryKey: ["operation", saved?.operation.id],
+    queryFn: () => api.operation(saved!.operation.id),
+    initialData: saved?.operation,
+    enabled: Boolean(saved?.operation.id),
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchInterval: (query) =>
+      query.state.error ||
+      (terminalSaveStates.has(query.state.data?.state.toLowerCase() ?? "") &&
+        (!successfulSaveStates.has(
+          query.state.data?.state.toLowerCase() ?? "",
+        ) ||
+          query.state.data?.pullRequest?.state !== "open")) ||
+      !saved ||
+      Date.now() - saved.startedAt >= savePollWindow
+        ? false
+        : 2_000,
+  });
+  const saveState = operation.data?.state.toLowerCase() ?? "";
+  const saveTerminal = terminalSaveStates.has(saveState);
+  const saveSuccessful = successfulSaveStates.has(saveState);
+  const pullRequest = saveSuccessful ? operation.data?.pullRequest : undefined;
+  // A successful review operation means the PR was created. Its public state
+  // does not prove merge publication, so only an explicit reload replaces it.
+  const needsPublishedBase =
+    !pullRequest &&
+    saveTerminal &&
+    (saveSuccessful || Boolean(operation.data?.gitRevision));
+  const publishedConfig = useQuery({
+    queryKey: [
+      "deployment-config-publication",
+      deployment.id,
+      saved?.operation.id,
+      operation.data?.gitRevision,
+    ],
+    queryFn: () =>
+      api.deploymentConfig(
+        deployment.id,
+        operation.data?.gitRevision
+          ? { atLeastRevision: operation.data.gitRevision, waitSeconds: 5 }
+          : undefined,
+      ),
+    enabled: Boolean(
+      saved && needsPublishedBase && appliedOperationId !== saved.operation.id,
+    ),
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchInterval: (query) =>
+      query.state.error instanceof ApiError &&
+      query.state.error.problem?.code === "GitProjectionNotReady" &&
+      saved &&
+      Date.now() - saved.startedAt < savePollWindow
+        ? 2_000
+        : false,
+  });
+  useEffect(() => {
+    if (
+      !saved ||
+      !publishedConfig.data ||
+      appliedOperationId === saved.operation.id
+    )
+      return;
+    const refreshed = publishedConfig.data;
+    const newerDraft = rawYamlRef.current !== saved.rawYaml;
+    // A revision fence allows descendants. A later change to this same App
+    // must not silently authorize overwriting another actor's configuration.
+    const conflict =
+      newerDraft &&
+      Boolean(operation.data?.gitRevision) &&
+      refreshed.configRevision !== operation.data?.gitRevision;
+    setPublicationConflict(conflict);
+    if (!conflict) {
+      setBaseConfig(refreshed);
+      queryClient.setQueryData(["deployment-config", deployment.id], refreshed);
+    }
+    if (!newerDraft) {
+      const document = refreshed.documents[0];
+      setRawYaml(document?.rawYaml ?? document?.rawYAML ?? saved.rawYaml);
+    }
+    setPreview(null);
+    setAppliedOperationId(saved.operation.id);
+    void queryClient.invalidateQueries({
+      queryKey: ["deployment-status", deployment.id],
+    });
+    void queryClient.invalidateQueries({ queryKey: ["operations"] });
+  }, [
+    appliedOperationId,
+    deployment.id,
+    operation.data?.gitRevision,
+    publishedConfig.data,
+    queryClient,
+    saved,
+  ]);
+  const savePending = Boolean(
+    saved &&
+    (!saveTerminal ||
+      pullRequest?.state === "open" ||
+      (needsPublishedBase && appliedOperationId !== saved.operation.id)),
+  );
+  const saveCheckError = operation.error ?? publishedConfig.error;
+  const [saveCheckPaused, setSaveCheckPaused] = useState(false);
+  useEffect(() => {
+    setSaveCheckPaused(false);
+    if (!savePending || !saved) return;
+    const timer = setTimeout(
+      () => setSaveCheckPaused(true),
+      Math.max(0, saved.startedAt + savePollWindow - Date.now()),
+    );
+    return () => clearTimeout(timer);
+  }, [savePending, saved]);
+
+  const checkSaveStatus = () => {
+    setSaved((current) =>
+      current ? { ...current, startedAt: Date.now() } : current,
+    );
+    void operation.refetch();
+    if (needsPublishedBase && appliedOperationId !== saved?.operation.id)
+      void publishedConfig.refetch();
+  };
+
+  const [reloadDraftChanged, setReloadDraftChanged] = useState(false);
+  const reloadSaved = useMutation({
+    mutationFn: (_draft: string) => api.deploymentConfig(deployment.id),
+    onMutate: () => setReloadDraftChanged(false),
+    onSuccess: (refreshed, draft) => {
+      if (rawYamlRef.current !== draft) {
+        setReloadDraftChanged(true);
+        return;
+      }
+      const document = refreshed.documents[0];
+      setBaseConfig(refreshed);
+      setRawYaml(document?.rawYaml ?? document?.rawYAML ?? "");
+      queryClient.setQueryData(["deployment-config", deployment.id], refreshed);
+      setSaved(null);
+      setAppliedOperationId(null);
+      setPublicationConflict(false);
+      setPreview(null);
+      setDraftError(null);
+      previewMutation.reset();
+      saveMutation.reset();
     },
   });
 
@@ -305,11 +503,11 @@ export function ConfigEditor({
           <span className="inline-flex items-center gap-1.5 text-ink-faint text-xs [&_code]:text-ink [&_code]:text-xs">
             <span>Config revision</span>
             <code>
-              {bundle.data?.configRevision?.slice(0, 9) ?? "local draft"}
+              {baseConfig?.configRevision?.slice(0, 9) ?? "local draft"}
             </code>
-            {bundle.data?.configRevision ? (
+            {baseConfig?.configRevision ? (
               <CopyButton
-                value={bundle.data.configRevision}
+                value={baseConfig.configRevision}
                 label="Copy config revision"
               />
             ) : null}
@@ -350,7 +548,7 @@ export function ConfigEditor({
 
       {tab === "form" && guided ? (
         <GuidedConfigForm
-          key={`${documentId}-${bundle.data?.etag ?? "fallback"}`}
+          key={`${documentId}-${baseConfig?.etag ?? "fallback"}`}
           initial={guided}
           externalDNSCatalog={externalDNSCatalog.data}
           externalDNSRuntimeEnabled={
@@ -512,14 +710,17 @@ export function ConfigEditor({
             previewMutation.mutate({
               change,
               deploymentId: deployment.id,
-              etag: bundle.data?.etag ?? "",
+              etag: baseConfig?.etag ?? "",
               rawYaml,
             })
           }
           busy={previewMutation.isPending}
           disabled={
             !canWriteConfig ||
-            !bundle.data ||
+            !baseConfig ||
+            Boolean(bundle.error) ||
+            savePending ||
+            Boolean(pullRequest) ||
             saveMutation.isPending ||
             Boolean(yamlError || draftError)
           }
@@ -531,7 +732,7 @@ export function ConfigEditor({
             saveMutation.mutate({
               change,
               deploymentId: deployment.id,
-              etag: bundle.data?.etag ?? "",
+              etag: baseConfig?.etag ?? "",
               previewToken: matchingPreview?.previewToken ?? "",
               idempotencyKey: preview?.idempotencyKey ?? "",
               rawYaml,
@@ -540,6 +741,9 @@ export function ConfigEditor({
           busy={saveMutation.isPending}
           disabled={
             !canWriteConfig ||
+            savePending ||
+            Boolean(pullRequest) ||
+            Boolean(bundle.error) ||
             !matchingPreview ||
             previewMutation.isPending ||
             Boolean(yamlError || draftError)
@@ -558,15 +762,120 @@ export function ConfigEditor({
           <p>{errorMessage(saveMutation.error)}</p>
         </Notice>
       ) : null}
-      {saveMutation.data ? (
-        <Notice tone="success">
+      {saved ? (
+        <Notice
+          tone={
+            saveCheckError ||
+            saveCheckPaused ||
+            publicationConflict ||
+            pullRequest?.state === "closed" ||
+            (saveTerminal && !saveSuccessful)
+              ? "warning"
+              : savePending || pullRequest
+                ? "info"
+                : "success"
+          }
+          role="status"
+        >
           <div>
-            <strong>Configuration operation accepted</strong>
+            <strong>
+              {saveCheckError || saveCheckPaused
+                ? "Save status needs attention"
+                : publicationConflict
+                  ? "Configuration changed while you were editing"
+                  : pullRequest
+                    ? pullRequest.state === "open"
+                      ? "Awaiting pull request merge"
+                      : "Pull request closed"
+                    : saveTerminal && !saveSuccessful
+                      ? "Configuration update failed"
+                      : savePending
+                        ? "Saving configuration"
+                        : "Configuration saved"}
+            </strong>
             <p>
-              Track operation <code>{saveMutation.data.id}</code> while Git,
-              Argo, and rollout stages complete.
+              {saveCheckError
+                ? errorMessage(saveCheckError)
+                : saveCheckPaused
+                  ? "Automatic status checks paused. Your draft is preserved; check again to continue."
+                  : publicationConflict
+                    ? "Your save finished, then this App changed again. Your newer draft and its original revision are preserved. Copy your draft before reloading the saved configuration, then review and preview your edits again."
+                    : pullRequest
+                      ? "Your change was submitted for review. Creating or closing a pull request does not confirm that it was applied. Your draft is preserved. Review the pull request, then explicitly load the currently saved configuration when you are ready to replace this draft."
+                      : saveTerminal && !saveSuccessful
+                        ? (operation.data?.problem?.detail ??
+                          "The change did not finish. Your draft is preserved; review the operation and preview again after resolving the problem.")
+                        : savePending
+                          ? "Your change is being published and applied. You can keep editing; preview becomes available when this save finishes."
+                          : "The saved configuration is loaded. Any newer edits remain in your draft."}
             </p>
+            <a
+              className={buttonVariants({ variant: "secondary" })}
+              href={`/operations/${encodeURIComponent(saved.operation.id)}`}
+            >
+              View save operation
+            </a>
+            {pullRequest ? (
+              <>
+                <a
+                  className={buttonVariants({ variant: "secondary" })}
+                  href={pullRequest.url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Review pull request
+                </a>
+                <p>
+                  Replacing the draft discards its unsaved edits and loads the
+                  App's current saved configuration.
+                </p>
+                <Button
+                  variant="secondary"
+                  onClick={() => reloadSaved.mutate(rawYaml)}
+                  busy={reloadSaved.isPending}
+                >
+                  Replace draft with saved configuration
+                </Button>
+              </>
+            ) : null}
+            {saveCheckError ||
+            saveCheckPaused ||
+            pullRequest ||
+            (saveTerminal && !saveSuccessful) ? (
+              <Button
+                variant="secondary"
+                onClick={checkSaveStatus}
+                busy={operation.isFetching || publishedConfig.isFetching}
+              >
+                Check save status
+              </Button>
+            ) : null}
           </div>
+        </Notice>
+      ) : null}
+      {reloadSaved.error ? (
+        <Notice tone="warning" role="alert">
+          <p>
+            {errorMessage(reloadSaved.error)} Your draft has been preserved.
+          </p>
+        </Notice>
+      ) : null}
+      {reloadDraftChanged ? (
+        <Notice tone="warning" role="status">
+          <strong>Draft changed during reload</strong>
+          <p>
+            Your newer edits and original revision are preserved. Replace the
+            draft again only when you are ready to discard those edits.
+          </p>
+        </Notice>
+      ) : null}
+      {reloadSaved.data && !saved && !reloadDraftChanged ? (
+        <Notice tone="info" role="status">
+          <strong>Saved configuration loaded</strong>
+          <p>
+            The editor now shows the App's current saved configuration. This
+            does not confirm whether the pull request was merged.
+          </p>
         </Notice>
       ) : null}
 

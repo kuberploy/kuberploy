@@ -1,10 +1,15 @@
 package externaldns
 
 import (
+	"encoding/json"
+	"path"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kuberploy/kuberploy/internal/domain"
+	"github.com/kuberploy/kuberploy/internal/gitprojection"
 )
 
 func runtimeTemplate() ManagedRuntimeTemplate {
@@ -12,6 +17,102 @@ func runtimeTemplate() ManagedRuntimeTemplate {
 }
 func runtimeIntegration() domain.ExternalDNSIntegration {
 	return domain.ExternalDNSIntegration{ID: "11111111-1111-4111-8111-111111111111", Slug: "primary", Name: "Primary", Mode: ModeManaged, ProviderKind: "cloudflare", TXTOwnerID: "kuberploy.primary", AllowedDomainSuffixes: []string{"example.com", "prod.example.com"}, SyncPolicy: SyncPolicyUpsert, CredentialSecretRef: "cloudflare-credentials", ProviderConfigRef: "cloudflare-provider", EgressConfigRef: "cloudflare-egress", EnvironmentIDs: []string{"22222222-2222-4222-8222-222222222222"}, RuntimeRevision: 3, Lifecycle: "active"}
+}
+
+func TestManagedRuntimeIntegrationsOwnDisjointResources(t *testing.T) {
+	first, second := runtimeIntegration(), runtimeIntegration()
+	second.ID, second.Slug = "33333333-3333-4333-8333-333333333333", "secondary"
+	template := runtimeTemplate()
+	template.ServiceAccount = strings.Repeat("a", 29) + "-" + strings.Repeat("b", 18)
+	identities := map[string]bool{}
+	for _, item := range []domain.ExternalDNSIntegration{first, second} {
+		content, _, err := RenderManagedBundle(item, template)
+		if err != nil {
+			t.Fatal(err)
+		}
+		account := managedServiceAccount(item, template)
+		if len(account) > 63 || !slugRE.MatchString(account) || account == template.ServiceAccount {
+			t.Fatalf("invalid integration account %q", account)
+		}
+		kinds := map[string]bool{}
+		for _, raw := range strings.Split(string(content), "\n---\n") {
+			var object struct {
+				Kind     string `json:"kind"`
+				Metadata struct {
+					Name, Namespace string
+					Labels          map[string]string
+				}
+				Spec struct {
+					Template struct {
+						Spec struct{ ServiceAccountName string }
+					}
+				}
+				Subjects []struct{ Kind, Name, Namespace string }
+				Rules    []struct{ APIGroups, Resources, Verbs []string }
+			}
+			if err := json.Unmarshal([]byte(raw), &object); err != nil {
+				t.Fatal(err)
+			}
+			identity := object.Kind + "/" + object.Metadata.Namespace + "/" + object.Metadata.Name
+			if identities[identity] || object.Metadata.Labels["kuberploy.io/dns-integration"] != item.ID {
+				t.Fatalf("shared or incorrect object ownership: %s", identity)
+			}
+			identities[identity], kinds[object.Kind] = true, true
+			switch object.Kind {
+			case "ServiceAccount":
+				if object.Metadata.Name != account {
+					t.Fatal("account name differs from integration identity")
+				}
+			case "Deployment":
+				if object.Spec.Template.Spec.ServiceAccountName != account {
+					t.Fatal("controller references another account")
+				}
+			case "ClusterRoleBinding":
+				if len(object.Subjects) != 1 || object.Subjects[0].Kind != "ServiceAccount" || object.Subjects[0].Name != account || object.Subjects[0].Namespace != template.Namespace {
+					t.Fatal("RBAC subject differs from controller account")
+				}
+			case "ClusterRole":
+				if len(object.Rules) != 1 || !reflect.DeepEqual(object.Rules[0].APIGroups, []string{"networking.k8s.io"}) || !reflect.DeepEqual(object.Rules[0].Resources, []string{"ingresses"}) || !reflect.DeepEqual(object.Rules[0].Verbs, []string{"get", "list", "watch"}) {
+					t.Fatal("integration permissions changed")
+				}
+			}
+		}
+		if len(kinds) != 5 {
+			t.Fatal("missing managed resource")
+		}
+	}
+}
+
+func TestManagedRuntimeUpgradeReplacesSharedAccountThroughProtectedGit(t *testing.T) {
+	f := newPublicationFixture(t)
+	item := runtimeIntegration()
+	content, profile, err := RenderManagedBundle(item, f.config.Template)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Seed the previously deployed shared-account shape at the exact protected
+	// path; replacement must use normal publication CAS, without deleting it.
+	old, _, err := renderManagedBundle(item, f.config.Template, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	documentPath := path.Join(gitprojection.PlatformPrefix(), "argocd", "platform", "external-dns", item.ID+".yaml")
+	f.advance(t, documentPath, old, time.Second)
+	base := f.binding.IndexedRevision
+	receipt, err := f.publisher(t, f.store).Reconcile(t.Context(), item)
+	if err != nil || !receipt.Changed || receipt.Deleted || receipt.CommittedRevision == base {
+		t.Fatalf("shared-account upgrade failed: %#v %v", receipt, err)
+	}
+	actual := publicationGit(t, "", "--git-dir", f.remote, "show", receipt.CommittedRevision+":"+documentPath)
+	if actual != strings.TrimSpace(string(content)) || publicationGit(t, "", "--git-dir", f.remote, "rev-parse", receipt.CommittedRevision+"^") != base {
+		t.Fatal("upgrade did not preserve the exact protected path and Git parent")
+	}
+	changedTemplate := f.config.Template
+	changedTemplate.ServiceAccount = "another-prefix"
+	changed, err := ManagedProfile(item, changedTemplate)
+	if err != nil || changed.Deployment.SpecDigest == profile.Deployment.SpecDigest {
+		t.Fatal("readiness identity failed to bind the account change")
+	}
 }
 
 func TestManagedRuntimeBundleIsClosedAndExact(t *testing.T) {

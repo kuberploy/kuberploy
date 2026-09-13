@@ -599,7 +599,11 @@ export function GuidedConfigForm({
           </Field>
           <Field
             label={`${workloadType === "StatefulSet" ? "StatefulSet" : "Deployment"} strategy`}
-            hint="Rolling update is the default. Other strategies replace Pods according to workload type."
+            hint={
+              workloadType === "StatefulSet"
+                ? "Rolling update replaces Pods automatically. On delete keeps existing Pods until an operator replaces them, including after republishing the App."
+                : "Rolling update replaces Pods gradually. Recreate stops existing Pods before starting their replacements."
+            }
           >
             <Select
               {...form.register("strategyType", { onChange: commit })}

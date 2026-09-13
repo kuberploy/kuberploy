@@ -75,6 +75,56 @@ function renderPanel() {
 }
 
 describe("direct Helm App panel", () => {
+  it("refreshes pending history when the current revision finishes applying", async () => {
+    vi.spyOn(api, "helmRelease").mockResolvedValue(revision);
+    const history = vi
+      .spyOn(api, "helmReleaseHistory")
+      .mockResolvedValueOnce({ items: [{ ...revision, state: "pending" }] })
+      .mockResolvedValue({ items: [revision] });
+    renderPanel();
+    await waitFor(() => expect(history).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText("Pending")).toBeNull());
+    expect(screen.getAllByText("Applied")).toHaveLength(2);
+  });
+
+  it("accepts empty values to use chart defaults", async () => {
+    vi.spyOn(api, "helmRelease").mockResolvedValue(revision);
+    vi.spyOn(api, "helmReleaseHistory").mockResolvedValue({
+      items: [revision],
+    });
+    const save = vi
+      .spyOn(api, "upsertHelmRelease")
+      .mockResolvedValue({ revision, replayed: false });
+    renderPanel();
+    const editor = await screen.findByLabelText("Helm values YAML");
+    await userEvent.clear(editor);
+    await userEvent.click(screen.getByRole("button", { name: "Update App" }));
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    expect(save.mock.calls[0]?.[2].valuesYaml).toBe("");
+  });
+
+  it("points to malformed YAML before submitting and permits correction", async () => {
+    vi.spyOn(api, "helmRelease").mockResolvedValue(revision);
+    vi.spyOn(api, "helmReleaseHistory").mockResolvedValue({
+      items: [revision],
+    });
+    const save = vi
+      .spyOn(api, "upsertHelmRelease")
+      .mockResolvedValue({ revision, replayed: false });
+    renderPanel();
+    const editor = await screen.findByLabelText("Helm values YAML");
+    await userEvent.clear(editor);
+    await userEvent.type(editor, "resources: [[");
+    await userEvent.click(screen.getByRole("button", { name: "Update App" }));
+    expect(save).not.toHaveBeenCalled();
+    expect(screen.getByText(/Invalid values YAML/)).toBeVisible();
+    await userEvent.clear(editor);
+    await userEvent.type(editor, "replicaCount: 2");
+    await userEvent.click(screen.getByRole("button", { name: "Update App" }));
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    expect(screen.queryByText(/Invalid values YAML/)).toBeNull();
+  });
+
   it("edits source and values without an approval step", async () => {
     vi.spyOn(api, "helmRelease").mockResolvedValue(revision);
     vi.spyOn(api, "helmReleaseHistory").mockResolvedValue({

@@ -83,18 +83,22 @@ func (s *Server) sourceDeployment(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	projectionETag := ""
+	if deployment.ConfigVersion > 0 && len(deployment.ConfigRaw) != 0 {
+		projectionETag = domain.DeploymentConfigETag(deployment.ID, deployment.ConfigVersion, deployment.ConfigRaw)
+	}
 	fp := "sha256:" + fingerprint(struct {
-		DeploymentID, ApplicationID, EnvironmentID, ConfigETag string
-		Generation                                             int64
-		Mode                                                   builds.SourceDeploymentMode
-		SourceAttemptID                                        string
-		StartDraft                                             bool
-	}{deployment.ID, deployment.ApplicationID, deployment.EnvironmentID, config.ETag, deployment.Generation, input.Mode, input.SourceAttemptID, startDraft})
+		DeploymentID, ApplicationID, EnvironmentID, ConfigETag, ProjectionETag string
+		Generation                                                             int64
+		Mode                                                                   builds.SourceDeploymentMode
+		SourceAttemptID                                                        string
+		StartDraft                                                             bool
+	}{deployment.ID, deployment.ApplicationID, deployment.EnvironmentID, config.ETag, projectionETag, deployment.Generation, input.Mode, input.SourceAttemptID, startDraft})
 	accepted, err := s.sourceDeployments.AcceptSourceDeployment(r.Context(), builds.SourceDeploymentCommand{
 		ActorID: actor, ProjectID: application.ProjectID, ApplicationID: deployment.ApplicationID,
 		EnvironmentID: deployment.EnvironmentID, DeploymentID: deployment.ID, Mode: input.Mode,
 		SourceAttemptID: input.SourceAttemptID, SourceDeploymentGeneration: deployment.Generation,
-		SourceConfigETag: config.ETag, ConfigIntent: intent, TemplateDigest: digest,
+		SourceConfigETag: config.ETag, SourceProjectionETag: projectionETag, ConfigIntent: intent, TemplateDigest: digest,
 		IdempotencyKey: key, Fingerprint: fp, RequestID: requestID(r.Context()), StartDraft: startDraft,
 	})
 	if err != nil {

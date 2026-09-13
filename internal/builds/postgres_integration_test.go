@@ -633,6 +633,24 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 		command.ConfigIntent, command.SourceConfigETag, now); err != nil {
 		t.Fatal(err)
 	}
+	// Git authority returns a bundle ETag; the database projection deliberately
+	// keeps its independent configuration token. A current Git intent must not
+	// be rejected merely because those two authorities use different digests.
+	command.SourceConfigETag = `"sha256:` + strings.Repeat("4", 64) + `"`
+	for name, stale := range map[string]SourceDeploymentCommand{
+		"projection": command,
+		"generation": command,
+	} {
+		stale.IdempotencyKey = "source-deploy-stale-" + name
+		if name == "projection" {
+			stale.SourceProjectionETag = `"cfg-sha256-` + strings.Repeat("5", 64) + `"`
+		} else {
+			stale.SourceDeploymentGeneration++
+		}
+		if _, staleErr := store.AcceptSourceDeployment(ctx, stale); !errors.Is(staleErr, ErrConflict) {
+			t.Fatalf("stale %s source deployment accepted: %v", name, staleErr)
+		}
+	}
 	accepted, err := store.AcceptSourceDeployment(ctx, command)
 	if err != nil || accepted.Replay || accepted.Intent.Sequence != 1 {
 		t.Fatalf("source deployment acceptance=%+v err=%v", accepted, err)
@@ -655,7 +673,7 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 		t.Fatal(err)
 	}
 	startDraft := command
-	startDraft.StartDraft, startDraft.SourceConfigETag, startDraft.ConfigIntent, startDraft.TemplateDigest = true, "", []byte{}, ""
+	startDraft.StartDraft, startDraft.SourceConfigETag, startDraft.SourceProjectionETag, startDraft.ConfigIntent, startDraft.TemplateDigest = true, "", "", []byte{}, ""
 	startDraft.IdempotencyKey, startDraft.Fingerprint, startDraft.AcceptedAt = "source-deploy-draft-0001", "sha256:"+strings.Repeat("7", 64), command.AcceptedAt.Add(time.Second)
 	started, err := store.AcceptSourceDeployment(ctx, startDraft)
 	if err != nil || !started.Intent.StartDraft || started.Intent.Sequence != 2 {

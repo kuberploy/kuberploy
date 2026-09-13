@@ -263,6 +263,18 @@ func TestEdgeRoutePolicyRequiresExactFreshObservedProfilesPostgreSQL(t *testing.
 	if err != nil || !diagnosticCodesContain(diagnostics, "CustomCertificateHostMismatch") {
 		t.Fatalf("certificate SAN mismatch diagnostics=%#v err=%v", diagnostics, err)
 	}
+	// Rotation's retained-version result must be a document diagnostic, not
+	// an infrastructure error that keeps the whole Environment indexing.
+	policy.Certificates = &fakeCertificateReferenceResolver{err: certificates.ErrNotReady}
+	tx, err = pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		t.Fatal(err)
+	}
+	diagnostics, err = policy.ValidateCurrentTx(ctx, tx, custom, now)
+	_ = tx.Rollback(ctx)
+	if err != nil || len(diagnostics) != 1 || diagnostics[0].Code != "CustomCertificateNotReady" {
+		t.Fatalf("retained certificate blocked projection activation: diagnostics=%#v err=%v", diagnostics, err)
+	}
 
 	// The exact same durable rows cannot be reused after their bounded
 	// observation window or worker lease expires.

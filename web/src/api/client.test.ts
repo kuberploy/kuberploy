@@ -10,6 +10,29 @@ import type { OperationWire } from "./types";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("typed API client", () => {
+  it("fences a configuration refresh to the accepted operation's published revision", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({ kind: "ConfigBundle", documents: [] }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    await api.deploymentConfig("deployment/id");
+    await api.deploymentConfig("deployment/id", {
+      atLeastRevision: "a".repeat(40),
+      waitSeconds: 5,
+    });
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      "/v1/deployments/deployment%2Fid/config",
+      `/v1/deployments/deployment%2Fid/config?atLeastRevision=${"a".repeat(40)}&waitSeconds=5`,
+    ]);
+  });
+
   it("starts a durable source Deploy or Rebuild for one App instance", async () => {
     const build = {
       id: "attempt-1",

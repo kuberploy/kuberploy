@@ -352,7 +352,27 @@ export function BuildDetailPage() {
       </Card>
 
       {buildLogsEnabled && canReadLogs ? (
-        <BuildLogsPanel key={currentAttempt.id} attemptId={currentAttempt.id} />
+        currentAttempt.state === "queued" ||
+        currentAttempt.state === "preparing" ? (
+          <Card>
+            <EmptyState
+              icon="logs"
+              title={
+                currentAttempt.state === "queued"
+                  ? "Waiting for a builder"
+                  : "Preparing the builder"
+              }
+              description="Build logs appear when the builder starts. This page updates automatically."
+              compact
+            />
+          </Card>
+        ) : (
+          <BuildLogsPanel
+            key={currentAttempt.id}
+            attemptId={currentAttempt.id}
+            active={activeStates.has(currentAttempt.state)}
+          />
+        )
       ) : (
         <Card>
           <EmptyState

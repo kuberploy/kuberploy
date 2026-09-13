@@ -176,6 +176,7 @@ describe("application stop lifecycle", () => {
       "START",
       `"cfg-sha256-${"c".repeat(64)}"`,
       undefined,
+      false,
     ],
     [
       "healthy",
@@ -183,14 +184,46 @@ describe("application stop lifecycle", () => {
       "RELOAD",
       `"sha256:${"d".repeat(64)}"`,
       `"sha256:${"d".repeat(64)}"`,
+      false,
+    ],
+    [
+      "healthy",
+      "Republish App",
+      "REPUBLISH",
+      `"sha256:${"d".repeat(64)}"`,
+      `"sha256:${"d".repeat(64)}"`,
+      true,
+    ],
+    [
+      "stopped",
+      "Start App",
+      "START",
+      `"cfg-sha256-${"c".repeat(64)}"`,
+      undefined,
+      true,
     ],
   ] as const)(
     "uses the saved config to %s the App",
-    async (state, actionLabel, confirmation, configETag, expectedGitETag) => {
+    async (
+      state,
+      actionLabel,
+      confirmation,
+      configETag,
+      expectedGitETag,
+      manualPodReplacement,
+    ) => {
       const user = userEvent.setup();
+      const existing = await api.deployment("deployment-production");
       vi.mocked(api.deployment).mockResolvedValue({
-        ...(await api.deployment("deployment-production")),
+        ...existing,
         state,
+        runtime: manualPodReplacement
+          ? {
+              ...existing.runtime,
+              workloadType: "StatefulSet",
+              strategy: { type: "OnDelete" },
+            }
+          : existing.runtime,
       });
       vi.mocked(api.deploymentConfig).mockResolvedValue({
         kind: "ConfigBundle",
@@ -229,6 +262,17 @@ describe("application stop lifecycle", () => {
         await screen.findByRole("button", { name: actionLabel }),
       );
       const dialog = screen.getByRole("alertdialog");
+      if (manualPodReplacement && state !== "stopped") {
+        expect(dialog).toHaveTextContent(
+          "existing Pods stay running until an operator replaces them",
+        );
+        expect(dialog).toHaveTextContent(
+          "Choose Rolling update in Configuration for automatic restarts",
+        );
+        expect(screen.queryByRole("button", { name: "Reload App" })).toBeNull();
+      } else {
+        expect(dialog).not.toHaveTextContent("On delete");
+      }
       await user.type(
         within(dialog).getByLabelText("Confirm App action"),
         confirmation,

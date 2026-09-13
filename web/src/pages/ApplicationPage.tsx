@@ -205,6 +205,15 @@ export function ApplicationPage() {
       applicationProject,
     ),
   );
+  const manualPodReplacement =
+    deployment.data?.runtime.workloadType === "StatefulSet" &&
+    deployment.data.runtime.strategy?.type === "OnDelete";
+  const deployAction =
+    deployment.data?.state === "stopped"
+      ? "Start"
+      : manualPodReplacement
+        ? "Republish"
+        : "Reload";
   const stopDeployment = useMutation({
     mutationFn: (idempotencyKey: string) =>
       api.stopDeployment(deploymentId, idempotencyKey),
@@ -299,9 +308,7 @@ export function ApplicationPage() {
             {canDeploy ? (
               <Button variant="primary" onClick={() => setDeployOpen(true)}>
                 <Icon name="deploy" />
-                {deployment.data?.state === "stopped"
-                  ? "Start App"
-                  : "Reload App"}
+                {deployAction} App
               </Button>
             ) : null}
             {canStop ? (
@@ -343,18 +350,16 @@ export function ApplicationPage() {
       ) : null}
       {deployOpen ? (
         <ConfirmDialog
-          title={`${deployment.data?.state === "stopped" ? "Start" : "Reload"} ${application.data?.name ?? "App"}?`}
+          title={`${deployAction} ${application.data?.name ?? "App"}?`}
           description={
             deployment.data?.state === "stopped"
               ? "Publish this Environment's saved App configuration. Argo CD will create the workload after the Git change is accepted."
-              : "Publish the same saved App configuration again and let Argo CD reconcile a fresh rollout."
+              : manualPodReplacement
+                ? "Publish the saved configuration again. This App uses the On delete strategy, so existing Pods stay running until an operator replaces them. Choose Rolling update in Configuration for automatic restarts."
+                : "Restart the App using its saved configuration and current image."
           }
-          confirmLabel={
-            deployment.data?.state === "stopped" ? "Start App" : "Reload App"
-          }
-          confirmation={
-            deployment.data?.state === "stopped" ? "START" : "RELOAD"
-          }
+          confirmLabel={`${deployAction} App`}
+          confirmation={deployAction.toUpperCase()}
           confirmationLabel="Confirm App action"
           busy={redeployDeployment.isPending}
           error={redeployDeployment.error}

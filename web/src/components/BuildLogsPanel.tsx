@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, type BuildLogOptions } from "../api/client";
 import type {
   BuildLogLine,
@@ -28,6 +28,14 @@ const lookbackChoices = [
   { value: 1_440, label: "24 hours" },
 ] as const;
 const maximumVisibleLines = 2_000;
+const sourceRetryInterval = 5_000;
+const sourceRetryWindow = 5 * 60_000;
+
+function transientSourceError(error: unknown) {
+  return (
+    error instanceof ApiError && (error.status === 404 || error.status === 410)
+  );
+}
 
 function unavailableDescription(error: unknown) {
   if (
@@ -59,7 +67,13 @@ function streamEvent(raw: string): BuildLogStreamEvent | undefined {
   }
 }
 
-export function BuildLogsPanel({ attemptId }: { attemptId: string }) {
+export function BuildLogsPanel({
+  attemptId,
+  active = false,
+}: {
+  attemptId: string;
+  active?: boolean;
+}) {
   const [tailLines, setTailLines] = useState<number>(200);
   const [lookbackMinutes, setLookbackMinutes] = useState<number>(60);
   const [previous, setPrevious] = useState(false);
@@ -71,6 +85,9 @@ export function BuildLogsPanel({ attemptId }: { attemptId: string }) {
   >("idle");
   const [streamDetail, setStreamDetail] = useState("");
   const [droppedLines, setDroppedLines] = useState(0);
+  const sourceRetry = useRef<
+    { queryHash: string; startedAt: number } | undefined
+  >(undefined);
   const snapshotOptions = useMemo<BuildLogOptions>(
     () => ({
       tailLines,
@@ -88,6 +105,26 @@ export function BuildLogsPanel({ attemptId }: { attemptId: string }) {
         since: sinceTimestamp(lookbackMinutes),
       }),
     retry: false,
+    refetchInterval: (query) => {
+      if (
+        !active ||
+        following ||
+        previous ||
+        !transientSourceError(query.state.error)
+      ) {
+        if (query.state.status === "success") sourceRetry.current = undefined;
+        return false;
+      }
+      if (sourceRetry.current?.queryHash !== query.queryHash) {
+        sourceRetry.current = {
+          queryHash: query.queryHash,
+          startedAt: Date.now(),
+        };
+      }
+      return Date.now() - sourceRetry.current.startedAt < sourceRetryWindow
+        ? sourceRetryInterval
+        : false;
+    },
   });
 
   useEffect(() => {
@@ -153,12 +190,20 @@ export function BuildLogsPanel({ attemptId }: { attemptId: string }) {
 
   const lines = following ? streamLines : (snapshot.data?.lines ?? []);
   const source = following ? streamSource : snapshot.data?.source;
+  const waitingForSource =
+    active && !previous && transientSourceError(snapshot.error);
+  const retryingSource =
+    waitingForSource &&
+    sourceRetry.current !== undefined &&
+    Date.now() - sourceRetry.current.startedAt < sourceRetryWindow;
   const displayState = following
     ? streamState
     : snapshot.isPending
       ? "loading"
       : snapshot.error
-        ? "unavailable"
+        ? waitingForSource
+          ? "waiting"
+          : "unavailable"
         : "snapshot";
 
   return (
@@ -218,7 +263,10 @@ export function BuildLogsPanel({ attemptId }: { attemptId: string }) {
         <button
           className={buttonVariants({ variant: "secondary" })}
           type="button"
-          onClick={() => void snapshot.refetch()}
+          onClick={() => {
+            sourceRetry.current = undefined;
+            void snapshot.refetch();
+          }}
           disabled={following || snapshot.isFetching}
         >
           Refresh snapshot
@@ -275,9 +323,23 @@ export function BuildLogsPanel({ attemptId }: { attemptId: string }) {
       ) : !following && snapshot.error ? (
         <EmptyState
           icon="logs"
-          title="Build logs unavailable"
-          description={unavailableDescription(snapshot.error)}
-          action={<PlaceholderBadge>API unavailable</PlaceholderBadge>}
+          title={
+            waitingForSource
+              ? "Waiting for build logs"
+              : "Build logs unavailable"
+          }
+          description={
+            waitingForSource
+              ? retryingSource
+                ? "The builder has not exposed its logs yet. This page checks again automatically for up to five minutes."
+                : "The builder's logs are still unavailable. Refresh the snapshot to check again."
+              : unavailableDescription(snapshot.error)
+          }
+          action={
+            <PlaceholderBadge>
+              {retryingSource ? "Checking automatically" : "API unavailable"}
+            </PlaceholderBadge>
+          }
           compact
         />
       ) : lines.length ? (

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { isMap, parseDocument } from "yaml";
 import { ApiError, api } from "../api/client";
 import type {
   Application,
@@ -123,6 +124,7 @@ export function HelmApplicationsPanel({
   });
   const [source, setSource] = useState<HelmSource>(emptySource);
   const [valuesYaml, setValuesYaml] = useState("{}\n");
+  const [valuesError, setValuesError] = useState<string>();
   const [loadedRevision, setLoadedRevision] = useState("");
   const [confirmAction, setConfirmAction] = useState<
     | { kind: "retry" }
@@ -139,6 +141,16 @@ export function HelmApplicationsPanel({
     setValuesYaml(revision.valuesYaml || "{}\n");
     setLoadedRevision(revision.id);
   }, [head.data, loadedRevision]);
+
+  useEffect(() => {
+    const current = head.data;
+    const historical = history.data?.items.find(
+      (item) => item.id === current?.id,
+    );
+    if (current?.state !== "pending" && historical?.state === "pending") {
+      void queryClient.invalidateQueries({ queryKey: historyKey });
+    }
+  }, [head.data?.id, head.data?.state, history.data, queryClient]);
 
   const refresh = async () => {
     await Promise.all([
@@ -201,12 +213,19 @@ export function HelmApplicationsPanel({
     (source.kind === "git"
       ? Boolean(source.path?.trim())
       : Boolean(source.chart?.trim()));
-  const canSave =
-    canDeploy &&
-    sourceValid &&
-    valuesBytes > 0 &&
-    valuesBytes <= maximumValuesBytes;
+  const canSave = canDeploy && sourceValid && valuesBytes <= maximumValuesBytes;
   const save = () => {
+    if (!canSave) return;
+    if (valuesYaml.trim()) {
+      const document = parseDocument(valuesYaml, { uniqueKeys: true });
+      if (document.errors.length > 0 || !isMap(document.contents)) {
+        setValuesError(
+          `Invalid values YAML: ${document.errors[0]?.message ?? "Use one mapping of chart settings, or leave values empty to use chart defaults."}`,
+        );
+        return;
+      }
+    }
+    setValuesError(undefined);
     const input: HelmValuesInput = { source, valuesYaml };
     const signature = JSON.stringify(input);
     const key =
@@ -305,7 +324,10 @@ export function HelmApplicationsPanel({
         <FormCardHeading step="02">
           <div>
             <h2>Values YAML</h2>
-            <p>These values are forwarded to Argo CD as the chart override.</p>
+            <p>
+              Override chart settings here, or leave this empty to use chart
+              defaults.
+            </p>
           </div>
         </FormCardHeading>
         <Field
@@ -314,7 +336,7 @@ export function HelmApplicationsPanel({
           error={
             valuesBytes > maximumValuesBytes
               ? "Values exceed 262144 bytes."
-              : undefined
+              : valuesError
           }
         >
           <textarea
@@ -323,7 +345,10 @@ export function HelmApplicationsPanel({
             rows={16}
             spellCheck={false}
             value={valuesYaml}
-            onChange={(event) => setValuesYaml(event.target.value)}
+            onChange={(event) => {
+              setValuesYaml(event.target.value);
+              setValuesError(undefined);
+            }}
           />
         </Field>
         <ButtonRow>
@@ -349,7 +374,10 @@ export function HelmApplicationsPanel({
           ) : null}
         </ButtonRow>
         {deploy.error || action.error ? (
-          <ErrorPanel error={deploy.error ?? action.error} />
+          <ErrorPanel
+            title="Could not apply this Helm change"
+            error={deploy.error ?? action.error}
+          />
         ) : null}
       </FormCard>
 
