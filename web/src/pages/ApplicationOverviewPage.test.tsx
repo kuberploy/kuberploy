@@ -285,6 +285,68 @@ describe("application source overview", () => {
     expect(screen.queryByText("Stopped")).toBeNull();
   });
 
+  it("surfaces deployment inventory failures instead of showing stopped drafts", async () => {
+    vi.mocked(api.deployments).mockRejectedValue(
+      new Error("deployment inventory unavailable"),
+    );
+    render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });
+
+    const error = await screen.findByRole("alert");
+    expect(error).toHaveTextContent("deployment inventory unavailable");
+    expect(screen.queryByText("Stopped draft")).toBeNull();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeVisible();
+  });
+
+  it("surfaces an authorized source catalog failure instead of rendering an empty editor", async () => {
+    vi.mocked(api.capabilities).mockResolvedValue({
+      features: { builds: true, builder: true },
+      capabilities: [
+        {
+          scopeType: "project",
+          scopeId: "project-1",
+          actions: ["app-sources:read"],
+        },
+      ],
+    });
+    vi.mocked(api.buildDefinitions).mockRejectedValue(
+      new Error("source catalog unavailable"),
+    );
+
+    render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });
+
+    const error = await screen.findByRole("alert");
+    expect(error).toHaveTextContent("source catalog unavailable");
+    expect(screen.getByRole("button", { name: "Retry" })).toBeVisible();
+  });
+
+  it("surfaces an authorized registry catalog failure instead of hiding the access state", async () => {
+    vi.mocked(api.application).mockResolvedValue({
+      id: "application-1",
+      projectId: "project-1",
+      name: "Payments API",
+      sourceKind: "oci",
+    });
+    vi.mocked(api.capabilities).mockResolvedValue({
+      features: { registry: true },
+      capabilities: [
+        {
+          scopeType: "project",
+          scopeId: "project-1",
+          actions: ["registry:read"],
+        },
+      ],
+    });
+    vi.spyOn(api, "applicationRegistry").mockRejectedValue(
+      new Error("registry catalog unavailable"),
+    );
+
+    render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });
+
+    const error = await screen.findByRole("alert");
+    expect(error).toHaveTextContent("registry catalog unavailable");
+    expect(screen.getByRole("button", { name: "Retry" })).toBeVisible();
+  });
+
   it("offers Helm configuration only when the release is absent", async () => {
     setupHelmOverview().mockRejectedValue(
       new ApiError(404, { code: "HelmAppNotFound" }),

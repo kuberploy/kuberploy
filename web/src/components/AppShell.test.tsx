@@ -105,6 +105,44 @@ describe("session logout", () => {
     await waitFor(() => expect(api.logout).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(queryClient.getQueryData(["me"])).toBeNull());
   });
+
+  it("surfaces a failed sign out and lets the user retry", async () => {
+    const user = userEvent.setup();
+    const logout = vi
+      .spyOn(api, "logout")
+      .mockRejectedValueOnce(new Error("network unavailable"))
+      .mockResolvedValueOnce(undefined);
+    const queryClient = renderShell({});
+    queryClient.setQueryData(["me"], { id: "user-1" });
+
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+
+    const error = await screen.findByRole("alert");
+    expect(error).toHaveTextContent("Could not sign out");
+    expect(error).toHaveTextContent("network unavailable");
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(logout).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(queryClient.getQueryData(["me"])).toBeNull());
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+describe("capability navigation", () => {
+  it("surfaces capability failures with a retry", async () => {
+    renderShell(
+      {},
+      "viewer",
+      "session",
+      "/",
+      new Error("capabilities offline"),
+    );
+
+    const error = await screen.findByRole("alert");
+    expect(error).toHaveTextContent("Navigation capabilities unavailable");
+    expect(error).toHaveTextContent("capabilities offline");
+    expect(screen.getByRole("button", { name: "Retry" })).toBeVisible();
+  });
 });
 
 function renderShell(
@@ -112,9 +150,14 @@ function renderShell(
   role: "viewer" | "platform-admin" = "viewer",
   authentication: "session" | "service-account" = "session",
   pathname = "/",
+  capabilitiesError?: Error,
 ) {
   currentPathname = pathname;
-  vi.spyOn(api, "capabilities").mockResolvedValue(capabilities);
+  if (capabilitiesError) {
+    vi.spyOn(api, "capabilities").mockRejectedValue(capabilitiesError);
+  } else {
+    vi.spyOn(api, "capabilities").mockResolvedValue(capabilities);
+  }
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });

@@ -7,6 +7,7 @@ import {
   Card,
   CardHeader,
   EmptyState,
+  ErrorPanel,
   Eyebrow,
   Field,
   Notice,
@@ -292,29 +293,29 @@ export function LogsPanel({
       {workloads.isPending ? (
         <Skeleton lines={7} />
       ) : !workload ? (
-        <EmptyState
-          icon="logs"
-          title={
-            workloads.error
-              ? "Logs unavailable"
-              : runtimeInventoryMissing
+        workloads.error ? (
+          <ErrorPanel
+            error={workloads.error}
+            title="Logs unavailable"
+            onRetry={() => void workloads.refetch()}
+          />
+        ) : (
+          <EmptyState
+            icon="logs"
+            title={
+              runtimeInventoryMissing
                 ? "App runtime unavailable"
                 : "No App runtime"
-          }
-          description={
-            workloads.error
-              ? "The scoped log gateway is not ready for this App. The workload continues running."
-              : runtimeInventoryMissing
+            }
+            description={
+              runtimeInventoryMissing
                 ? "The selected App runtime was not returned by the scoped runtime inventory. No other workload was selected as a fallback."
                 : "The App has no workload available for a bounded runtime snapshot."
-          }
-          action={
-            <PlaceholderBadge>
-              {workloads.error ? "API unavailable" : "No data"}
-            </PlaceholderBadge>
-          }
-          compact
-        />
+            }
+            action={<PlaceholderBadge>No data</PlaceholderBadge>}
+            compact
+          />
+        )
       ) : (
         <div className="grid gap-5">
           <div className="grid grid-cols-[minmax(180px,_1.5fr)_minmax(160px,_1fr)_90px_auto] items-center gap-4 py-3 px-4 border border-line rounded-[9px] bg-surface-soft [&>div]:min-w-0 [&_span]:block [&_span]:mb-1 [&_span]:text-ink-faint [&_span]:text-xs [&_strong]:block [&_strong]:overflow-hidden [&_strong]:text-ink [&_strong]:text-meta [&_strong]:text-ellipsis [&_code]:block [&_code]:overflow-hidden [&_code]:text-ink [&_code]:text-meta [&_code]:text-ellipsis to-580:grid-cols-[1fr]">
@@ -387,12 +388,10 @@ export function LogsPanel({
             {logs.isPending ? (
               <Skeleton lines={7} />
             ) : logs.error ? (
-              <EmptyState
-                icon="logs"
+              <ErrorPanel
+                error={logs.error}
                 title="Logs unavailable"
-                description="The scoped log gateway is not ready for this App. The workload continues running."
-                action={<PlaceholderBadge>API unavailable</PlaceholderBadge>}
-                compact
+                onRetry={() => void logs.refetch()}
               />
             ) : (
               <>
@@ -467,12 +466,10 @@ export function LogsPanel({
             {events.isPending ? (
               <Skeleton lines={4} />
             ) : events.error ? (
-              <EmptyState
-                icon="deploy"
+              <ErrorPanel
+                error={events.error}
                 title="Kubernetes events unavailable"
-                description="The scoped event gateway could not return this App snapshot. The workload continues running."
-                action={<PlaceholderBadge>API unavailable</PlaceholderBadge>}
-                compact
+                onRetry={() => void events.refetch()}
               />
             ) : events.data?.items.length ? (
               <div

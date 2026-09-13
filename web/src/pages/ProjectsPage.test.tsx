@@ -25,6 +25,41 @@ afterEach(() => {
 });
 
 describe("project team ownership", () => {
+  it("surfaces capability loading failures instead of hiding project actions", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({
+      id: "user_admin",
+      displayName: "Platform admin",
+      role: "platform-admin",
+      authentication: { kind: "session" },
+    });
+    vi.spyOn(api, "capabilities").mockRejectedValue(
+      new Error("capabilities unavailable"),
+    );
+    vi.spyOn(api, "teams").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "projects").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "environments").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "applications").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "deployments").mockResolvedValue({ items: [] });
+
+    render(<ProjectsPage />, {
+      wrapper: ({ children }) => (
+        <QueryClientProvider
+          client={
+            new QueryClient({
+              defaultOptions: { queries: { retry: false } },
+            })
+          }
+        >
+          {children}
+        </QueryClientProvider>
+      ),
+    });
+
+    const error = await screen.findByRole("alert");
+    expect(error).toHaveTextContent("capabilities unavailable");
+    expect(screen.getByRole("button", { name: "Retry" })).toBeVisible();
+  });
+
   it("defaults environments to protected review and sends development only when selected", async () => {
     vi.spyOn(api, "me").mockResolvedValue({
       id: "user_admin",

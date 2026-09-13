@@ -15,7 +15,7 @@ import {
 } from "../lib/theme";
 import { Icon, type IconName } from "./Icon";
 import { cn } from "@/lib/utils";
-import { Button, useRovingFocus } from "./ui";
+import { Button, ErrorPanel, useRovingFocus } from "./ui";
 
 // One nav row. Declared once instead of on twelve <Link>s: TanStack Router
 // takes the class through activeProps/inactiveProps, so it has to be a string.
@@ -423,6 +423,24 @@ export function AppShell({ user }: { user: Principal }) {
             </Button>
           </div>
         </header>
+        {capabilities.error ? (
+          <div className="px-8 to-820:px-5">
+            <ErrorPanel
+              error={capabilities.error}
+              title="Navigation capabilities unavailable"
+              onRetry={() => void capabilities.refetch()}
+            />
+          </div>
+        ) : null}
+        {logout.error ? (
+          <div className="px-8 to-820:px-5">
+            <ErrorPanel
+              error={logout.error}
+              title="Could not sign out"
+              onRetry={() => logout.mutate()}
+            />
+          </div>
+        ) : null}
         <main id="main-content" className="w-full outline-none" tabIndex={-1}>
           <Outlet />
         </main>

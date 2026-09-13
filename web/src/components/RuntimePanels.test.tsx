@@ -272,7 +272,8 @@ describe("deployment runtime panel", () => {
     render(panel(), { wrapper: wrapper() });
 
     expect(await screen.findByText("Logs unavailable")).toBeInTheDocument();
-    expect(screen.getByText("API unavailable")).toBeInTheDocument();
+    expect(screen.getByText("inventory offline")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
     expect(logs).not.toHaveBeenCalled();
     expect(events).not.toHaveBeenCalled();
   });
@@ -289,6 +290,7 @@ describe("deployment runtime panel", () => {
     render(panel(), { wrapper: wrapper() });
 
     expect(await screen.findByText("Logs unavailable")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
     expect(screen.getByText("No Kubernetes events")).toBeInTheDocument();
   });
 
@@ -311,6 +313,7 @@ describe("deployment runtime panel", () => {
     expect(
       screen.getByText("Kubernetes events unavailable"),
     ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
 
   it("recovers when the runtime target appears after App start", async () => {

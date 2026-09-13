@@ -155,6 +155,28 @@ afterEach(() => {
 });
 
 describe("project workspace", () => {
+  it("surfaces capability loading failures instead of hiding project actions", async () => {
+    vi.mocked(api.capabilities).mockRejectedValue(
+      new Error("capabilities unavailable"),
+    );
+
+    render(<ProjectPage />, { wrapper: wrapper() });
+
+    const error = await screen.findByRole("alert");
+    expect(error).toHaveTextContent("capabilities unavailable");
+    expect(screen.getByRole("button", { name: "Retry" })).toBeVisible();
+  });
+
+  it("surfaces team loading failures instead of guessing project ownership", async () => {
+    vi.mocked(api.teams).mockRejectedValue(new Error("teams unavailable"));
+
+    render(<ProjectPage />, { wrapper: wrapper() });
+
+    const error = await screen.findByRole("alert");
+    expect(error).toHaveTextContent("teams unavailable");
+    expect(screen.getByRole("button", { name: "Retry" })).toBeVisible();
+  });
+
   it("makes environments the only path to Apps", async () => {
     const user = userEvent.setup();
     render(<ProjectPage />, { wrapper: wrapper() });

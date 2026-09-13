@@ -43,6 +43,7 @@ export function ProjectsPage() {
   const capabilities = useQuery({
     queryKey: ["capabilities"],
     queryFn: api.capabilities,
+    retry: false,
   });
   const teams = useQuery({ queryKey: ["teams"], queryFn: api.teams });
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
@@ -233,6 +234,7 @@ export function ProjectsPage() {
     environments,
     applications,
     deployments,
+    capabilities,
   ].some((query) => query.isPending);
   const loadError =
     me.error ??
@@ -240,7 +242,8 @@ export function ProjectsPage() {
     projects.error ??
     environments.error ??
     applications.error ??
-    deployments.error;
+    deployments.error ??
+    capabilities.error;
 
   return (
     <Page>

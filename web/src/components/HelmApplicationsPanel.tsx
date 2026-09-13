@@ -162,7 +162,13 @@ export function HelmApplicationsPanel({
     mutationFn: ({ input, key }: { input: HelmValuesInput; key: string }) =>
       api.upsertHelmRelease(application.id, environment.id, input, key),
     retry: retryNetworkOnce,
-    onSuccess: refresh,
+    onSuccess: async () => {
+      // Keep the key for network retries while a request is unresolved, but a
+      // later intentional save must create a new revision even when the
+      // payload returns to the same values.
+      stableAttempt.current = null;
+      await refresh();
+    },
   });
   const action = useMutation({
     mutationFn: async (request: NonNullable<typeof confirmAction>) => {

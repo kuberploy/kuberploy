@@ -147,6 +147,30 @@ describe("direct Helm App panel", () => {
     });
   });
 
+  it("uses a fresh idempotency key for each completed save", async () => {
+    vi.spyOn(api, "helmRelease").mockResolvedValue(revision);
+    vi.spyOn(api, "helmReleaseHistory").mockResolvedValue({
+      items: [revision],
+    });
+    const save = vi
+      .spyOn(api, "upsertHelmRelease")
+      .mockResolvedValue({ revision, replayed: false });
+    renderPanel();
+    const editor = await screen.findByLabelText("Helm values YAML");
+    await userEvent.clear(editor);
+    await userEvent.type(editor, "replicaCount: 2");
+    const button = screen.getByRole("button", { name: "Update App" });
+
+    await userEvent.click(button);
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    await userEvent.click(button);
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+
+    expect(save.mock.calls[0]?.[3]).toBeDefined();
+    expect(save.mock.calls[1]?.[3]).toBeDefined();
+    expect(save.mock.calls[1]?.[3]).not.toBe(save.mock.calls[0]?.[3]);
+  });
+
   it("uses a shadcn confirmation dialog for disable", async () => {
     vi.spyOn(api, "helmRelease").mockResolvedValue(revision);
     vi.spyOn(api, "helmReleaseHistory").mockResolvedValue({

@@ -60,8 +60,13 @@ export function ProjectPage() {
   const capabilities = useQuery({
     queryKey: ["capabilities"],
     queryFn: api.capabilities,
+    retry: false,
   });
-  const teams = useQuery({ queryKey: ["teams"], queryFn: api.teams });
+  const teams = useQuery({
+    queryKey: ["teams"],
+    queryFn: api.teams,
+    retry: false,
+  });
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   const environments = useQuery({
     queryKey: ["environments"],
@@ -223,10 +228,14 @@ export function ProjectPage() {
       ? gitEnvironmentChoice
       : null;
   const loading =
-    [projects, environments, applications].some((query) => query.isPending) ||
-    environmentAppQueries.some((query) => query.isPending);
+    [me, capabilities, projects, teams, environments, applications].some(
+      (query) => query.isPending,
+    ) || environmentAppQueries.some((query) => query.isPending);
   const loadError =
+    me.error ??
+    capabilities.error ??
     projects.error ??
+    teams.error ??
     environments.error ??
     applications.error ??
     environmentAppQueries.find((query) => query.error)?.error;

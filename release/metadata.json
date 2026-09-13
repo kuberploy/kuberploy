@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Desktop App pages keep failed, stopped, and stopping lifecycle outcomes visible instead of showing stale workload observations. App source cards expose the selected source clearly. Connected Git SSH Apps expose Deploy, Rebuild, and build history using the existing source build workflow. ExternalDNS readiness follows the current Deployment rollout rather than an older ready Pod.",
+  "summary": "Desktop App pages expose failed lifecycle, API, capability, log, and event states with retry actions instead of stale or invented states. Helm saves create a fresh revision after completion. Source cards, Git SSH delivery, and current ExternalDNS rollout state remain visible.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.465"
+  "version": "0.1.0-rc.466"
 }

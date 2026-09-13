@@ -324,14 +324,15 @@ export function ApplicationOverviewPage() {
       project,
     ),
   );
+  const buildDefinitionsEnabled =
+    sourceBuildsConfigured &&
+    canReadBuildDefinitions &&
+    (application.data?.sourceKind === "github" ||
+      application.data?.sourceKind === "git-ssh");
   const buildDefinitions = useQuery({
     queryKey: ["app-source", applicationId],
     queryFn: () => api.buildDefinitions(applicationId),
-    enabled:
-      sourceBuildsConfigured &&
-      canReadBuildDefinitions &&
-      (application.data?.sourceKind === "github" ||
-        application.data?.sourceKind === "git-ssh"),
+    enabled: buildDefinitionsEnabled,
     retry: false,
   });
   const buildAttempts = useQuery({
@@ -346,12 +347,13 @@ export function ApplicationOverviewPage() {
         ? 5_000
         : false,
   });
+  const registryEnabled =
+    capabilities.data?.features?.registry === true &&
+    canReadApplicationRegistry;
   const registry = useQuery({
     queryKey: ["application-registry", applicationId],
     queryFn: () => api.applicationRegistry(applicationId, 100),
-    enabled:
-      capabilities.data?.features?.registry === true &&
-      canReadApplicationRegistry,
+    enabled: registryEnabled,
     retry: false,
   });
 
@@ -547,6 +549,11 @@ export function ApplicationOverviewPage() {
     application.error ??
     projects.error ??
     environments.error ??
+    deployments.error ??
+    capabilities.error ??
+    me.error ??
+    (buildDefinitionsEnabled ? buildDefinitions.error : undefined) ??
+    (registryEnabled ? registry.error : undefined) ??
     placementQueries.find((query) => query.error)?.error;
 
   if (loadError) {
@@ -556,6 +563,11 @@ export function ApplicationOverviewPage() {
     application.isPending ||
     projects.isPending ||
     environments.isPending ||
+    deployments.isPending ||
+    capabilities.isPending ||
+    me.isPending ||
+    (buildDefinitionsEnabled && buildDefinitions.isPending) ||
+    (registryEnabled && registry.isPending) ||
     placementsPending
   ) {
     return (
