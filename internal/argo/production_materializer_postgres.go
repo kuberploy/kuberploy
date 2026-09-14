@@ -33,7 +33,6 @@ type desiredStateMaterializationCandidate struct {
 	environmentID             string
 	latestCommandID           string
 	previousVerifiedCommandID string
-	preconditionCommandID     string
 }
 
 var errDesiredStateCandidateBlocked = errors.New("desired-state candidate is blocked by current tenant policy")
@@ -74,7 +73,7 @@ func (m *PostgreSQLDesiredStateMaterializer) MaterializeDesiredStateOnce(ctx con
 		return false, ErrArgoRuntimePrerequisiteNotReady
 	}
 	rows, err := m.pool.Query(ctx, `SELECT b.id::text,b.project_id::text,b.environment_id::text,
-	COALESCE(latest.id::text,''),COALESCE(previous_verified.id::text,''),COALESCE(precondition_command.id::text,'')
+	COALESCE(latest.id::text,''),COALESCE(previous_verified.id::text,'')
 	FROM git_repository_bindings b
 	JOIN environments e ON e.id=b.environment_id AND e.project_id=b.project_id
 	JOIN git_projection_generations generation
@@ -94,12 +93,6 @@ func (m *PostgreSQLDesiredStateMaterializer) MaterializeDesiredStateOnce(ctx con
 		WHERE command.environment_id=b.environment_id AND command.state='verified'
 		ORDER BY command.generation DESC LIMIT 1
 	) previous_verified ON true
-	LEFT JOIN LATERAL (
-		SELECT command.id
-		FROM argo_desired_state_commands command
-		WHERE command.environment_id=b.environment_id AND command.state='verified'
-		ORDER BY command.generation DESC LIMIT 1
-	) precondition_command ON true
 	WHERE b.kind='environment' AND b.credential_mode='github-app' AND b.credential_secret_name=''
 	  AND b.state='ready' AND b.target_head_revision=b.indexed_revision AND b.indexed_revision IS NOT NULL
 	  AND b.projection_generation>0 AND generation.state='active'
@@ -140,7 +133,7 @@ func (m *PostgreSQLDesiredStateMaterializer) MaterializeDesiredStateOnce(ctx con
 	for rows.Next() {
 		var selected desiredStateMaterializationCandidate
 		if err = rows.Scan(&selected.bindingID, &selected.projectID, &selected.environmentID, &selected.latestCommandID,
-			&selected.previousVerifiedCommandID, &selected.preconditionCommandID); err != nil {
+			&selected.previousVerifiedCommandID); err != nil {
 			return false, classifyPostgres(err)
 		}
 		candidates = append(candidates, selected)
@@ -232,26 +225,6 @@ func (m *PostgreSQLDesiredStateMaterializer) materializeCandidate(
 	}
 	if err != nil {
 		return false, err
-	}
-	if selected.preconditionCommandID != "" && selected.preconditionCommandID != selected.previousVerifiedCommandID {
-		precondition, readErr := m.store.DesiredStateCommand(ctx, selected.preconditionCommandID)
-		if readErr != nil {
-			return false, readErr
-		}
-		if precondition.ProjectID != command.ProjectID || precondition.EnvironmentID != command.EnvironmentID ||
-			precondition.PlatformBindingID != command.PlatformBindingID || precondition.Path != command.Path ||
-			(precondition.State != DesiredStateFailed && precondition.State != DesiredStateSuperseded) ||
-			precondition.WriteBaseRevision == "" {
-			return false, ErrInvalid
-		}
-		if precondition.ContentSHA256 == command.ContentSHA256 {
-			return false, nil
-		}
-		command.Precondition = gitprojection.MutationMatchETag
-		command.ExpectedETag = `"` + precondition.ContentSHA256 + `"`
-		if command.ValidateFor(target) != nil {
-			return false, ErrInvalid
-		}
 	}
 	if selected.latestCommandID != "" {
 		latest, readErr := m.store.DesiredStateCommand(ctx, selected.latestCommandID)

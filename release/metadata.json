@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Fixed a Helm App deploy and rollback race: a slow reconcile from an older revision could land after a newer one and silently overwrite it in the live cluster, undoing a rollback the user believed had already taken effect. The reconciler now fences its Argo Application write behind the observed live generation.",
+  "summary": "Fixed a credentialed-CORS gap where a regex origin list combined with allow-credentials could reflect any matching site's origin back with credentials allowed, and closed a tenant Deployment override path that could add a second privileged container, an initContainer, or a hostPath volume beyond the sanitized primary container. Also removed a vestigial, permanently unreachable desired-state recovery code path and fixed a duplicate registry cleanup reason code.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.481"
+  "version": "0.1.0-rc.482"
 }

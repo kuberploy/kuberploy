@@ -163,12 +163,22 @@ spec:
 {{- $podSpec := get $template "spec" -}}
 {{- $basePodSpec := get $baseTemplate "spec" -}}
 {{- $_ := set $podSpec "serviceAccountName" (get $basePodSpec "serviceAccountName") -}}
-{{- range $field := list "hostNetwork" "hostPID" "hostIPC" "hostUsers" -}}
+{{- range $field := list "hostNetwork" "hostPID" "hostIPC" "hostUsers" "shareProcessNamespace" -}}
   {{- $_ := unset $podSpec $field -}}
 {{- end -}}
+{{- if get $podSpec "initContainers" -}}
+  {{- fail "spec.overrides.deployment must not add initContainers" -}}
+{{- end -}}
+{{- range $volume := get $podSpec "volumes" | default list -}}
+  {{- if kindIs "map" $volume -}}
+    {{- if hasKey $volume "hostPath" -}}
+      {{- fail "spec.overrides.deployment must not add a hostPath volume" -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
 {{- $containers := get $podSpec "containers" -}}
-{{- if or (not (kindIs "slice" $containers)) (eq (len $containers) 0) -}}
-  {{- fail "spec.overrides.deployment must retain one application container" -}}
+{{- if or (not (kindIs "slice" $containers)) (ne (len $containers) 1) -}}
+  {{- fail "spec.overrides.deployment must retain exactly one application container" -}}
 {{- end -}}
 {{- $baseApplication := index (get $basePodSpec "containers") 0 -}}
 {{- $application := index $containers 0 -}}

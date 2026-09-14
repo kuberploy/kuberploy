@@ -38,6 +38,26 @@ func TestClosedMiddlewareValidatorRejectsSchemaBypassAndTrailingJSON(t *testing.
 	}
 }
 
+func TestCredentialedCORSRejectsWildcardAndRegexOrigins(t *testing.T) {
+	valid := Spec{"headers": map[string]any{
+		"accessControlAllowCredentials": true,
+		"accessControlAllowOriginList":  []any{"https://app.example.com"},
+	}}
+	if ValidateSpec(valid) != nil {
+		t.Fatal("credentialed CORS with an exact origin list was rejected")
+	}
+	cases := []Spec{
+		{"headers": map[string]any{"accessControlAllowCredentials": true, "accessControlAllowOriginList": []any{"*"}}},
+		{"headers": map[string]any{"accessControlAllowCredentials": true, "accessControlAllowOriginListRegex": []any{".*"}}},
+		{"headers": map[string]any{"accessControlAllowCredentials": true, "accessControlAllowOriginListRegex": []any{"^https://[a-z]+\\.example\\.com$"}}},
+	}
+	for index, candidate := range cases {
+		if ValidateSpec(candidate) == nil {
+			t.Fatalf("credentialed CORS with reflectable origins accepted, case %d: %v", index, candidate)
+		}
+	}
+}
+
 func TestBasicAuthAcceptsOnlyWriteOnlyBindingIdentity(t *testing.T) {
 	ref := map[string]any{"bindingId": id.New(), "name": "admin-users", "key": "users", "version": number("2")}
 	spec := Spec{"basicAuth": map[string]any{"secretBindingRef": ref, "removeHeader": true}}

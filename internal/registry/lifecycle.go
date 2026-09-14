@@ -27,7 +27,7 @@ const (
 	ReasonCacheRecentlyUsed     = "cache-recently-used"
 	ReasonOutsideServiceScope   = "outside-service-scope"
 	ReasonReachableManifest     = "reachable-from-protected-manifest"
-	ReasonReachableBlob         = "reachable-from-protected-manifest"
+	ReasonReachableBlob         = "reachable-from-protected-manifest-blob"
 	ReasonRetentionEligible     = "retention-eligible"
 	ReasonCacheExpired          = "cache-unused-expired"
 	ReasonCacheQuota            = "cache-byte-quota"

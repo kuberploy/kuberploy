@@ -309,11 +309,19 @@ func validateHeaders(v map[string]any) bool { //nolint:gocyclo
 	}
 	credentials, _ := v["accessControlAllowCredentials"].(bool)
 	origins, _ := stringList(v["accessControlAllowOriginList"], false)
+	originRegexes, _ := stringList(v["accessControlAllowOriginListRegex"], false)
 	if credentials {
 		for _, origin := range origins {
 			if origin == "*" {
 				return false
 			}
+		}
+		// A regex origin list reflects any matching request Origin back as
+		// Access-Control-Allow-Origin. Combined with credentials, that lets
+		// any matching site issue cookie-bearing cross-origin requests, so
+		// credentialed CORS must use only the exact, enumerable origin list.
+		if len(originRegexes) > 0 {
+			return false
 		}
 	}
 	frameDeny, _ := v["frameDeny"].(bool)
