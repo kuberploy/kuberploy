@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM docker.io/alpine/helm:4.2 AS helm-runtime
+FROM docker.io/alpine/helm:4.3 AS helm-runtime
 
 # Capture exact selected patch as readable build input. Render identity changes
 # whenever major/minor selector advances to a new hotfix.
