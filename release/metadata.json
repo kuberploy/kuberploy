@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Mobile navigation now closes on Escape, disabled Add App source cards no longer show a pointer cursor, and Field-driven form controls report aria-invalid when they carry a validation error.",
+  "summary": "The Environment list no longer overlaps its status pill with the App count at narrow viewports.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.471"
+  "version": "0.1.0-rc.472"
 }
