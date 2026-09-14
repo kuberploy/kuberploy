@@ -1181,7 +1181,7 @@ export function InvitationSecret({
 
   return (
     <div
-      className="[&>code]:block [&>code]:overflow-auto [&>code]:p-3 [&>code]:border [&>code]:border-tone-warn-line [&>code]:rounded-lg [&>code]:text-tone-warn [&>code]:bg-tone-warn-surface [&>code]:text-meta [&>code]:whitespace-nowrap [&_dl]:flex [&_dl]:gap-5 [&_dl]:my-3 [&_dl]:mx-0 [&_dl_>_div]:min-w-0 [&_dt]:text-ink-faint [&_dt]:text-xs [&_dd]:mt-1 [&_dd]:mx-0 [&_dd]:mb-0 [&_dd]:overflow-hidden [&_dd]:text-meta [&_dd]:text-ellipsis [&_dd]:whitespace-nowrap [&>p]:my-2 [&>p]:mx-0 [&>p]:text-ink-soft [&>p]:text-xs"
+      className="[&>code]:block [&>code]:overflow-auto [&>code]:p-3 [&>code]:border [&>code]:border-tone-warn-line [&>code]:rounded-lg [&>code]:text-tone-warn [&>code]:bg-tone-warn-surface [&>code]:text-meta [&>code]:break-all [&_dl]:flex [&_dl]:gap-5 [&_dl]:my-3 [&_dl]:mx-0 [&_dl_>_div]:min-w-0 [&_dt]:text-ink-faint [&_dt]:text-xs [&_dd]:mt-1 [&_dd]:mx-0 [&_dd]:mb-0 [&_dd]:overflow-hidden [&_dd]:text-meta [&_dd]:text-ellipsis [&_dd]:whitespace-nowrap [&>p]:my-2 [&>p]:mx-0 [&>p]:text-ink-soft [&>p]:text-xs"
       role="status"
     >
       <Notice tone="warning">

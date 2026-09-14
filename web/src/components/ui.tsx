@@ -673,7 +673,7 @@ export function Field({
   }
 
   return (
-    <div className="flex min-w-0 flex-col gap-2">
+    <div className="field flex min-w-0 flex-col gap-2">
       <label className="text-meta font-medium text-ink" htmlFor={controlId}>
         {label}
         {required ? <span aria-hidden="true"> *</span> : null}
@@ -833,7 +833,7 @@ export function IconButton({
       type="button"
       {...props}
       className={cn(
-        "grid size-8 place-items-center rounded-lg border border-line bg-surface text-ink-soft",
+        "icon-button grid size-8 place-items-center rounded-lg border border-line bg-surface text-ink-soft",
         "transition-[color,border-color,background-color] duration-(--motion-fast) ease-(--ease-standard)",
         "hover:not-disabled:border-line-strong hover:not-disabled:bg-surface-soft hover:not-disabled:text-ink",
         "active:not-disabled:translate-y-px",

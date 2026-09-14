@@ -2,12 +2,34 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
-import { ConfirmDialog, CopyButton, Select, useRowKeys } from "./ui";
+import {
+  ConfirmDialog,
+  CopyButton,
+  Field,
+  IconButton,
+  Select,
+  useRowKeys,
+} from "./ui";
 import { openSelect, selectOption } from "../test/selectOption";
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+});
+
+describe("responsive row marker classes", () => {
+  it("keeps the 'field' and 'icon-button' hooks that repeated key/value rows rely on for their mobile grid placement", () => {
+    render(
+      <Field label="Name">
+        <input aria-label="value" />
+      </Field>,
+    );
+    expect(screen.getByLabelText("value").closest(".field")).not.toBeNull();
+
+    cleanup();
+    render(<IconButton aria-label="Remove row" />);
+    expect(screen.getByLabelText("Remove row")).toHaveClass("icon-button");
+  });
 });
 
 describe("ConfirmDialog", () => {
@@ -124,11 +146,7 @@ describe("Select", () => {
     const onChange = vi.fn();
 
     render(
-      <Select
-        aria-label="Project"
-        defaultValue="project-a"
-        onChange={onChange}
-      >
+      <Select aria-label="Project" defaultValue="project-a" onChange={onChange}>
         <option value="project-a">Payments</option>
         <option value="project-b">Storefront</option>
       </Select>,
