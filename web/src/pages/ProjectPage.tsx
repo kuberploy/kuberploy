@@ -376,7 +376,9 @@ export function ProjectPage() {
                       </small>
                     </div>
                     <code>{environment.namespace}</code>
-                    <StatusPill value={environment.status ?? "active"} />
+                    <span className="to-1080:col-[2] to-1080:justify-self-start to-760:col-[2]">
+                      <StatusPill value={environment.status ?? "active"} />
+                    </span>
                     {(() => {
                       const appCount =
                         environmentAppCounts.get(environment.id) ?? 0;
