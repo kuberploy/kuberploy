@@ -74,3 +74,6 @@ output/
 .local/
 tmp/
 *.log
+
+# Local operator instructions
+CLAUDE.md
