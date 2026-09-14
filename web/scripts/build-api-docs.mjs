@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const SWAGGER_UI_DIST_VERSION = "5.32.12";
+export const SWAGGER_UI_DIST_VERSION = "5.32.15";
 
 export const SWAGGER_UI_ASSETS = [
   "LICENSE",
