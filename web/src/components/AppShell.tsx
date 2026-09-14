@@ -60,7 +60,7 @@ function ThemeControl({
           key={preference}
           type="button"
           role="radio"
-          className="grid place-items-center rounded-[5px] text-ink-soft outline-none hover:bg-surface-soft hover:text-ink aria-checked:bg-mint-soft aria-checked:text-mint-dark focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-mint pointer-coarse:min-h-8 pointer-coarse:min-w-8 [&_svg]:size-3.5"
+          className="grid place-items-center rounded-[5px] text-ink-soft hover:bg-surface-soft hover:text-ink aria-checked:bg-mint-soft aria-checked:text-mint-dark focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-mint pointer-coarse:min-h-8 pointer-coarse:min-w-8 [&_svg]:size-3.5"
           aria-checked={preference === value}
           aria-label={label}
           title={label.replace("Use ", "")}

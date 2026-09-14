@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Team and App creation now return the same actionable /slug validation detail that Project and Environment creation already do, closing the last two gaps in the prior validation-error fix.",
+  "summary": "Fixed the theme-toggle radios losing their keyboard focus indicator: the outline-none reset on those buttons permanently zeroed the shared outline-style custom property, so the focus-visible outline utility never had a style to render.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.475"
+  "version": "0.1.0-rc.476"
 }

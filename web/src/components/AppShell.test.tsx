@@ -92,6 +92,26 @@ describe("appearance", () => {
     expect(light).toHaveAttribute("aria-checked", "true");
     expect(document.documentElement.dataset.theme).toBe("light");
   });
+
+  it("keeps the focus-visible outline usable on the theme radios", () => {
+    renderShell({});
+
+    // Tailwind v4's width-only outline utilities (`outline-2`) read
+    // `outline-style` from `--tw-outline-style`, which only `outline-none`
+    // writes. Pairing the two on the same element pins the custom property
+    // to "none" in every state, so `focus-visible:outline-2` never regains a
+    // visible ring. Regression for a keyboard focus indicator that silently
+    // stopped rendering.
+    for (const label of [
+      "Use automatic theme",
+      "Use light theme",
+      "Use dark theme",
+    ]) {
+      const radio = screen.getByRole("radio", { name: label });
+      expect(radio.className).not.toMatch(/(?:^|\s)outline-none(?:\s|$)/);
+      expect(radio.className).toMatch(/focus-visible:outline-2/);
+    }
+  });
 });
 
 describe("mobile navigation", () => {
