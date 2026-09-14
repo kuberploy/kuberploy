@@ -715,6 +715,45 @@ func TestCreateEnvironmentWithOverlongNameReturnsActionableFieldError(t *testing
 	}
 }
 
+func TestCreateApplicationWithOverlongNameReturnsActionableFieldError(t *testing.T) {
+	f := newAPI(t)
+	f.bootstrap()
+	project := decode[domain.Project](t, f.request(http.MethodPost, "/v1/projects", "overlong-app-project", map[string]string{"name": "Overlong app"}))
+
+	overlongName := strings.Repeat("a very long application name ", 3)
+	response := f.request(http.MethodPost, "/v1/applications", "overlong-app-name", map[string]string{
+		"projectId": project.ID, "name": overlongName,
+	})
+	problem := decode[struct {
+		Code   string           `json:"code"`
+		Errors []map[string]any `json:"errors"`
+	}](t, response)
+	if response.StatusCode != http.StatusUnprocessableEntity || problem.Code != "ValidationFailed" {
+		t.Fatalf("overlong application name status=%d problem=%#v", response.StatusCode, problem)
+	}
+	if len(problem.Errors) != 1 || problem.Errors[0]["pointer"] != "/slug" || problem.Errors[0]["code"] != "InvalidSlug" {
+		t.Fatalf("overlong application name must return an actionable /slug field error: errors=%#v", problem.Errors)
+	}
+}
+
+func TestCreateTeamWithOverlongNameReturnsActionableFieldError(t *testing.T) {
+	f := newAPI(t)
+	f.bootstrap()
+
+	overlongName := strings.Repeat("a very long team name ", 3)
+	response := f.request(http.MethodPost, "/v1/teams", "overlong-team-name", map[string]string{"name": overlongName})
+	problem := decode[struct {
+		Code   string           `json:"code"`
+		Errors []map[string]any `json:"errors"`
+	}](t, response)
+	if response.StatusCode != http.StatusUnprocessableEntity || problem.Code != "ValidationFailed" {
+		t.Fatalf("overlong team name status=%d problem=%#v", response.StatusCode, problem)
+	}
+	if len(problem.Errors) != 1 || problem.Errors[0]["pointer"] != "/slug" || problem.Errors[0]["code"] != "InvalidSlug" {
+		t.Fatalf("overlong team name must return an actionable /slug field error: errors=%#v", problem.Errors)
+	}
+}
+
 func TestApplicationAndEnvironmentDeletionRejectActiveDeployment(t *testing.T) {
 	f := newAPI(t)
 	f.bootstrap()

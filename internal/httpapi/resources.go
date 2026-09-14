@@ -266,7 +266,7 @@ func (s *Server) applications(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.ProjectID == "" || in.Name == "" || len(in.Name) > 100 || !validSlug(in.Slug) ||
 		(in.EnvironmentID != "" && !validUUID(in.EnvironmentID)) || !in.SourceKind.Valid() {
-		writeProblem(w, r, 422, "ValidationFailed", "Validation failed", "The application project, name, slug, or sourceKind is invalid.")
+		writeProblem(w, r, 422, "ValidationFailed", "Validation failed", "The application project, name, slug, or sourceKind is invalid.", FieldError{Pointer: "/slug", Code: "InvalidSlug", Detail: "Use 1-63 lowercase letters, digits, or hyphens; supply a shorter name or a custom slug."})
 		return
 	}
 	u := currentUser(r.Context())

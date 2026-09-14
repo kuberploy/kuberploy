@@ -193,7 +193,7 @@ func (s *Server) teams(w http.ResponseWriter, r *http.Request) {
 		in.Slug = strings.ToLower(strings.TrimSpace(in.Slug))
 	}
 	if in.Name == "" || len(in.Name) > 100 || !validSlug(in.Slug) {
-		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "The team name or slug is invalid.")
+		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "The team name or slug is invalid.", FieldError{Pointer: "/slug", Code: "InvalidSlug", Detail: "Use 1-63 lowercase letters, digits, or hyphens; supply a shorter name or a custom slug."})
 		return
 	}
 	result, err := s.store.CreateTeam(r.Context(), actor.ID, key, fingerprint(in), requestID(r.Context()), domain.CreateTeam{Name: in.Name, Slug: in.Slug})
