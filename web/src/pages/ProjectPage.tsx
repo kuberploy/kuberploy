@@ -241,7 +241,11 @@ export function ProjectPage() {
     environmentAppQueries.find((query) => query.error)?.error;
 
   if (loadError) {
-    return <ErrorPanel error={loadError} onRetry={() => location.reload()} />;
+    return (
+      <Page>
+        <ErrorPanel error={loadError} onRetry={() => location.reload()} />
+      </Page>
+    );
   }
   if (loading)
     return (

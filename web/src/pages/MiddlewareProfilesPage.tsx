@@ -452,7 +452,7 @@ export function MiddlewareProfilesPage() {
                 </p>
               </div>
             </CardHeader>
-            <Field label="Profile name">
+            <Field label="Profile name" required>
               <input
                 value={name}
                 disabled={Boolean(editing)}

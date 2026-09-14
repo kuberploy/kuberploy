@@ -299,4 +299,56 @@ describe("middleware profile management", () => {
       expect(application).toHaveValue("");
     });
   });
+
+  it("marks the profile name field required", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({
+      id: "user-a",
+      displayName: "Admin",
+      role: "platform-admin",
+      authentication: { kind: "session" },
+    });
+    vi.spyOn(api, "capabilities").mockResolvedValue({
+      features: { middlewareProfiles: true },
+      capabilities: [
+        {
+          scopeType: "platform",
+          scopeId: "platform",
+          actions: ["deployment-config:write"],
+        },
+      ],
+    });
+    vi.spyOn(api, "projects").mockResolvedValue({
+      items: [{ id: "project-a", name: "Payments" }],
+    });
+    vi.spyOn(api, "environments").mockResolvedValue({
+      items: [
+        {
+          id: "environment-a",
+          projectId: "project-a",
+          name: "Production",
+          namespace: "kp-production",
+        },
+      ],
+    });
+    vi.spyOn(api, "applications").mockResolvedValue({
+      items: [{ id: "application-a", projectId: "project-a", name: "API" }],
+    });
+    vi.spyOn(api, "middlewareProfileCatalog").mockResolvedValue({
+      items: [],
+    });
+    renderPage();
+
+    await selectOption(
+      await screen.findByLabelText("Environment"),
+      "environment-a",
+    );
+    await selectOption(screen.getByLabelText("App"), "application-a");
+
+    // Regression: the submit button silently stayed disabled on an empty
+    // name with no visible cue it was required, unlike every other
+    // comparable name field in the app.
+    expect(
+      await screen.findByText(/^Profile name/),
+    ).toHaveTextContent("Profile name *");
+  });
 });

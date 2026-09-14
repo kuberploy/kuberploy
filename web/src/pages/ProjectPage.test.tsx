@@ -419,4 +419,18 @@ describe("project workspace", () => {
       expect(navigate).toHaveBeenCalledWith({ to: "/projects" }),
     );
   });
+
+  it("keeps page chrome when a workspace query fails", async () => {
+    vi.spyOn(api, "projects").mockRejectedValue(
+      new Error("projects unavailable"),
+    );
+    render(<ProjectPage />, { wrapper: wrapper() });
+
+    await screen.findByText("projects unavailable");
+    // Regression: the error branch used to return ErrorPanel unwrapped, so it
+    // rendered full-bleed against the viewport with no page container.
+    expect(document.querySelector('[data-slot="page"]')).toContainElement(
+      screen.getByText("projects unavailable"),
+    );
+  });
 });

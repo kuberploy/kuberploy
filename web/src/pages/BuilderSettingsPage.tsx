@@ -157,7 +157,9 @@ export function BuilderSettingsPage() {
     );
   if (settings.error)
     return (
-      <ErrorPanel error={settings.error} onRetry={() => settings.refetch()} />
+      <Page narrow className="[&>header]:mb-0">
+        <ErrorPanel error={settings.error} onRetry={() => settings.refetch()} />
+      </Page>
     );
 
   return (

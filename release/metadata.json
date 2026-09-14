@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Fixed a mobile navigation keyboard trap: the off-canvas sidebar stayed a real Tab stop while slid off-screen, so a keyboard user tabbed through every invisible nav link before reaching anything on screen. It's now inert while closed on narrow viewports.",
+  "summary": "Fixed five real UX bugs from a full audit pass: an App-instance card that overflowed instead of truncating a long Helm chart name, three page error states that lost all page chrome by rendering ErrorPanel unwrapped, and a required Profile name field with no visible required indicator.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.477"
+  "version": "0.1.0-rc.478"
 }

@@ -140,7 +140,11 @@ export function AddAppPage() {
 
   const loadError = project.error ?? environment.error ?? capabilities.error;
   if (loadError) {
-    return <ErrorPanel error={loadError} onRetry={() => location.reload()} />;
+    return (
+      <Page narrow>
+        <ErrorPanel error={loadError} onRetry={() => location.reload()} />
+      </Page>
+    );
   }
   if (project.isPending || environment.isPending || capabilities.isPending) {
     return (

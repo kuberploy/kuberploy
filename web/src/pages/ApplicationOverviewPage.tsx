@@ -77,7 +77,7 @@ const sourceKinds: ReadonlyArray<readonly [SourceKind, IconName, string]> = [
 ];
 
 const instanceCardClass =
-  "focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[-3px] hover:border-line-strong hover:shadow-[0_3px_12px_rgba(24_24_27_0.07)] [&>div]:flex [&>div]:items-center [&>div]:justify-between [&>div]:gap-3 [&>span:last-child]:inline-flex [&>span:last-child]:items-center [&>span:last-child]:gap-1.5 [&>span:last-child]:text-ink [&>span:last-child]:font-medium [&>span:last-child]:self-end [&>span:last-child]:text-xs [&>span:last-child_svg]:w-[13px] grid min-h-[140px] gap-4 p-4 border border-line rounded-[10px] bg-surface [&>strong]:overflow-hidden [&>strong]:text-meta [&>strong]:text-ellipsis [&>strong]:whitespace-nowrap";
+  "focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[-3px] hover:border-line-strong hover:shadow-[0_3px_12px_rgba(24_24_27_0.07)] [&>div]:flex [&>div]:items-center [&>div]:justify-between [&>div]:gap-3 [&>span:last-child]:inline-flex [&>span:last-child]:items-center [&>span:last-child]:gap-1.5 [&>span:last-child]:text-ink [&>span:last-child]:font-medium [&>span:last-child]:self-end [&>span:last-child]:text-xs [&>span:last-child_svg]:w-[13px] grid min-h-[140px] gap-4 p-4 border border-line rounded-[10px] bg-surface [&>strong]:min-w-0 [&>strong]:overflow-hidden [&>strong]:text-meta [&>strong]:text-ellipsis [&>strong]:whitespace-nowrap";
 
 function HelmInstanceCard({
   application,
@@ -557,7 +557,11 @@ export function ApplicationOverviewPage() {
     placementQueries.find((query) => query.error)?.error;
 
   if (loadError) {
-    return <ErrorPanel error={loadError} onRetry={() => location.reload()} />;
+    return (
+      <Page>
+        <ErrorPanel error={loadError} onRetry={() => location.reload()} />
+      </Page>
+    );
   }
   if (
     application.isPending ||

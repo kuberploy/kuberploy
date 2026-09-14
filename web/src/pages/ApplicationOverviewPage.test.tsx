@@ -159,6 +159,20 @@ function setupHelmOverview(overrides: Partial<HelmReleaseStatus> = {}) {
 }
 
 describe("application source overview", () => {
+  it("keeps page chrome when a load query fails", async () => {
+    vi.mocked(api.application).mockRejectedValue(
+      new Error("application unavailable"),
+    );
+    render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });
+
+    await screen.findByText("application unavailable");
+    // Regression: the error branch used to return ErrorPanel unwrapped, so it
+    // rendered full-bleed against the viewport with no page container.
+    expect(document.querySelector('[data-slot="page"]')).toContainElement(
+      screen.getByText("application unavailable"),
+    );
+  });
+
   it.each(["oci", "helm"] as const)(
     "does not request a build source for a %s App with source-read access",
     async (sourceKind) => {
@@ -272,6 +286,26 @@ describe("application source overview", () => {
       expect(within(card).queryByText("Image pending")).toBeNull();
     },
   );
+
+  it("truncates instead of overflowing a long chart name on the instance card", async () => {
+    setupHelmOverview({
+      source: {
+        kind: "helm-repository",
+        repositoryUrl: "https://valkey-io.github.io/valkey-helm",
+        chart: "a-very-long-chart-name-that-would-otherwise-overflow-the-card",
+        targetRevision: "0.11.0",
+      },
+    });
+    render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });
+
+    const card = await screen.findByRole("link", {
+      name: /Test.*Applied.*a-very-long-chart-name.*Open App/,
+    });
+    // Regression: a grid item's default min-width:auto lets unbroken text win
+    // over the track size, so the truncation utilities on `>strong` overflow
+    // the card instead of ellipsis-truncating without an explicit min-w-0.
+    expect(card.className).toMatch(/\[&>strong\]:min-w-0/);
+  });
 
   it("does not mistake a loading Helm release for a stopped App", async () => {
     setupHelmOverview().mockReturnValue(new Promise(() => {}));

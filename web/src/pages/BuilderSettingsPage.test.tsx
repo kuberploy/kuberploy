@@ -93,4 +93,18 @@ describe("builder platform settings", () => {
       settings.dindResources,
     );
   });
+
+  it("keeps page chrome when the settings load fails", async () => {
+    vi.spyOn(api, "builderPlatformSettings").mockRejectedValue(
+      new Error("builder settings unavailable"),
+    );
+    renderPage();
+
+    await screen.findByText("builder settings unavailable");
+    // Regression: the error branch used to return ErrorPanel unwrapped, so it
+    // rendered full-bleed against the viewport with no page container.
+    expect(document.querySelector('[data-slot="page"]')).toContainElement(
+      screen.getByText("builder settings unavailable"),
+    );
+  });
 });
