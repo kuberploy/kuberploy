@@ -18,7 +18,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       -ldflags="-s -w -buildid=" \
       -o /out/kuberploy-build-agent ./cmd/kuberploy-build-agent
 
-FROM docker.io/docker/buildx-bin:0.36.1 AS buildx
+FROM docker.io/docker/buildx-bin:0.37.1 AS buildx
 
 FROM docker.io/library/docker:29-dind AS docker-cli
 
