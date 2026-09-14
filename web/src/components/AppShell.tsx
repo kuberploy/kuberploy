@@ -74,8 +74,30 @@ function ThemeControl({
   );
 }
 
+// Matches the `to-820` custom variant in styles.css. Used to keep the
+// off-canvas sidebar's links out of the Tab order while it's slid
+// off-screen -- a CSS transform doesn't remove focusability on its own, so
+// without this a keyboard user tabs through invisible nav links before
+// reaching anything on screen.
+function useNarrowViewport() {
+  const [narrow, setNarrow] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(width <= 820px)").matches,
+  );
+  useEffect(() => {
+    const query = window.matchMedia("(width <= 820px)");
+    const onChange = () => setNarrow(query.matches);
+    onChange();
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+  return narrow;
+}
+
 export function AppShell({ user }: { user: Principal }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const narrowViewport = useNarrowViewport();
   const [themePreference, setThemePreference] = useState<ThemePreference>(
     resolveThemePreference,
   );
@@ -170,6 +192,10 @@ export function AppShell({ user }: { user: Principal }) {
           "to-820:-translate-x-[105%] to-820:shadow-[15px_0_45px_rgba(0,0,0,0.2)] to-820:transition-transform to-820:duration-(--motion-base) to-820:ease-(--ease-standard)",
           mobileOpen && "to-820:translate-x-0",
         )}
+        // A transform doesn't remove focusability. Without this, tabbing on a
+        // narrow viewport walks through every nav link while it's slid
+        // off-screen before reaching anything visible.
+        inert={narrowViewport && !mobileOpen ? true : undefined}
       >
         <div className="flex items-center gap-3 px-2 text-lg font-semibold tracking-[-0.02em] text-sidebar-ink-strong">
           <span

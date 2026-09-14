@@ -31,8 +31,11 @@ vi.mock("@tanstack/react-router", () => ({
   }) => select({ location: { pathname: currentPathname } }),
 }));
 
+let narrowViewport = false;
+
 beforeEach(() => {
   currentPathname = "/";
+  narrowViewport = false;
   const values = new Map<string, string>();
   vi.stubGlobal("localStorage", {
     clear: () => values.clear(),
@@ -40,6 +43,13 @@ beforeEach(() => {
     removeItem: (key: string) => values.delete(key),
     setItem: (key: string, value: string) => values.set(key, value),
   });
+  vi.stubGlobal("matchMedia", () => ({
+    get matches() {
+      return narrowViewport;
+    },
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }));
 });
 
 afterEach(() => {
@@ -126,6 +136,32 @@ describe("mobile navigation", () => {
 
     await user.keyboard("{Escape}");
     expect(screen.getAllByLabelText("Close navigation")).toHaveLength(1);
+  });
+
+  it("keeps the off-canvas nav links out of the Tab order while closed", async () => {
+    const user = userEvent.setup();
+    narrowViewport = true;
+    renderShell({});
+
+    // A CSS transform slides the sidebar off-screen but doesn't remove it
+    // from the Tab order on its own. Without `inert`, a keyboard user tabs
+    // through every nav link while it's invisible before reaching anything
+    // on screen.
+    const aside = screen.getByRole("complementary");
+    expect(aside).toHaveAttribute("inert");
+
+    await user.click(screen.getByLabelText("Open navigation"));
+    expect(aside).not.toHaveAttribute("inert");
+
+    await user.keyboard("{Escape}");
+    expect(aside).toHaveAttribute("inert");
+  });
+
+  it("never makes the permanent desktop sidebar inert", () => {
+    narrowViewport = false;
+    renderShell({});
+
+    expect(screen.getByRole("complementary")).not.toHaveAttribute("inert");
   });
 });
 

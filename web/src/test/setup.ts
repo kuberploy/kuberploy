@@ -17,3 +17,18 @@ HTMLElement.prototype.getBoundingClientRect = function getBoundingClientRect() {
     toJSON: () => ({}),
   };
 };
+
+// jsdom doesn't implement matchMedia at all. Default every query to
+// non-matching (e.g. a "narrow viewport" media query resolves to desktop)
+// so components that check it don't throw in tests that aren't exercising
+// that behavior; tests that care stub `window.matchMedia` themselves.
+window.matchMedia ??= (query: string) => ({
+  matches: false,
+  media: query,
+  onchange: null,
+  addListener: () => {},
+  removeListener: () => {},
+  addEventListener: () => {},
+  removeEventListener: () => {},
+  dispatchEvent: () => false,
+});

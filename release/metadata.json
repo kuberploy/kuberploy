@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Fixed the theme-toggle radios losing their keyboard focus indicator: the outline-none reset on those buttons permanently zeroed the shared outline-style custom property, so the focus-visible outline utility never had a style to render.",
+  "summary": "Fixed a mobile navigation keyboard trap: the off-canvas sidebar stayed a real Tab stop while slid off-screen, so a keyboard user tabbed through every invisible nav link before reaching anything on screen. It's now inert while closed on narrow viewports.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.476"
+  "version": "0.1.0-rc.477"
 }
