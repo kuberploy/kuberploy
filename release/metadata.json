@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Validation errors (project/environment name-or-slug and 21 other endpoints) now show the specific, actionable reason instead of a generic 'is invalid' sentence, and the typed delete-confirmation phrase in the shared confirm dialog no longer overflows the dialog box for long resource names.",
+  "summary": "Team and App creation now return the same actionable /slug validation detail that Project and Environment creation already do, closing the last two gaps in the prior validation-error fix.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.474"
+  "version": "0.1.0-rc.475"
 }
