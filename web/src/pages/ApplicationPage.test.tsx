@@ -315,6 +315,59 @@ function renderApplication(capabilities: Capabilities) {
 }
 
 describe("application rollout truth", () => {
+  it("hides cached App details when the application refresh fails", async () => {
+    vi.mocked(api.application).mockRejectedValueOnce(
+      new Error("application refresh unavailable"),
+    );
+    vi.mocked(api.deployment).mockResolvedValueOnce({
+      id: "deployment-production",
+      applicationId: "application-payments",
+      environmentId: "environment-production",
+      image: `ghcr.io/acme/payments@sha256:${"a".repeat(64)}`,
+      runtime: {
+        replicas: 1,
+        ports: [{ name: "http", containerPort: 3000 }],
+        resources: { requests: { cpu: "50m", memory: "100Mi" } },
+      },
+      state: "healthy",
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    queryClient.setQueryData(["application", "application-payments"], {
+      id: "application-payments",
+      projectId: "project-payments",
+      name: "Cached Payments API",
+    });
+    queryClient.setQueryData(["deployment", "deployment-production"], {
+      id: "deployment-production",
+      applicationId: "application-payments",
+      environmentId: "environment-production",
+      image: `ghcr.io/acme/payments@sha256:${"a".repeat(64)}`,
+      runtime: {
+        replicas: 1,
+        ports: [{ name: "http", containerPort: 3000 }],
+        resources: { requests: { cpu: "50m", memory: "100Mi" } },
+      },
+      state: "healthy",
+    });
+    vi.spyOn(api, "capabilities").mockResolvedValue({
+      features: {},
+      capabilities: [],
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ApplicationPage />
+      </QueryClientProvider>,
+    );
+
+    expect(
+      await screen.findByText("application refresh unavailable"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Release artifact")).not.toBeInTheDocument();
+  });
+
   it("surfaces bootstrap capability failures and retries the page data", async () => {
     const capabilities = vi
       .spyOn(api, "capabilities")
@@ -403,7 +456,9 @@ describe("application rollout truth", () => {
       queryKey: ["deployment-status", "deployment-production"],
     });
     await waitFor(() =>
-      expect(screen.getByText("Runtime status unavailable")).toBeInTheDocument(),
+      expect(
+        screen.getByText("Runtime status unavailable"),
+      ).toBeInTheDocument(),
     );
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(

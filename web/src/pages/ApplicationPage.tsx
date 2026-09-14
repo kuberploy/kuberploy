@@ -458,7 +458,7 @@ export function ApplicationPage() {
         <Card>
           <Skeleton lines={10} />
         </Card>
-      ) : application.data && deployment.data ? (
+      ) : !loadError && application.data && deployment.data ? (
         <>
           {activeTab === "overview" ? (
             <div className="grid gap-5">

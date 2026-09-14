@@ -150,6 +150,21 @@ describe("Add App source flow", () => {
     );
   });
 
+  it("rejects whitespace-only App names before mutation", async () => {
+    const create = vi.spyOn(api, "createApplication");
+    const user = userEvent.setup();
+    render(<AddAppPage />, { wrapper: wrapper() });
+
+    await user.click(await screen.findByRole("radio", { name: /OCI image/ }));
+    await user.type(screen.getByRole("textbox", { name: "App name" }), "   ");
+    await user.click(
+      screen.getByRole("button", { name: "Continue with OCI image" }),
+    );
+
+    expect(await screen.findByText("Enter an App name.")).toBeVisible();
+    expect(create).not.toHaveBeenCalled();
+  });
+
   it("opens GitHub source setup for the created App", async () => {
     const create = vi.spyOn(api, "createApplication").mockResolvedValue({
       id: "application-web",

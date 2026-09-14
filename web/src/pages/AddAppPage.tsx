@@ -291,8 +291,11 @@ export function AddAppPage() {
                 {...form.register("name", {
                   required: "Enter an App name.",
                   validate: (value) =>
-                    value.trim().length <= 100 ||
-                    "Use no more than 100 characters.",
+                    value.trim().length === 0
+                      ? "Enter an App name."
+                      : value.trim().length <= 100
+                        ? true
+                        : "Use no more than 100 characters.",
                 })}
               />
             </Field>
