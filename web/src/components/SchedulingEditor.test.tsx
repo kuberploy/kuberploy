@@ -151,4 +151,39 @@ podAntiAffinity:
       'nodeSelectorYaml":"{}',
     );
   });
+
+  it("blocks adding a second blank node selector row instead of silently dropping the first", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.click(screen.getByRole("button", { name: "Add label" }));
+    // The key is left blank -- only the value is filled in.
+    await user.type(screen.getByLabelText("Node selector 1 value"), "worker");
+
+    // Regression: two rows both keyed by an empty string collapse into one
+    // object entry, so clicking "Add label" again with the current row's
+    // key still blank used to silently overwrite the value just typed.
+    expect(screen.getByRole("button", { name: "Add label" })).toBeDisabled();
+    expect(screen.getByLabelText("scheduling value")).toHaveTextContent(
+      ": worker",
+    );
+  });
+
+  it("does not crash on a hand-edited pod affinity term missing a labelSelector", () => {
+    render(
+      <Harness
+        initial={{
+          affinityYaml: `podAffinity:
+  requiredDuringSchedulingIgnoredDuringExecution:
+    - topologyKey: kubernetes.io/hostname`,
+        }}
+      />,
+    );
+
+    // Regression: term.labelSelector.matchLabels was accessed without an
+    // optional chain on labelSelector itself, so a hand-edited affinity
+    // term missing it threw during render and crashed the whole panel.
+    expect(
+      screen.getByLabelText("Same-service pod affinity 1 topology key"),
+    ).toHaveValue("kubernetes.io/hostname");
+  });
 });

@@ -195,4 +195,33 @@ describe("Traefik middleware Guided editor", () => {
     expect(screen.getByLabelText("Middleware 1 name")).toHaveValue("security");
     expect(screen.getByLabelText("Middleware 1 name")).toBeDisabled();
   });
+
+  it("confirms before replacing a middleware's config on a Family change", async () => {
+    render(
+      <Harness
+        initialDefinitions={[
+          defaultGuidedTraefikMiddleware("headers", "security"),
+        ]}
+      />,
+    );
+    expect(screen.getByText("CORS policy")).toBeVisible();
+
+    // Regression: switching Family silently replaced the whole config with
+    // that family's defaults, discarding everything already configured
+    // with no confirmation and no way to undo it.
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    await selectOption(
+      screen.getByRole("combobox", { name: "Middleware 1 family" }),
+      "retry",
+    );
+    expect(confirmSpy).toHaveBeenCalledOnce();
+    expect(screen.getByText("CORS policy")).toBeVisible();
+
+    confirmSpy.mockReturnValue(true);
+    await selectOption(
+      screen.getByRole("combobox", { name: "Middleware 1 family" }),
+      "retry",
+    );
+    expect(screen.queryByText("CORS policy")).not.toBeInTheDocument();
+  });
 });

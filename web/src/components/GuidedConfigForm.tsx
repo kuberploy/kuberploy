@@ -877,6 +877,13 @@ export function GuidedConfigForm({
               Select an existing write-only binding and its exact active
               version. Secret plaintext is never part of this document.
             </p>
+            {!runtimeSecretReferencesEnabled &&
+            runtimeSecretReferencesUnavailableReason ? (
+              <p>{runtimeSecretReferencesUnavailableReason}</p>
+            ) : runtimeSecretReferencesEnabled &&
+              (!runtimeSecretApplicationId || !runtimeSecretEnvironmentId) ? (
+              <p>Save this App before adding secret references.</p>
+            ) : null}
           </div>
           <Button
             type="button"
@@ -1309,12 +1316,17 @@ export function GuidedConfigForm({
           commit();
         }}
       />
-      <details className="overflow-hidden border border-line rounded-panel bg-surface [&>summary]:flex [&>summary]:min-h-[68px] [&>summary]:items-center [&>summary]:justify-between [&>summary]:gap-4 [&>summary]:py-4 [&>summary]:px-5 [&>summary]:cursor-pointer [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden [&>summary_span]:grid [&>summary_span]:gap-1 [&>summary_strong]:text-sm [&>summary_small]:text-ink-soft [&>summary_small]:text-xs [&>summary_svg]:w-4 [&>summary_svg]:transition-[transform] [&>summary_svg]:duration-(--motion-fast) [&>summary_svg]:ease-(--ease-standard) [&_[open]_>_summary_svg]:transform-[rotate(90deg)]">
+      <details
+        open={Boolean(resourceOverrideError) || undefined}
+        className="overflow-hidden border border-line rounded-panel bg-surface [&>summary]:flex [&>summary]:min-h-[68px] [&>summary]:items-center [&>summary]:justify-between [&>summary]:gap-4 [&>summary]:py-4 [&>summary]:px-5 [&>summary]:cursor-pointer [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden [&>summary_span]:grid [&>summary_span]:gap-1 [&>summary_strong]:text-sm [&>summary_small]:text-ink-soft [&>summary_small]:text-xs [&>summary_svg]:w-4 [&>summary_svg]:transition-[transform] [&>summary_svg]:duration-(--motion-fast) [&>summary_svg]:ease-(--ease-standard) [&_[open]_>_summary_svg]:transform-[rotate(90deg)]"
+      >
         <summary>
           <span>
             <strong>Advanced Kubernetes YAML overrides</strong>
             <small>
-              Deployment, Service, Ingress, and ServiceAccount merge patches
+              {resourceOverrideError
+                ? "Fix the error below."
+                : "Deployment, Service, Ingress, and ServiceAccount merge patches"}
             </small>
           </span>
           <Icon name="chevron" />

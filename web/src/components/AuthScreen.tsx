@@ -427,7 +427,13 @@ export function AuthScreen({
                     invitationForm.setValue("token", token, {
                       shouldDirty: true,
                       shouldTouch: true,
-                      shouldValidate: false,
+                      // Re-validate only once an error is already showing --
+                      // matches every other field's onSubmit-then-onChange
+                      // behavior instead of leaving a stale "Enter your
+                      // invitation token." message stuck after it's fixed.
+                      shouldValidate: Boolean(
+                        invitationForm.formState.errors.token,
+                      ),
                     });
                   }}
                 />

@@ -161,7 +161,7 @@ function applicationIdFromAffinity(affinity: WorkloadAffinity) {
       ...preferred.map((item) => item.podAffinityTerm),
     ];
     for (const term of terms) {
-      const id = term.labelSelector.matchLabels?.["kuberploy.io/application"];
+      const id = term.labelSelector?.matchLabels?.["kuberploy.io/application"];
       if (id) return id;
     }
   }
@@ -540,7 +540,15 @@ export function SchedulingEditor({
           <Button
             type="button"
             variant="secondary"
-            disabled={disabled || Object.keys(nodeSelector).length >= 32}
+            disabled={
+              disabled ||
+              Object.keys(nodeSelector).length >= 32 ||
+              // The rows below are keyed by their own label key, so two rows
+              // sharing an empty key would collapse into one and silently
+              // drop whichever value was entered first. Require the current
+              // blank row to be filled in before adding another.
+              Object.keys(nodeSelector).includes("")
+            }
             onClick={() => {
               const rows = [
                 ...Object.entries(nodeSelector).map(([key, current]) => ({

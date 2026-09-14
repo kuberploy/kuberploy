@@ -1332,6 +1332,17 @@ export function TraefikMiddlewareEditor({
                       onChange={(event) => {
                         const kind = event.target
                           .value as TraefikMiddlewareKind;
+                        // Switching families replaces the whole config with
+                        // that family's defaults, discarding anything typed
+                        // into this one -- confirm before losing it.
+                        if (
+                          kind !== middleware.kind &&
+                          !window.confirm(
+                            `Switch this middleware to ${kindLabels[kind]}? Its current configuration will be replaced with defaults.`,
+                          )
+                        ) {
+                          return;
+                        }
                         const replacement = defaultGuidedTraefikMiddleware(
                           kind,
                           middleware.name,

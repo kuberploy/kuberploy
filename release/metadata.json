@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Fixed six more UX bugs from continuing the audit pass: a rollback button that silently no-op'd when the catalog was unhealthy, a Git App-binding form and a Git SSH source form with no explanation for why they stayed disabled, a Role select with no self-healing fallback, and a config editor that rendered a blank pane instead of a loading indicator.",
+  "summary": "Fixed nine more bugs from a third audit batch, including two real crash/data-loss cases: a scheduling panel that could throw on hand-edited YAML missing a labelSelector, and a node-selector row that silently dropped a typed value on a duplicate blank key. Also fixed a stuck invitation-token validation error, an unconfirmed destructive middleware family change, and four disabled-with-no-explanation or hidden-validation cases.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.479"
+  "version": "0.1.0-rc.480"
 }

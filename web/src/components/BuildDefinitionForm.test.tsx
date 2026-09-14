@@ -478,4 +478,26 @@ describe("App source form", () => {
     ).not.toBeInTheDocument();
     expect(api.githubInstallations).not.toHaveBeenCalled();
   });
+
+  it("opens the Advanced build policy section and shows an error on invalid input", async () => {
+    const user = userEvent.setup();
+    // A stale/invalid loaded value the user never had to open this
+    // collapsed section to see or edit.
+    renderForm(true, undefined, "linux/amd64", {
+      ...definition,
+      cacheTrustLane: "",
+    });
+
+    await screen.findByLabelText(/^Branch/);
+    await user.click(screen.getByRole("button", { name: "Save App source" }));
+
+    // Regression: this field (and its four siblings in the same collapsed
+    // section) had no `error` prop wired up at all, so a validation failure
+    // blocked submit with zero visible explanation -- and the section
+    // itself stayed collapsed by default, so a user who never opened it
+    // manually had no way to discover why submit did nothing.
+    const errorText = await screen.findByText("Enter a cache trust lane.");
+    expect(errorText).toBeVisible();
+    expect(errorText.closest("details")?.hasAttribute("open")).toBe(true);
+  });
 });

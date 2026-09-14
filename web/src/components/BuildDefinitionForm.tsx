@@ -367,6 +367,13 @@ export function BuildDefinitionForm({
   );
   const usesCurrentSourceFallback =
     currentInstallationIsFallback || currentRepositoryIsFallback;
+  const hasAdvancedBuildPolicyError = Boolean(
+    form.formState.errors.cacheTrustLane ||
+    form.formState.errors.profileResource ||
+    form.formState.errors.timeoutSeconds ||
+    form.formState.errors.profileEgress ||
+    form.formState.errors.maxAttempts,
+  );
 
   return (
     <form
@@ -572,17 +579,28 @@ export function BuildDefinitionForm({
         </Notice>
       </section>
 
-      <details className="overflow-hidden border border-line rounded-panel bg-surface [&>summary]:flex [&>summary]:min-h-[68px] [&>summary]:items-center [&>summary]:justify-between [&>summary]:gap-4 [&>summary]:py-4 [&>summary]:px-5 [&>summary]:cursor-pointer [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden [&>summary_span]:grid [&>summary_span]:gap-1 [&>summary_strong]:text-sm [&>summary_small]:text-ink-soft [&>summary_small]:text-xs [&>summary_svg]:w-4 [&>summary_svg]:transition-[transform] [&>summary_svg]:duration-(--motion-fast) [&>summary_svg]:ease-(--ease-standard) [&_[open]_>_summary_svg]:transform-[rotate(90deg)]">
+      <details
+        open={hasAdvancedBuildPolicyError || undefined}
+        className="overflow-hidden border border-line rounded-panel bg-surface [&>summary]:flex [&>summary]:min-h-[68px] [&>summary]:items-center [&>summary]:justify-between [&>summary]:gap-4 [&>summary]:py-4 [&>summary]:px-5 [&>summary]:cursor-pointer [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden [&>summary_span]:grid [&>summary_span]:gap-1 [&>summary_strong]:text-sm [&>summary_small]:text-ink-soft [&>summary_small]:text-xs [&>summary_svg]:w-4 [&>summary_svg]:transition-[transform] [&>summary_svg]:duration-(--motion-fast) [&>summary_svg]:ease-(--ease-standard) [&_[open]_>_summary_svg]:transform-[rotate(90deg)]"
+      >
         <summary>
           <span>
             <strong>Advanced build policy</strong>
-            <small>Cache, resources, egress, timeout, and retry limits</small>
+            <small>
+              {hasAdvancedBuildPolicyError
+                ? "Fix the highlighted field below."
+                : "Cache, resources, egress, timeout, and retry limits"}
+            </small>
           </span>
           <Icon name="chevron" />
         </summary>
         <div className="grid gap-5 p-6 border-t border-t-line">
           <div className="grid gap-4 to-760:grid-cols-[1fr] grid-cols-[repeat(3,_minmax(0,_1fr))]">
-            <Field label="Cache trust lane" required>
+            <Field
+              label="Cache trust lane"
+              required
+              error={form.formState.errors.cacheTrustLane?.message}
+            >
               <input
                 {...form.register("cacheTrustLane", {
                   required: "Enter a cache trust lane.",
@@ -603,43 +621,67 @@ export function BuildDefinitionForm({
                 {...form.register("cacheImports", { valueAsNumber: true })}
               />
             </Field>
-            <Field label="Resource profile" required>
+            <Field
+              label="Resource profile"
+              required
+              error={form.formState.errors.profileResource?.message}
+            >
               <input
                 {...form.register("profileResource", {
-                  required: true,
-                  pattern: namePattern,
+                  required: "Enter a resource profile.",
+                  pattern: {
+                    value: namePattern,
+                    message: "Use a canonical profile name.",
+                  },
                 })}
               />
             </Field>
-            <Field label="Timeout (seconds)" required hint="60–7200">
+            <Field
+              label="Timeout (seconds)"
+              required
+              hint="60–7200"
+              error={form.formState.errors.timeoutSeconds?.message}
+            >
               <input
                 type="number"
                 min={60}
                 max={7200}
                 {...form.register("timeoutSeconds", {
                   valueAsNumber: true,
-                  min: 60,
-                  max: 7200,
+                  min: { value: 60, message: "Use at least 60 seconds." },
+                  max: { value: 7200, message: "Use at most 7200 seconds." },
                 })}
               />
             </Field>
-            <Field label="Egress profile" required>
+            <Field
+              label="Egress profile"
+              required
+              error={form.formState.errors.profileEgress?.message}
+            >
               <input
                 {...form.register("profileEgress", {
-                  required: true,
-                  pattern: namePattern,
+                  required: "Enter an egress profile.",
+                  pattern: {
+                    value: namePattern,
+                    message: "Use a canonical profile name.",
+                  },
                 })}
               />
             </Field>
-            <Field label="Infrastructure attempts" required hint="1–5">
+            <Field
+              label="Infrastructure attempts"
+              required
+              hint="1–5"
+              error={form.formState.errors.maxAttempts?.message}
+            >
               <input
                 type="number"
                 min={1}
                 max={5}
                 {...form.register("maxAttempts", {
                   valueAsNumber: true,
-                  min: 1,
-                  max: 5,
+                  min: { value: 1, message: "Use at least 1 attempt." },
+                  max: { value: 5, message: "Use at most 5 attempts." },
                 })}
               />
             </Field>
@@ -775,7 +817,9 @@ export function BuildDefinitionForm({
             noInstallations ||
             noTargets ||
             Boolean(
-              installations.error || repositories.error || secretProfiles.error,
+              (installations.error && !source?.installationId) ||
+              (repositories.error && !currentRepositoryIsFallback) ||
+              secretProfiles.error,
             )
           }
         >

@@ -167,6 +167,46 @@ describe("invitation acceptance", () => {
       authentication: { kind: "session" },
     });
   });
+
+  it("clears the invitation token error once a token is entered again", async () => {
+    vi.spyOn(api, "meta").mockResolvedValue({ bootstrapRequired: false });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const Wrapper = ({ children }: PropsWithChildren) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const user = userEvent.setup();
+    render(<AuthScreen invitationToken="kp_invite_one_time" />, {
+      wrapper: Wrapper,
+    });
+
+    await screen.findByRole("heading", { name: "Join your Kuberploy team" });
+    await user.type(screen.getByLabelText(/display name/i), "Ada Lovelace");
+    await user.type(
+      screen.getByLabelText(/^password/i),
+      "developer password 123",
+    );
+    await user.clear(screen.getByLabelText(/invitation token/i));
+    await user.click(
+      screen.getByRole("button", { name: /accept invitation/i }),
+    );
+    expect(
+      await screen.findByText("Enter your invitation token."),
+    ).toBeVisible();
+
+    // Regression: this field's onChange bypassed react-hook-form's own
+    // onChange (a later prop spread silently overrode the registered one),
+    // so shouldValidate stayed hardcoded false and the error text never
+    // cleared while typing, unlike every other field in this form.
+    await user.type(
+      screen.getByLabelText(/invitation token/i),
+      "kp_invite_one_time",
+    );
+    expect(
+      screen.queryByText("Enter your invitation token."),
+    ).not.toBeInTheDocument();
+  });
 });
 
 describe("local password login", () => {
