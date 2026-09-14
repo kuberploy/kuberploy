@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Fixed a one-time invitation link that could be clipped instead of wrapping, and restored the mobile layout hooks that several key/value form rows (environment variables, secret references, ports, scheduling tolerations, node selectors) rely on to stack correctly at narrow widths instead of squeezing a field into a 32px column.",
+  "summary": "Validation errors (project/environment name-or-slug and 21 other endpoints) now show the specific, actionable reason instead of a generic 'is invalid' sentence, and the typed delete-confirmation phrase in the shared confirm dialog no longer overflows the dialog box for long resource names.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.473"
+  "version": "0.1.0-rc.474"
 }
