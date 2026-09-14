@@ -23,6 +23,7 @@ import {
   Eyebrow,
   Notice,
   PlaceholderBadge,
+  Skeleton,
   useRovingFocus,
 } from "./ui";
 import { Icon } from "./Icon";
@@ -592,6 +593,8 @@ function SavedConfigEditor({ deployment, application }: ConfigEditorProps) {
           <PlaceholderBadge>Read-only</PlaceholderBadge>
         </Notice>
       ) : null}
+
+      {bundle.isPending ? <Skeleton lines={8} /> : null}
 
       {tab === "form" && guided ? (
         <GuidedConfigForm

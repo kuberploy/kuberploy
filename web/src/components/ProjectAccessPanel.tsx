@@ -192,6 +192,16 @@ export function ProjectAccessPanel({
       form.setValue("scope", roleScopeOptions[0]?.value ?? "");
     }
   }, [form, roleScopeOptions]);
+  useEffect(() => {
+    const current = form.getValues("role");
+    if (!assignableRoles.some((role) => role === current)) {
+      form.setValue("role", assignableRoles[0] ?? "viewer");
+    }
+    // assignableRoles is a plain array recomputed every render, so depending
+    // on it by reference would re-run this every render for no reason; the
+    // joined string is a stable primitive that only changes when the actual
+    // set of roles does.
+  }, [form, assignableRoles.join(",")]);
   const createGrant = useMutation({
     mutationFn: (input: {
       projectId: string;

@@ -369,7 +369,15 @@ export function GitSSHSourcePanel({
                 onChange={(event) => setBranch(event.target.value)}
               />
             </Field>
-            <Field label="Registry target" required>
+            <Field
+              label="Registry target"
+              required
+              hint={
+                registryTargets.length === 0
+                  ? "No registry target is attached to this project yet. Attach one before connecting a Git SSH source."
+                  : undefined
+              }
+            >
               <Select
                 value={registryTargetID}
                 onChange={(event) => setRegistryTargetID(event.target.value)}

@@ -422,4 +422,42 @@ describe("project access management", () => {
       screen.getByRole("combobox", { name: "Role" }).querySelectorAll("option"),
     ).toHaveLength(0);
   });
+
+  it("self-heals the role field when the default role isn't manageable", async () => {
+    vi.spyOn(api, "projectAccessGrants").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "teams").mockResolvedValue({ items: [] });
+    render(
+      <ProjectAccessPanel
+        project={{ id: "project-1", name: "Payments", teamId: "team-1" }}
+        environments={[]}
+        applications={[]}
+        // Only "viewer" is manageable here -- lower rank than the form's
+        // "developer" default. Regression: unlike "Exact scope", the Role
+        // select had no self-healing effect, so its bound value matched no
+        // rendered option and nothing appeared selected.
+        capabilities={[
+          {
+            resource: "project",
+            scope: "project-1",
+            role: "viewer",
+            scopeType: "project",
+            scopeId: "project-1",
+            actions: [
+              "access-grants:read",
+              "access-grants:create",
+              "access-grants:delete",
+            ],
+          },
+        ]}
+        onClose={() => undefined}
+      />,
+      { wrapper: wrapper() },
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "Role" })).toHaveValue(
+        "viewer",
+      ),
+    );
+  });
 });

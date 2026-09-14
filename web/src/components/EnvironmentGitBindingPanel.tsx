@@ -18,6 +18,7 @@ import {
   Eyebrow,
   Field,
   MutedCopy,
+  Notice,
   Skeleton,
   StatusPill,
 } from "./ui";
@@ -237,96 +238,114 @@ export function EnvironmentGitBindingPanel({
           Apps can enter the protected GitOps path.
         </MutedCopy>
       ) : (
-        <form
-          className="grid grid-cols-[minmax(240px,_1.4fr)_minmax(180px,_0.7fr)_auto] items-end gap-3 p-4 border border-line rounded-[10px] bg-surface to-680:grid-cols-[1fr]"
-          onSubmit={submit}
-        >
-          <Field label="Verified installation" required>
-            <Select
-              value={installationId}
-              disabled={!catalogHealthy || create.isPending}
-              onChange={(event) => {
-                setInstallationId(event.target.value);
-                setRepositoryId("");
-                setConfirmed(false);
-              }}
+        <>
+          {!installations.isPending &&
+          !installations.error &&
+          installations.data?.items.length === 0 ? (
+            <Notice tone="warning">
+              <div>
+                <strong>No verified GitHub App installation</strong>
+                <p>
+                  Install the GitHub App for an account or organization before
+                  creating this environment's Git authority.
+                </p>
+              </div>
+            </Notice>
+          ) : null}
+          <form
+            className="grid grid-cols-[minmax(240px,_1.4fr)_minmax(180px,_0.7fr)_auto] items-end gap-3 p-4 border border-line rounded-[10px] bg-surface to-680:grid-cols-[1fr]"
+            onSubmit={submit}
+          >
+            <Field label="Verified installation" required>
+              <Select
+                value={installationId}
+                disabled={!catalogHealthy || create.isPending}
+                onChange={(event) => {
+                  setInstallationId(event.target.value);
+                  setRepositoryId("");
+                  setConfirmed(false);
+                }}
+              >
+                <option value="">Select installation</option>
+                {installations.data?.items.map((installation) => (
+                  <option key={installation.id} value={installation.id}>
+                    {installation.accountLogin}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Verified repository" required>
+              <Select
+                value={repositoryId}
+                disabled={
+                  !catalogHealthy || !installationId || repositories.isPending
+                }
+                onChange={(event) => {
+                  setRepositoryId(event.target.value);
+                  setConfirmed(false);
+                }}
+              >
+                <option value="">Select repository</option>
+                {activeRepositories.map((repository) => (
+                  <option key={repository.id} value={repository.id}>
+                    {repository.ownerLogin}/{repository.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field
+              label="Target branch"
+              required
+              hint="Enter the branch name. Kuberploy stores its canonical Git ref."
             >
-              <option value="">Select installation</option>
-              {installations.data?.items.map((installation) => (
-                <option key={installation.id} value={installation.id}>
-                  {installation.accountLogin}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Verified repository" required>
-            <Select
-              value={repositoryId}
+              <input
+                value={targetRef}
+                onChange={(event) => {
+                  setTargetRef(event.target.value);
+                  setConfirmed(false);
+                }}
+                spellCheck={false}
+                autoCapitalize="none"
+              />
+            </Field>
+            <label className="grid grid-cols-[16px_minmax(0,_1fr)] items-start gap-3 text-ink-soft cursor-pointer text-meta leading-[1.5] [&_input]:w-4 [&_input]:min-h-4 [&_input]:mt-0.5 [&_input]:mx-0 [&_input]:mb-0 [&_input]:accent-mint">
+              <input
+                type="checkbox"
+                checked={confirmed}
+                disabled={!catalogHealthy || !installationId || !repositoryId}
+                onChange={(event) => setConfirmed(event.target.checked)}
+              />
+              <span>
+                I understand this creates the environment Git authority and
+                cannot be silently rebound.
+              </span>
+            </label>
+            <Button
+              type="submit"
+              busy={create.isPending}
               disabled={
-                !catalogHealthy || !installationId || repositories.isPending
+                !catalogHealthy ||
+                !installationId ||
+                !repositoryId ||
+                !confirmed
               }
-              onChange={(event) => {
-                setRepositoryId(event.target.value);
-                setConfirmed(false);
-              }}
             >
-              <option value="">Select repository</option>
-              {activeRepositories.map((repository) => (
-                <option key={repository.id} value={repository.id}>
-                  {repository.ownerLogin}/{repository.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field
-            label="Target branch"
-            required
-            hint="Enter the branch name. Kuberploy stores its canonical Git ref."
-          >
-            <input
-              value={targetRef}
-              onChange={(event) => {
-                setTargetRef(event.target.value);
-                setConfirmed(false);
-              }}
-              spellCheck={false}
-              autoCapitalize="none"
-            />
-          </Field>
-          <label className="grid grid-cols-[16px_minmax(0,_1fr)] items-start gap-3 text-ink-soft cursor-pointer text-meta leading-[1.5] [&_input]:w-4 [&_input]:min-h-4 [&_input]:mt-0.5 [&_input]:mx-0 [&_input]:mb-0 [&_input]:accent-mint">
-            <input
-              type="checkbox"
-              checked={confirmed}
-              disabled={!catalogHealthy || !installationId || !repositoryId}
-              onChange={(event) => setConfirmed(event.target.checked)}
-            />
-            <span>
-              I understand this creates the environment Git authority and cannot
-              be silently rebound.
-            </span>
-          </label>
-          <Button
-            type="submit"
-            busy={create.isPending}
-            disabled={
-              !catalogHealthy || !installationId || !repositoryId || !confirmed
-            }
-          >
-            <Icon name="git" /> Create Git authority
-          </Button>
-          {validationError ? (
-            <div className="col-[1_/_-1] text-tone-bad text-meta">
-              {validationError}
-            </div>
-          ) : null}
-          {installations.error || repositories.error || create.error ? (
-            <div className="col-[1_/_-1] text-tone-bad text-meta">
-              {errorMessage(
-                installations.error ?? repositories.error ?? create.error,
-              )}
-            </div>
-          ) : null}
-        </form>
+              <Icon name="git" /> Create Git authority
+            </Button>
+            {validationError ? (
+              <div className="col-[1_/_-1] text-tone-bad text-meta">
+                {validationError}
+              </div>
+            ) : null}
+            {installations.error || repositories.error || create.error ? (
+              <div className="col-[1_/_-1] text-tone-bad text-meta">
+                {errorMessage(
+                  installations.error ?? repositories.error ?? create.error,
+                )}
+              </div>
+            ) : null}
+          </form>
+        </>
       )}
     </div>
   );

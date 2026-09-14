@@ -59,16 +59,20 @@ const candidates: DeploymentRollbackCandidate[] = [
   },
 ];
 
-function renderPanel() {
-  vi.spyOn(api, "deploymentConfig").mockResolvedValue({
-    kind: "ConfigBundle",
-    etag: `"sha256:${"c".repeat(64)}"`,
-    targetHeadRevision: "a".repeat(40),
-    indexedRevision: "a".repeat(40),
-    configRevision: "b".repeat(64),
-    freshness: "fresh",
-    documents: [],
-  } as ConfigBundle);
+function renderPanel(options: { bundleError?: Error } = {}) {
+  if (options.bundleError) {
+    vi.spyOn(api, "deploymentConfig").mockRejectedValue(options.bundleError);
+  } else {
+    vi.spyOn(api, "deploymentConfig").mockResolvedValue({
+      kind: "ConfigBundle",
+      etag: `"sha256:${"c".repeat(64)}"`,
+      targetHeadRevision: "a".repeat(40),
+      indexedRevision: "a".repeat(40),
+      configRevision: "b".repeat(64),
+      freshness: "fresh",
+      documents: [],
+    } as ConfigBundle);
+  }
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -128,5 +132,20 @@ describe("DeploymentRollbackPanel", () => {
     await waitFor(() =>
       expect(screen.getByText("Confirm generation 2")).toBeVisible(),
     );
+  });
+
+  it("disables Select rollback while the config bundle fails to load", async () => {
+    vi.spyOn(api, "deploymentRollbackSources").mockResolvedValue({
+      items: candidates,
+    });
+    renderPanel({ bundleError: new Error("config bundle unavailable") });
+
+    const select = await screen.findAllByRole("button", {
+      name: "Select rollback",
+    });
+    // Regression: this button only guarded its onClick with an early return
+    // on an unhealthy catalog, so it stayed fully clickable and silently
+    // did nothing -- no feedback, no disabled state.
+    await waitFor(() => expect(select[0]).toBeDisabled());
   });
 });

@@ -178,4 +178,24 @@ describe("environment Git authority panel", () => {
     expect(screen.queryByText(/provider-token|private-key/i)).toBeNull();
     expect(installations).not.toHaveBeenCalled();
   });
+
+  it("explains why the form is unusable when no GitHub App is installed", async () => {
+    vi.spyOn(api, "environmentGitBinding").mockRejectedValue(
+      new ApiError(404, { title: "Not found" }),
+    );
+    vi.spyOn(api, "githubInstallations").mockResolvedValue({
+      items: [],
+      nextCursor: undefined,
+    });
+    renderPanel();
+
+    // Regression: the form used to render with a permanently disabled
+    // submit button and no explanation when there was nothing to select.
+    expect(
+      await screen.findByText("No verified GitHub App installation"),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Create Git authority" }),
+    ).toBeDisabled();
+  });
 });

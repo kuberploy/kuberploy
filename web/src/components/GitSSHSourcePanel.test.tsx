@@ -276,4 +276,40 @@ describe("Git SSH source key scope", () => {
     expect(await screen.findByLabelText(/^Repository URL/)).toBeVisible();
     expect(screen.getByText("Builder runtime unavailable")).toBeVisible();
   });
+
+  it("explains why the submit button is disabled with no registry target", async () => {
+    vi.mocked(api.applicationGitSSHKeys).mockResolvedValue({
+      items: [
+        {
+          scope: "app",
+          ownerId: application.id,
+          revision: 1,
+          status: "active",
+          publicKey: "ssh-ed25519 AAAATEST",
+          fingerprint: "SHA256:test",
+        },
+      ],
+    });
+    render(
+      <GitSSHSourcePanel
+        application={application}
+        project={project}
+        enabled
+        buildConfigured
+        buildReady
+        canManageBuilds
+      />,
+      { wrapper: wrapper() },
+    );
+
+    // Regression: the submit button was the only reachable signal that a
+    // registry target was required -- no hint told the user why it was
+    // disabled.
+    expect(
+      await screen.findByText(/No registry target is attached/),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: /Connect App source/ }),
+    ).toBeDisabled();
+  });
 });

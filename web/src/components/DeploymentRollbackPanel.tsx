@@ -175,8 +175,8 @@ export function DeploymentRollbackPanel({
             <Button
               type="button"
               variant="secondary"
+              disabled={!catalogHealthy}
               onClick={() => {
-                if (!catalogHealthy) return;
                 setSelected(candidate);
                 setConfirmed(false);
                 setIdempotencyKey(crypto.randomUUID());

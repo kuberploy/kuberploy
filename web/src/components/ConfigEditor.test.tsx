@@ -1494,4 +1494,43 @@ spec:
       rawYaml,
     );
   });
+
+  it("shows a loading indicator instead of a blank pane while the bundle fetches", async () => {
+    const deployment: Deployment = {
+      id: "deployment-loading",
+      applicationId: "application-1",
+      environmentId: "environment-1",
+      image: `registry.example/api@sha256:${"b".repeat(64)}`,
+      runtime: {
+        replicas: 1,
+        ports: [{ name: "http", containerPort: 8080, protocol: "TCP" }],
+        resources: { requests: { cpu: "50m", memory: "100Mi" } },
+      },
+    };
+    const application: Application = {
+      id: "application-1",
+      projectId: "project-1",
+      name: "API",
+    };
+    vi.spyOn(api, "capabilities").mockResolvedValue({
+      features: {},
+      capabilities: [],
+    });
+    // Never resolves, keeping the bundle query pending.
+    vi.spyOn(api, "deploymentConfig").mockReturnValue(new Promise(() => {}));
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ConfigEditor deployment={deployment} application={application} />
+      </QueryClientProvider>,
+    );
+
+    // Regression: neither Guided nor Advanced YAML render anything until
+    // rawYaml is populated from the resolved bundle, so the tab content area
+    // used to stay completely blank with no loading affordance.
+    expect(await screen.findByLabelText("Loading")).toBeVisible();
+    expect(screen.queryByRole("tabpanel")).not.toBeInTheDocument();
+  });
 });

@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Fixed five real UX bugs from a full audit pass: an App-instance card that overflowed instead of truncating a long Helm chart name, three page error states that lost all page chrome by rendering ErrorPanel unwrapped, and a required Profile name field with no visible required indicator.",
+  "summary": "Fixed six more UX bugs from continuing the audit pass: a rollback button that silently no-op'd when the catalog was unhealthy, a Git App-binding form and a Git SSH source form with no explanation for why they stayed disabled, a Role select with no self-healing fallback, and a config editor that rendered a blank pane instead of a loading indicator.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.478"
+  "version": "0.1.0-rc.479"
 }
