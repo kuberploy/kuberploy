@@ -1089,6 +1089,41 @@ describe("typed API client", () => {
     );
   });
 
+  it("appends the first field error's detail instead of discarding it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            title: "Validation failed",
+            detail: "The project name or slug is invalid.",
+            code: "ValidationFailed",
+            errors: [
+              {
+                pointer: "/slug",
+                code: "InvalidSlug",
+                detail: "Use 1-63 lowercase letters, digits, or hyphens.",
+              },
+            ],
+          }),
+          {
+            status: 422,
+            headers: { "Content-Type": "application/problem+json" },
+          },
+        ),
+      ),
+    );
+
+    await expect(api.deployment("dep_1")).rejects.toEqual(
+      expect.objectContaining({
+        name: "ApiError",
+        status: 422,
+        message:
+          "The project name or slug is invalid. Use 1-63 lowercase letters, digits, or hyphens.",
+      }),
+    );
+  });
+
   it("surfaces path-level config validation diagnostics without discarding them", async () => {
     vi.stubGlobal(
       "fetch",

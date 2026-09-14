@@ -237,8 +237,8 @@ export function CopyableCode({
   label?: string;
 }) {
   return (
-    <span className="inline-flex min-w-0 items-center gap-1.5">
-      <code className="overflow-hidden text-xs font-semibold text-ellipsis whitespace-nowrap text-ink">
+    <span className="inline-flex min-w-0 flex-wrap items-center gap-1.5">
+      <code className="min-w-0 break-all text-xs font-semibold text-ink">
         {value}
       </code>
       <CopyButton value={value} label={label ?? "Copy value"} />

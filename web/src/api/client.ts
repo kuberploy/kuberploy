@@ -120,10 +120,13 @@ export class ApiError extends Error {
   readonly problem?: ProblemDetail;
 
   constructor(status: number, problem?: ProblemDetail) {
-    super(
+    const base =
       problem?.detail ??
-        problem?.title ??
-        `Request failed with status ${status}`,
+      problem?.title ??
+      `Request failed with status ${status}`;
+    const fieldDetail = problem?.errors?.[0]?.detail;
+    super(
+      fieldDetail && !base.includes(fieldDetail) ? `${base} ${fieldDetail}` : base,
     );
     this.name = "ApiError";
     this.status = status;

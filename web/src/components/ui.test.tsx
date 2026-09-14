@@ -237,6 +237,25 @@ describe("ConfirmDialog confirmation phrase", () => {
     expect(screen.queryByText("Does not match yet.")).not.toBeInTheDocument();
   });
 
+  it("wraps a long confirmation phrase instead of clipping it with an ellipsis", () => {
+    const longPhrase =
+      "A Very Long Project Name For Testing Card Text Overflow Behavior End To End";
+    render(
+      <ConfirmDialog
+        title="Delete project"
+        description="Only unused Projects can be deleted."
+        confirmation={longPhrase}
+        onCancel={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+
+    const phrase = screen.getByText(longPhrase);
+    expect(phrase.tagName).toBe("CODE");
+    expect(phrase).toHaveClass("break-all");
+    expect(phrase).not.toHaveClass("whitespace-nowrap", "text-ellipsis");
+  });
+
   it("confirms on Enter once the phrase matches", async () => {
     const onConfirm = vi.fn();
     const user = userEvent.setup();

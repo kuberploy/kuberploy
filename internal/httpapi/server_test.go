@@ -694,6 +694,27 @@ func TestProjectApplicationAndEnvironmentDeletionLifecycle(t *testing.T) {
 	}
 }
 
+func TestCreateEnvironmentWithOverlongNameReturnsActionableFieldError(t *testing.T) {
+	f := newAPI(t)
+	f.bootstrap()
+	project := decode[domain.Project](t, f.request(http.MethodPost, "/v1/projects", "overlong-env-project", map[string]string{"name": "Overlong env"}))
+
+	overlongName := strings.Repeat("a very long environment name ", 3)
+	response := f.request(http.MethodPost, "/v1/environments", "overlong-env-name", map[string]string{
+		"projectId": project.ID, "name": overlongName,
+	})
+	problem := decode[struct {
+		Code   string           `json:"code"`
+		Errors []map[string]any `json:"errors"`
+	}](t, response)
+	if response.StatusCode != http.StatusUnprocessableEntity || problem.Code != "ValidationFailed" {
+		t.Fatalf("overlong environment name status=%d problem=%#v", response.StatusCode, problem)
+	}
+	if len(problem.Errors) != 1 || problem.Errors[0]["pointer"] != "/slug" || problem.Errors[0]["code"] != "InvalidSlug" {
+		t.Fatalf("overlong environment name must return an actionable /slug field error: errors=%#v", problem.Errors)
+	}
+}
+
 func TestApplicationAndEnvironmentDeletionRejectActiveDeployment(t *testing.T) {
 	f := newAPI(t)
 	f.bootstrap()

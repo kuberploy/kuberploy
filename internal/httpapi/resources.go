@@ -130,7 +130,7 @@ func (s *Server) environments(w http.ResponseWriter, r *http.Request) {
 	}
 	in.Namespace, in.ArgoProject = domain.DeriveEnvironmentDestination(project, in.Slug)
 	if in.Name == "" || len(in.Name) > 100 || !validSlug(in.Slug) || !validSlug(in.Namespace) || !validSlug(in.ArgoProject) {
-		writeProblem(w, r, 422, "ValidationFailed", "Validation failed", "The environment name, slug, namespace, or Argo project is invalid.")
+		writeProblem(w, r, 422, "ValidationFailed", "Validation failed", "The environment name, slug, namespace, or Argo project is invalid.", FieldError{Pointer: "/slug", Code: "InvalidSlug", Detail: "Use 1-63 lowercase letters, digits, or hyphens; supply a shorter name or a custom slug."})
 		return
 	}
 	if in.ProtectionPolicy == "" {
