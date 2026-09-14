@@ -6,7 +6,7 @@ FROM docker.io/alpine/helm:4.2 AS helm-runtime
 RUN /usr/bin/helm version --template '{{ .Version }}' > /helm-version && \
     grep -Eq '^v4[.]2[.][0-9]+$' /helm-version
 
-FROM docker.io/library/golang:1.26-alpine3.24 AS build
+FROM docker.io/library/golang:1.27-alpine3.24 AS build
 
 WORKDIR /src
 COPY go.mod go.sum ./
