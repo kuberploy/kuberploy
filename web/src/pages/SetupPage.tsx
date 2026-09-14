@@ -19,6 +19,7 @@ export function SetupPage() {
   const capabilities = useQuery({
     queryKey: ["capabilities"],
     queryFn: api.capabilities,
+    retry: false,
   });
   const monitoring = useQuery({
     queryKey: ["monitoring-status"],
@@ -26,9 +27,13 @@ export function SetupPage() {
     retry: false,
   });
   const error = meta.error ?? capabilities.error;
+  // A failed refresh must not leave the last setup snapshot looking current.
+  const liveMeta = meta.error ? undefined : meta.data;
+  const liveCapabilities = capabilities.error ? undefined : capabilities.data;
+  const liveMonitoring = monitoring.error ? undefined : monitoring.data;
   const sessionActions = [
-    ...(capabilities.data?.actions ?? []),
-    ...(capabilities.data?.capabilities?.flatMap(
+    ...(liveCapabilities?.actions ?? []),
+    ...(liveCapabilities?.capabilities?.flatMap(
       (capability) => capability.actions ?? [],
     ) ?? []),
   ].filter((action, index, actions) => actions.indexOf(action) === index);
@@ -42,11 +47,11 @@ export function SetupPage() {
   }> = [
     {
       name: "API contract",
-      description: meta.data?.contractDigest
-        ? `OpenAPI digest ${meta.data.contractDigest.slice(0, 18)}…`
+      description: liveMeta?.contractDigest
+        ? `OpenAPI digest ${liveMeta.contractDigest.slice(0, 18)}…`
         : "Contract digest is not reported yet.",
       icon: "code",
-      state: meta.data ? "healthy" : "pending",
+      state: liveMeta ? "healthy" : "pending",
     },
     {
       name: "GitOps repository",
@@ -54,8 +59,8 @@ export function SetupPage() {
         "Desired-state binding and projection health is surfaced by the control plane.",
       icon: "git",
       state: featureState(
-        capabilities.data?.featureStates,
-        capabilities.data?.features,
+        liveCapabilities?.featureStates,
+        liveCapabilities?.features,
         ["gitops", "git"],
       ),
     },
@@ -64,8 +69,8 @@ export function SetupPage() {
       description: "The only normal writer for App workloads.",
       icon: "refresh",
       state: featureState(
-        capabilities.data?.featureStates,
-        capabilities.data?.features,
+        liveCapabilities?.featureStates,
+        liveCapabilities?.features,
         ["argoCD", "argo"],
       ),
     },
@@ -74,19 +79,19 @@ export function SetupPage() {
       description: "HTTP routes, certificates, DNS intent, and middleware.",
       icon: "route",
       state: featureState(
-        capabilities.data?.featureStates,
-        capabilities.data?.features,
+        liveCapabilities?.featureStates,
+        liveCapabilities?.features,
         ["traefik", "edge"],
       ),
     },
     {
       name: "Prometheus",
       description:
-        monitoring.data?.message ??
+        liveMonitoring?.message ??
         "Managed, existing, or explicitly disabled monitoring.",
       icon: "metrics",
       state: monitoringState(
-        monitoring.data,
+        liveMonitoring,
         Boolean(monitoring.error),
         monitoring.isPending,
       ),
@@ -96,8 +101,8 @@ export function SetupPage() {
       description: "Isolated image builds never mount the host Docker socket.",
       icon: "terminal",
       state: featureState(
-        capabilities.data?.featureStates,
-        capabilities.data?.features,
+        liveCapabilities?.featureStates,
+        liveCapabilities?.features,
         ["builder", "builds"],
       ),
     },
@@ -126,14 +131,14 @@ export function SetupPage() {
         <Card>
           <Skeleton lines={10} />
         </Card>
-      ) : (
+      ) : error ? null : (
         <>
           <section className="flex items-center justify-between gap-5 py-4 px-0 border-y border-y-ink [&_h2]:m-0 [&_h2]:text-section [&_h2]:font-semibold [&_h2]:tracking-[-0.02em] [&_p]:mt-1 [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-ink-soft [&_p]:text-meta">
             <div>
               <h2>
                 Kuberploy{" "}
-                {meta.data?.platformVersion ??
-                  meta.data?.version ??
+                {liveMeta?.platformVersion ??
+                  liveMeta?.version ??
                   "development"}
               </h2>
               <p>

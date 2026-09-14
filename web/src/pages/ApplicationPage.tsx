@@ -210,6 +210,7 @@ export function ApplicationPage() {
   );
   const canStop = Boolean(
     !loadError &&
+    !status.error &&
     application.data &&
     deployment.data &&
     helmEnvironment &&
@@ -224,6 +225,7 @@ export function ApplicationPage() {
   );
   const canDeploy = Boolean(
     !loadError &&
+    !status.error &&
     application.data &&
     deployment.data &&
     helmEnvironment &&
@@ -288,6 +290,13 @@ export function ApplicationPage() {
       });
     },
   });
+  useEffect(() => {
+    if (!status.error) return;
+    stopAttempt.current = null;
+    deployAttempt.current = null;
+    setStopOpen(false);
+    setDeployOpen(false);
+  }, [status.error]);
   const showHelmTab = Boolean(
     helmFeatureEnabled &&
     application.data &&
@@ -373,7 +382,7 @@ export function ApplicationPage() {
           onRetry={() => void status.refetch()}
         />
       ) : null}
-      {stopOpen ? (
+      {stopOpen && canStop ? (
         <ConfirmDialog
           title={`Stop ${application.data?.name ?? "App"}?`}
           description="This removes this Environment's desired App manifest. Argo CD prunes its workload. Configuration remains available for a later redeploy."
@@ -394,7 +403,7 @@ export function ApplicationPage() {
           }}
         />
       ) : null}
-      {deployOpen ? (
+      {deployOpen && canDeploy ? (
         <ConfirmDialog
           title={`${deployAction} ${application.data?.name ?? "App"}?`}
           description={

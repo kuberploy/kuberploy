@@ -46,11 +46,17 @@ export function DashboardPage() {
     applications.error ??
     deployments.error ??
     operations.error;
+  // A failed refresh must not leave the last workspace snapshot looking
+  // current. Keep each failed collection unavailable until it is retried.
+  const liveProjects = projects.error ? undefined : projects.data;
+  const liveApplications = applications.error ? undefined : applications.data;
+  const liveDeployments = deployments.error ? undefined : deployments.data;
+  const liveOperations = operations.error ? undefined : operations.data;
   const loading = [projects, applications, deployments, operations].some(
     (query) => query.isPending,
   );
   const activeOperations =
-    operations.data?.items.filter(
+    liveOperations?.items.filter(
       (operation) =>
         !["succeeded", "healthy", "failed", "cancelled", "superseded"].includes(
           operation.state.toLowerCase(),
@@ -64,7 +70,7 @@ export function DashboardPage() {
         description="Projects, workloads, and delivery activity for this control plane."
       />
 
-      {error && !loading ? (
+      {error ? (
         <ErrorPanel
           error={error}
           onRetry={() =>
@@ -83,11 +89,19 @@ export function DashboardPage() {
         aria-label="Workspace summary"
       >
         {[
-          ["Projects", projects.data?.items.length ?? 0, "Git-backed scopes"],
-          ["Apps", applications.data?.items.length ?? 0, "Workloads"],
+          [
+            "Projects",
+            projects.error ? "—" : (liveProjects?.items.length ?? 0),
+            "Git-backed scopes",
+          ],
+          [
+            "Apps",
+            applications.error ? "—" : (liveApplications?.items.length ?? 0),
+            "Workloads",
+          ],
           [
             "App instances",
-            deployments.data?.items.length ?? 0,
+            deployments.error ? "—" : (liveDeployments?.items.length ?? 0),
             "Environment runtimes",
           ],
           ["In progress", activeOperations, "Operations"],
@@ -173,10 +187,10 @@ export function DashboardPage() {
             <div className="py-2 px-0">
               <Skeleton lines={5} />
             </div>
-          ) : deployments.data?.items.length ? (
+          ) : error ? null : liveDeployments?.items.length ? (
             <div className="flex flex-col">
-              {deployments.data.items.slice(0, 5).map((deployment) => {
-                const application = applications.data?.items.find(
+              {liveDeployments.items.slice(0, 5).map((deployment) => {
+                const application = liveApplications?.items.find(
                   (item) => item.id === deployment.applicationId,
                 );
                 return (
@@ -252,9 +266,9 @@ export function DashboardPage() {
           </div>
           {loading ? (
             <Skeleton lines={5} />
-          ) : (
+          ) : error ? null : (
             <OperationTimeline
-              operations={operations.data?.items.slice(0, 6) ?? []}
+              operations={liveOperations?.items.slice(0, 6) ?? []}
               empty="No release operations have run yet."
             />
           )}

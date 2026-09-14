@@ -308,4 +308,64 @@ describe("VariableSet management", () => {
       ).not.toBeInTheDocument(),
     );
   });
+
+  it("hides cached editors when the VariableSet refresh fails", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const project: VariableSetSnapshot = {
+      scope: "project",
+      bindingId: "binding-safe",
+      projectId: "project-safe",
+      environmentId: "environment-safe",
+      path: "tenants/project-safe/variables.yaml",
+      present: true,
+      etag: '"sha256:' + "a".repeat(64) + '"',
+      rawYaml: "values:\n  FLAG: stale\n",
+      document: { kind: "VariableSet" },
+      indexedRevision: "b".repeat(40),
+    };
+    const environmentSource: VariableSetSnapshot = {
+      ...project,
+      scope: "environment",
+      path: "tenants/project-safe/environments/environment-safe/variables.yaml",
+      present: false,
+      etag: undefined,
+      rawYaml: undefined,
+    };
+    client.setQueryData(["environment", environment.id], environment);
+    client.setQueryData(["variable-sets", environment.id], {
+      items: [project, environmentSource],
+    });
+    vi.spyOn(api, "environment").mockResolvedValue(environment);
+    vi.spyOn(api, "variableSets").mockRejectedValue(
+      new Error("VariableSet refresh failed"),
+    );
+    vi.spyOn(api, "me").mockResolvedValue({
+      id: "reader-safe",
+      displayName: "Reader",
+      role: "viewer",
+      authentication: { kind: "session" },
+    });
+    vi.spyOn(api, "capabilities").mockResolvedValue({
+      capabilities: [
+        {
+          scopeType: "environment",
+          scopeId: "environment-safe",
+          actions: ["deployment-config:read"],
+        },
+      ],
+    });
+
+    render(
+      <QueryClientProvider client={client}>
+        <VariableSetsView environmentId={environment.id} />
+      </QueryClientProvider>,
+    );
+
+    expect(
+      await screen.findByText("VariableSet refresh failed"),
+    ).toBeInTheDocument();
+    expect(screen.queryAllByRole("textbox")).toHaveLength(0);
+  });
 });

@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import userEvent from "@testing-library/user-event";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import type { PropsWithChildren } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -100,5 +101,69 @@ describe("dashboard platform health", () => {
       expect(health).toHaveTextContent("EdgeDisabled");
       expect(health).toHaveTextContent("MonitoringUnavailable");
     });
+  });
+
+  it("clears stale workspace data after a refresh failure and retries it", async () => {
+    const staleDeployment = {
+      id: "deployment-stale",
+      applicationId: "application-stale",
+      environmentId: "environment-stale",
+      name: "Stale App",
+      image: "registry.example/stale@sha256:abc",
+      runtime: {
+        replicas: 1,
+        ports: [{ name: "http", containerPort: 8080 }],
+        resources: { requests: { cpu: "50m", memory: "64Mi" } },
+      },
+    };
+    const deployments = vi
+      .spyOn(api, "deployments")
+      .mockResolvedValueOnce({ items: [staleDeployment] })
+      .mockRejectedValueOnce(new Error("deployments unavailable"))
+      .mockResolvedValue({ items: [] });
+    vi.spyOn(api, "projects").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "applications").mockResolvedValue({
+      items: [
+        {
+          id: "application-stale",
+          projectId: "project-stale",
+          name: "Stale App",
+        },
+      ],
+    });
+    vi.spyOn(api, "operations").mockResolvedValue({
+      items: [],
+      truncated: false,
+    });
+    vi.spyOn(api, "capabilities").mockResolvedValue({
+      actions: [],
+      features: {},
+    });
+    vi.spyOn(api, "monitoringStatus").mockResolvedValue({
+      mode: "disabled",
+      available: false,
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const user = userEvent.setup();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <DashboardPage />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Stale App")).toBeVisible();
+    await queryClient.refetchQueries({ queryKey: ["deployments"] });
+    expect(await screen.findByText("deployments unavailable")).toBeVisible();
+    expect(screen.queryByText("Stale App")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() =>
+      expect(screen.queryByText("deployments unavailable")).toBeNull(),
+    );
+    expect(await screen.findByText("No Apps running yet")).toBeVisible();
+    expect(deployments).toHaveBeenCalledTimes(3);
   });
 });

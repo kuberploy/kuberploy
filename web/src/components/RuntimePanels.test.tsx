@@ -179,6 +179,80 @@ describe("App runtime metrics", () => {
     expect(metrics).not.toHaveBeenCalled();
     expect(screen.queryByText("Live")).not.toBeInTheDocument();
   });
+
+  it("requires the explicit monitoring availability flag", async () => {
+    vi.spyOn(api, "monitoringStatus").mockResolvedValue({
+      mode: "existing",
+      status: "healthy",
+      message: "The provider health text is insufficient.",
+    });
+    const metrics = vi.spyOn(api, "metricRange");
+
+    render(<MetricsPanel deploymentId="deployment-target" />, {
+      wrapper: wrapper(),
+    });
+
+    expect(
+      await screen.findByText("App metrics are unavailable"),
+    ).toBeInTheDocument();
+    expect(metrics).not.toHaveBeenCalled();
+    expect(screen.queryByText("Live")).not.toBeInTheDocument();
+  });
+
+  it("hides cached metric samples after monitoring status refresh fails", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const timeBucket = Math.floor(Date.now() / 300_000) * 300_000;
+    client.setQueryData(["monitoring-status"], {
+      mode: "managed",
+      status: "available",
+      available: true,
+      message: "Cached monitoring status.",
+    });
+    client.setQueryData(
+      ["service-metric", "deployment-target", "cpu-usage", timeBucket],
+      {
+        metric: "cpu-usage",
+        scope: "service",
+        series: [
+          {
+            labels: {},
+            samples: [{ timestamp: "2026-09-13T00:04:00Z", value: 1 }],
+          },
+        ],
+        observedAt: "2026-09-13T00:05:00Z",
+      },
+    );
+    vi.spyOn(api, "monitoringStatus").mockRejectedValue(
+      new Error("monitoring status refresh failed"),
+    );
+    const metrics = vi.spyOn(api, "metricRange").mockResolvedValue({
+      metric: "cpu-usage",
+      scope: "service",
+      series: [],
+      observedAt: "2026-09-13T00:05:00Z",
+    });
+
+    render(<MetricsPanel deploymentId="deployment-target" />, {
+      wrapper: ({ children }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      ),
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("App metrics are unavailable"),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("1.000 cores")).not.toBeInTheDocument();
+    expect(metrics).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(
+        "Enable monitoring in Settings to view this App's metrics.",
+      ),
+    ).toBeInTheDocument();
+  });
 });
 
 describe("deployment runtime panel", () => {

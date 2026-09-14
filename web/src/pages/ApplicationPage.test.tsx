@@ -369,6 +369,53 @@ describe("application rollout truth", () => {
     expect(screen.getAllByText("Healthy").length).toBeGreaterThan(0);
   });
 
+  it("closes an App action confirmation when runtime status fails", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.deploymentStatus)
+      .mockResolvedValueOnce({
+        state: "git-committed",
+        operationStatus: "succeeded",
+        argoSyncStatus: "synced",
+        rolloutHealth: "healthy",
+      })
+      .mockRejectedValueOnce(new Error("status endpoint unavailable"))
+      .mockResolvedValue({
+        state: "git-committed",
+        operationStatus: "succeeded",
+        argoSyncStatus: "synced",
+        rolloutHealth: "healthy",
+      });
+    const queryClient = renderApplication({
+      features: {},
+      capabilities: [
+        {
+          scopeType: "environment",
+          scopeId: "environment-production",
+          actions: ["deployments:update"],
+        },
+      ],
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Stop App" }));
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+
+    await queryClient.refetchQueries({
+      queryKey: ["deployment-status", "deployment-production"],
+    });
+    await waitFor(() =>
+      expect(screen.getByText("Runtime status unavailable")).toBeInTheDocument(),
+    );
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Stop App" }),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() =>
+      expect(screen.queryByText("Runtime status unavailable")).toBeNull(),
+    );
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
   it("surfaces operation history failures with a retry action", async () => {
     vi.mocked(api.operations)
       .mockRejectedValueOnce(new Error("operation history unavailable"))

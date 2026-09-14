@@ -647,8 +647,11 @@ function MetricCard({
     retry: false,
     refetchInterval: 30_000,
   });
-  const value = latestMetricValue(query.data);
-  const samples = query.data?.series[0]?.samples.slice(-7) ?? [];
+  // A disabled or failed refresh may retain the last successful query data.
+  // Never present that cached sample as current once its gate is unavailable.
+  const liveData = enabled && !query.error ? query.data : undefined;
+  const value = latestMetricValue(liveData);
+  const samples = liveData?.series[0]?.samples.slice(-7) ?? [];
   const maximum = Math.max(...samples.map((sample) => sample.value), 0);
   const sparklineSamples: Array<MetricSample | undefined> = samples.length
     ? samples
@@ -698,11 +701,12 @@ export function MetricsPanel({ deploymentId }: { deploymentId: string }) {
     queryFn: api.monitoringStatus,
     retry: false,
   });
-  const available =
-    status.data?.available === true ||
-    ["healthy", "ready", "connected"].includes(
-      status.data?.status?.toLowerCase() ?? "",
-    );
+  // React Query retains successful data while a background refresh runs or
+  // fails. Do not let that cached snapshot enable metric reads or look live
+  // until the status query has completed successfully again.
+  const liveStatus =
+    status.error || status.isFetching ? undefined : status.data;
+  const available = liveStatus?.available === true;
   return (
     <div className="[&_h2]:m-0 [&_h2]:text-ink [&_h2]:text-section [&_h2]:font-semibold [&_h2]:tracking-[-0.02em] [&_h2]:leading-[1.3]">
       <div className="flex items-end justify-between gap-5 mb-4 [&_h2]:text-[20px] [&_p]:mt-1 [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-ink-soft [&_p]:text-meta">
@@ -715,7 +719,7 @@ export function MetricsPanel({ deploymentId }: { deploymentId: string }) {
           value={
             available
               ? "available"
-              : status.data?.mode === "disabled"
+              : liveStatus?.mode === "disabled"
                 ? "disabled"
                 : "pending"
           }
@@ -726,7 +730,7 @@ export function MetricsPanel({ deploymentId }: { deploymentId: string }) {
                 ? "Connected"
                 : status.error
                   ? "Unavailable"
-                  : (status.data?.mode ?? "No data")
+                  : (liveStatus?.mode ?? "No data")
           }
         />
       </div>
@@ -753,7 +757,7 @@ export function MetricsPanel({ deploymentId }: { deploymentId: string }) {
           <p>
             {available
               ? "Each card shows its latest available data. Traffic metrics appear when your App exposes them."
-              : (status.data?.message ??
+              : (liveStatus?.message ??
                 "Enable monitoring in Settings to view this App's metrics.")}
           </p>
         </div>

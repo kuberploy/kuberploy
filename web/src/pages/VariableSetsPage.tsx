@@ -411,7 +411,7 @@ export function VariableSetsView({ environmentId }: { environmentId: string }) {
         <Card>
           <Skeleton lines={8} />
         </Card>
-      ) : environment.data && sources.data?.items.length === 2 ? (
+      ) : !loadError && environment.data && sources.data?.items.length === 2 ? (
         <div className="grid grid-cols-[repeat(auto-fit,_minmax(min(100%,_520px),_1fr))] gap-5">
           {sources.data.items.map((snapshot) => (
             <VariableSetEditor
