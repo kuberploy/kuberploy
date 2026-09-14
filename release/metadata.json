@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "The Environment list no longer overlaps its status pill with the App count at narrow viewports.",
+  "summary": "Fixed a one-time invitation link that could be clipped instead of wrapping, and restored the mobile layout hooks that several key/value form rows (environment variables, secret references, ports, scheduling tolerations, node selectors) rely on to stack correctly at narrow widths instead of squeezing a field into a 32px column.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.472"
+  "version": "0.1.0-rc.473"
 }
