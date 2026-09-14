@@ -57,6 +57,48 @@ const targetCapability = (action: string) => ({
 });
 
 describe("registry target management", () => {
+  it("surfaces a capability lookup failure and retries it", async () => {
+    const user = userEvent.setup();
+    const capabilities = vi
+      .spyOn(api, "capabilities")
+      .mockRejectedValueOnce(new Error("capabilities unavailable"))
+      .mockResolvedValue({ features: { registry: false }, capabilities: [] });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RegistryTargetsPage />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("capabilities unavailable")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(
+      await screen.findByText("Registry management is not enabled"),
+    ).toBeVisible();
+    expect(capabilities).toHaveBeenCalledTimes(2);
+  });
+
+  it("surfaces a registry catalog failure and retries it", async () => {
+    const user = userEvent.setup();
+    const targets = vi
+      .mocked(api.registryTargets)
+      .mockRejectedValueOnce(new Error("registry catalog unavailable"))
+      .mockResolvedValue({ items: [target], truncated: false });
+    renderPage({
+      features: { registry: true },
+      capabilities: [targetCapability("registry-targets:read")],
+    });
+
+    expect(
+      await screen.findByText("registry catalog unavailable"),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("registry.example.test")).toBeVisible();
+    expect(targets).toHaveBeenCalledTimes(2);
+  });
+
   it("stays disabled when the feature is false", async () => {
     renderPage({
       features: { registry: false },

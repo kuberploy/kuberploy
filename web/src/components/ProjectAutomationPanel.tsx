@@ -204,6 +204,7 @@ export function ProjectAutomationPanel({
     },
   });
   const submitAccount = (value: AccountForm) => {
+    if (accounts.error) return;
     const normalized = { ...value, name: value.name.trim() };
     const signature = JSON.stringify(normalized);
     const idempotencyKey =
@@ -296,7 +297,11 @@ export function ProjectAutomationPanel({
               ))}
             </Select>
           </Field>
-          <Button type="submit" busy={createAccount.isPending}>
+          <Button
+            type="submit"
+            busy={createAccount.isPending}
+            disabled={Boolean(accounts.error)}
+          >
             <Icon name="plus" /> Create account
           </Button>
           {createAccount.error ? (
@@ -320,7 +325,7 @@ export function ProjectAutomationPanel({
           onRetry={() => void accounts.refetch()}
         />
       ) : null}
-      {accounts.data?.items.length ? (
+      {!accounts.error && accounts.data?.items.length ? (
         <div className="grid gap-3 mt-5">
           {accounts.data.items.map((account) => {
             const expanded = expandedAccountId === account.id;
@@ -357,6 +362,7 @@ export function ProjectAutomationPanel({
                     {!account.disabledAt && manageable ? (
                       <Button
                         variant="danger"
+                        disabled={Boolean(accounts.error)}
                         onClick={() => {
                           setConfirmAccount({
                             account,
@@ -426,14 +432,18 @@ export function ProjectAutomationPanel({
             <div className="to-680:items-stretch to-680:flex-col flex justify-end flex-wrap gap-2 mt-1 to-460:[&_[data-slot='button']]:flex-auto">
               <Button
                 variant="danger"
-                disabled={confirmation !== confirmAccount.account.name}
+                disabled={
+                  Boolean(accounts.error) ||
+                  confirmation !== confirmAccount.account.name
+                }
                 busy={disableAccount.isPending}
-                onClick={() =>
+                onClick={() => {
+                  if (accounts.error) return;
                   disableAccount.mutate({
                     account: confirmAccount.account,
                     idempotencyKey: confirmAccount.key,
-                  })
-                }
+                  });
+                }}
               >
                 Disable and revoke tokens
               </Button>
@@ -505,6 +515,7 @@ function AccountTokens({
     },
   });
   const submitToken = async (value: TokenForm) => {
+    if (tokens.error) return;
     const scopes = scopesFromForm(value);
     if (!scopes.length) {
       setIssueError(new Error("Select at least one token scope."));
@@ -685,7 +696,11 @@ function AccountTokens({
               ))}
             </fieldset>
             <div className="[&_small]:text-ink-soft [&_small]:text-[11px] flex items-center gap-3 to-680:items-stretch to-680:flex-col">
-              <Button type="submit" busy={issuePending}>
+              <Button
+                type="submit"
+                busy={issuePending}
+                disabled={Boolean(tokens.error)}
+              >
                 Issue one-time token
               </Button>
               <small>
@@ -725,7 +740,7 @@ function AccountTokens({
           onRetry={() => void tokens.refetch()}
         />
       ) : null}
-      {tokens.data?.items.length ? (
+      {!tokens.error && tokens.data?.items.length ? (
         <div className="grid gap-2">
           {tokens.data.items.map((token) => {
             const state = tokenState(token);
@@ -751,6 +766,7 @@ function AccountTokens({
                 {canManage && state === "active" ? (
                   <Button
                     variant="danger"
+                    disabled={Boolean(tokens.error)}
                     onClick={() => {
                       setConfirmToken({ token, key: crypto.randomUUID() });
                       setConfirmation("");
@@ -864,14 +880,18 @@ function AccountTokens({
             <div className="to-680:items-stretch to-680:flex-col flex justify-end flex-wrap gap-2 mt-1 to-460:[&_[data-slot='button']]:flex-auto">
               <Button
                 variant="danger"
-                disabled={confirmation !== confirmToken.token.prefix}
+                disabled={
+                  Boolean(tokens.error) ||
+                  confirmation !== confirmToken.token.prefix
+                }
                 busy={revokeToken.isPending}
-                onClick={() =>
+                onClick={() => {
+                  if (tokens.error) return;
                   revokeToken.mutate({
                     token: confirmToken.token,
                     idempotencyKey: confirmToken.key,
-                  })
-                }
+                  });
+                }}
               >
                 Revoke exact token
               </Button>

@@ -43,6 +43,15 @@ function PolicyHistory({ policy }: { policy: AutoDeployPolicy }) {
         : false,
   });
   if (revisions.isPending || runs.isPending) return <Skeleton lines={3} />;
+  if (revisions.error || runs.error) {
+    return (
+      <ErrorPanel
+        error={revisions.error ?? runs.error}
+        title="Could not load policy history"
+        onRetry={() => void Promise.all([revisions.refetch(), runs.refetch()])}
+      />
+    );
+  }
   return (
     <div className="grid gap-4">
       <details>
@@ -263,6 +272,7 @@ export function AutoDeployPoliciesPanel({
   });
 
   const enablePolicy = () => {
+    if (!catalogHealthy) return;
     const deployment = authorizedCandidates.find(
       (item) => item.id === deploymentId,
     );
@@ -290,6 +300,7 @@ export function AutoDeployPoliciesPanel({
     nextEnabled: boolean,
     confirmed = false,
   ) => {
+    if (!catalogHealthy) return;
     if (!nextEnabled && !confirmed) {
       setDisableConfirmation(policy);
       return;
@@ -319,6 +330,7 @@ export function AutoDeployPoliciesPanel({
   const mutationCatalogError =
     potentialManagement &&
     (deployments.error ?? accounts.error ?? environments.error);
+  const catalogHealthy = !loadError && !mutationCatalogError;
   return (
     <Card className="mb-5">
       <CardHeader>
@@ -381,7 +393,7 @@ export function AutoDeployPoliciesPanel({
           <Button
             onClick={enablePolicy}
             busy={create.isPending}
-            disabled={!deploymentId || !serviceActorId}
+            disabled={!catalogHealthy || !deploymentId || !serviceActorId}
           >
             Enable pinned policy
           </Button>
@@ -394,7 +406,7 @@ export function AutoDeployPoliciesPanel({
       ) : null}
       {policies.isPending ? (
         <Skeleton lines={4} />
-      ) : policies.data?.items.length ? (
+      ) : loadError ? null : policies.data?.items.length ? (
         <div className="grid gap-4">
           {policies.data.items.map((policy) => (
             <article
@@ -430,7 +442,7 @@ export function AutoDeployPoliciesPanel({
                     account,
                   ),
                 );
-                return allowed ? (
+                return allowed && catalogHealthy ? (
                   <div className="flex items-center flex-wrap gap-2">
                     <Button
                       variant="secondary"
@@ -477,6 +489,7 @@ export function AutoDeployPoliciesPanel({
           busy={revise.isPending}
           onCancel={() => setDisableConfirmation(null)}
           onConfirm={() => {
+            if (!catalogHealthy) return;
             const policy = disableConfirmation;
             setDisableConfirmation(null);
             revisePolicy(policy, false, true);

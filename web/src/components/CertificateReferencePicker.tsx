@@ -52,7 +52,9 @@ export function CertificateReferencePicker({
       <Select
         aria-label="Certificate binding and version"
         value={selectedKey}
-        disabled={disabled || !enabled || bindings.isPending}
+        disabled={
+          disabled || !enabled || bindings.isPending || Boolean(bindings.error)
+        }
         onChange={(event) => {
           if (!event.target.value) {
             onChange(null);

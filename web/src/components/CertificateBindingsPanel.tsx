@@ -702,13 +702,17 @@ export function CertificateBindingsPanel({
           </Select>
         </Field>
         {canCreate ? (
-          <Button type="button" onClick={() => setCreating((value) => !value)}>
+          <Button
+            type="button"
+            disabled={Boolean(list.error)}
+            onClick={() => setCreating((value) => !value)}
+          >
             <Icon name="plus" /> New certificate
           </Button>
         ) : null}
       </Card>
 
-      {creating && canCreate ? (
+      {creating && canCreate && !list.error ? (
         <CreateCertificateForm
           application={application}
           environment={selectedEnvironment}

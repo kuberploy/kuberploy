@@ -243,7 +243,13 @@ function ActiveReferencePicker({
         <Select
           aria-label={`Secret variable ${index + 1} key`}
           value={keys.includes(value.key) ? value.key : ""}
-          disabled={readOnly || !selected || detail.isPending || !keys.length}
+          disabled={
+            readOnly ||
+            Boolean(bindings.error || detail.error) ||
+            !selected ||
+            detail.isPending ||
+            !keys.length
+          }
           onChange={(event) => onChange({ ...value, key: event.target.value })}
         >
           <option value="">Select authorized key</option>

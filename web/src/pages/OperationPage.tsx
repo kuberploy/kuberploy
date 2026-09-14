@@ -78,6 +78,13 @@ export function OperationPage() {
           onRetry={() => void operation.refetch()}
         />
       ) : null}
+      {operationDeployment.error ? (
+        <ErrorPanel
+          error={operationDeployment.error}
+          title="Could not load App details"
+          onRetry={() => void operationDeployment.refetch()}
+        />
+      ) : null}
       {operation.isPending ? (
         <Card>
           <Skeleton lines={8} />

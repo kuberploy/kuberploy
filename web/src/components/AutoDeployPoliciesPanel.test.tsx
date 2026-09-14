@@ -57,6 +57,39 @@ afterEach(() => {
 });
 
 describe("auto-deploy policy read-only access", () => {
+  it("surfaces policy history failures and retries the history queries", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "autoDeployPolicies").mockResolvedValue({ items: [policy] });
+    const revisions = vi
+      .spyOn(api, "autoDeployPolicyRevisions")
+      .mockRejectedValueOnce(new Error("policy revisions unavailable"))
+      .mockResolvedValue({ items: [policy.current] });
+    vi.spyOn(api, "autoDeployPolicyRuns").mockResolvedValue({ items: [] });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AutoDeployPoliciesPanel
+          application={application}
+          project={project}
+          sourceConnected
+          enabled
+          humanSession
+          capabilities={readOnlyCapabilities}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(
+      await screen.findByText("Could not load policy history"),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(revisions).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText(/saved revisions/)).toBeVisible();
+  });
+
   it("loads policy history without querying mutation catalogs or rendering controls", async () => {
     const policies = vi
       .spyOn(api, "autoDeployPolicies")

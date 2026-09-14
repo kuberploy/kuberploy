@@ -360,7 +360,9 @@ export function NewDeploymentPage() {
   });
   const sslipRouteReady =
     routeMode !== "sslip" ||
-    (sslipScopeReady && Boolean(sslipHostname.data?.hostname));
+    (sslipScopeReady &&
+      !sslipHostname.error &&
+      Boolean(sslipHostname.data?.hostname));
 
   const filteredEnvironments = useMemo(
     () =>
@@ -658,6 +660,7 @@ export function NewDeploymentPage() {
         values.routeMode === "sslip" &&
         (!sslipEnabled ||
           values.applicationMode !== "existing" ||
+          Boolean(sslipHostname.error) ||
           !sslipHostname.data?.hostname)
       ) {
         throw new Error(
@@ -755,6 +758,15 @@ export function NewDeploymentPage() {
   });
 
   const submitDeployment = (values: DeploymentForm) => {
+    if (
+      loadError ||
+      environmentGitBinding.error ||
+      gitBundleError ||
+      !environmentGitReady ||
+      !gitBundleReady ||
+      !gitOpsReady
+    )
+      return;
     const signature = JSON.stringify(values);
     const idempotencyKey =
       stableDeploymentAttempt.current?.signature === signature
@@ -768,7 +780,11 @@ export function NewDeploymentPage() {
     });
   };
 
-  const loadError = projects.error ?? environments.error ?? applications.error;
+  const loadError =
+    projects.error ??
+    environments.error ??
+    applications.error ??
+    capabilities.error;
   const gitBundlePending =
     Boolean(existingDeploymentScope) &&
     (!existingDeployments.isSuccess ||
@@ -809,6 +825,7 @@ export function NewDeploymentPage() {
               projects.refetch(),
               environments.refetch(),
               applications.refetch(),
+              capabilities.refetch(),
             ])
           }
         />
@@ -850,7 +867,7 @@ export function NewDeploymentPage() {
             }
           }}
         >
-          {!capabilities.isPending && !gitOpsReady ? (
+          {!loadError && !capabilities.isPending && !gitOpsReady ? (
             <Notice tone="warning" role="status">
               <strong>Protected GitOps is not ready</strong>
               <p>
@@ -1068,6 +1085,9 @@ export function NewDeploymentPage() {
                         type="button"
                         variant="secondary"
                         busy={reserveApplication.isPending}
+                        disabled={
+                          Boolean(loadError) || reserveApplication.isPending
+                        }
                         onClick={reserveApplicationIdentity}
                       >
                         Create App identity
@@ -1188,6 +1208,7 @@ export function NewDeploymentPage() {
                   variant="secondary"
                   busy={imageResolution.isPending}
                   disabled={
+                    Boolean(loadError) ||
                     !imageTagResolutionEnabled ||
                     applicationMode !== "existing" ||
                     !applicationId ||
@@ -1758,6 +1779,7 @@ export function NewDeploymentPage() {
               type="submit"
               busy={deploy.isPending}
               disabled={Boolean(
+                loadError ||
                 applicationMode !== "existing" ||
                 !applicationId ||
                 probeError ||

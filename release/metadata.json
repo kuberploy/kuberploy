@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Desktop App pages expose failed lifecycle, API, capability, log, and event states with retry actions instead of stale or invented states. Helm saves create a fresh revision after completion. Source cards, Git SSH delivery, and current ExternalDNS rollout state remain visible.",
+  "summary": "Desktop App and administration pages expose failed lifecycle, API, capability, catalog, log, and event states with retry actions instead of stale or invented states. Runtime views fail closed on stale inventory data, Helm saves create a fresh revision after completion, and source, Git SSH delivery, and ExternalDNS rollout state remain visible.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.466"
+  "version": "0.1.0-rc.467"
 }

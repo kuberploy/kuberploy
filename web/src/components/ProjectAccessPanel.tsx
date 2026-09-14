@@ -18,6 +18,7 @@ import {
   DialogContent,
   DialogDescription,
   DialogTitle,
+  ErrorPanel,
   Eyebrow,
   Field,
   MutedCopy,
@@ -81,6 +82,7 @@ export function ProjectAccessPanel({
     queryFn: () => api.projectAccessGrants(project.id),
   });
   const teams = useQuery({ queryKey: ["teams"], queryFn: api.teams });
+  const accessQueriesHealthy = !teams.error && !grants.error;
   const scopeOptions = useMemo<ScopeOption[]>(() => {
     const options: ScopeOption[] = [];
     if (project.teamId) {
@@ -240,6 +242,7 @@ export function ProjectAccessPanel({
     },
   });
   const submitGrant = (value: GrantForm) => {
+    if (!accessQueriesHealthy) return;
     const normalized = {
       ...value,
       subjectUserId: value.subjectUserId.trim(),
@@ -257,6 +260,7 @@ export function ProjectAccessPanel({
     });
   };
   const canDeleteGrant = (grant: AccessGrant) => {
+    if (!accessQueriesHealthy) return false;
     const scope = scopeOptions.find(
       (option) =>
         option.type === grant.scopeType && option.id === grant.scopeId,
@@ -394,7 +398,11 @@ export function ProjectAccessPanel({
           <input type="checkbox" {...form.register("logsRead")} />
           Add logs.read (optional for viewers)
         </label>
-        <Button type="submit" busy={createGrant.isPending}>
+        <Button
+          type="submit"
+          busy={createGrant.isPending}
+          disabled={!accessQueriesHealthy || !assignableRoles.length}
+        >
           Add grant
         </Button>
       </form>
@@ -404,12 +412,22 @@ export function ProjectAccessPanel({
         </div>
       ) : null}
 
+      {teams.error ? (
+        <ErrorPanel
+          error={teams.error}
+          title="Could not load teams"
+          onRetry={() => void teams.refetch()}
+        />
+      ) : null}
+
       {grants.isPending ? (
         <Skeleton lines={3} />
       ) : grants.error ? (
-        <div className="col-[1_/_-1] text-tone-bad text-meta">
-          {errorMessage(grants.error)}
-        </div>
+        <ErrorPanel
+          error={grants.error}
+          title="Could not load project access"
+          onRetry={() => void grants.refetch()}
+        />
       ) : grants.data.items.length ? (
         <div className="grid gap-2 mt-5">
           {grants.data.items.map((grant) => (
@@ -479,15 +497,18 @@ export function ProjectAccessPanel({
             <div>
               <Button
                 variant="danger"
-                disabled={confirmation !== confirmGrant.id}
+                disabled={
+                  !accessQueriesHealthy || confirmation !== confirmGrant.id
+                }
                 busy={deleteGrant.isPending}
-                onClick={() =>
+                onClick={() => {
+                  if (!accessQueriesHealthy) return;
                   deleteGrant.mutate({
                     projectId: project.id,
                     grant: confirmGrant,
                     idempotencyKey: confirmIdempotencyKey,
-                  })
-                }
+                  });
+                }}
               >
                 Revoke exact grant
               </Button>

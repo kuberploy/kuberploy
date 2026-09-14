@@ -62,6 +62,23 @@ function renderPage() {
 }
 
 describe("certificate issuer administration", () => {
+  it("surfaces a capability lookup failure and retries it", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "me").mockResolvedValue(principal);
+    const capabilities = vi
+      .spyOn(api, "capabilities")
+      .mockRejectedValueOnce(new Error("capabilities unavailable"))
+      .mockResolvedValue({ features: { certificateIssuerManagement: false } });
+    renderPage();
+
+    expect(await screen.findByText("capabilities unavailable")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(
+      await screen.findByText("Certificate issuer management unavailable"),
+    ).toBeVisible();
+    expect(capabilities).toHaveBeenCalledTimes(2);
+  });
+
   it("does not query admin metadata for service accounts", async () => {
     vi.spyOn(api, "me").mockResolvedValue({
       ...principal,

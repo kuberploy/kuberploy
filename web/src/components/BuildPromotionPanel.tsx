@@ -125,6 +125,7 @@ export function BuildPromotionPanel({
   });
 
   const promote = () => {
+    if (environments.error) return;
     const signature = JSON.stringify({
       attemptId: attempt.id,
       environmentId,
@@ -262,6 +263,7 @@ export function BuildPromotionPanel({
         <Button
           busy={mutation.isPending}
           disabled={
+            Boolean(environments.error) ||
             !environmentId ||
             replicas < 1 ||
             replicas > 100 ||

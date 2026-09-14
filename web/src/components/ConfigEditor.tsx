@@ -19,6 +19,7 @@ import {
   buttonVariants,
   CopyButton,
   EmptyState,
+  ErrorPanel,
   Eyebrow,
   Notice,
   PlaceholderBadge,
@@ -126,8 +127,12 @@ function SavedConfigEditor({ deployment, application }: ConfigEditorProps) {
   const deploymentEnvironment = environments.data?.items.find(
     (environment) => environment.id === deployment.environmentId,
   );
+  const contextError =
+    capabilities.error ??
+    (needsProjectContext ? projects.error : undefined) ??
+    (needsEnvironmentContext ? environments.error : undefined);
   const canWriteConfig = hasDeploymentConfigCapability(
-    effectiveCapabilities,
+    contextError ? [] : effectiveCapabilities,
     "deployment-config:write",
     application,
     deployment,
@@ -535,7 +540,7 @@ function SavedConfigEditor({ deployment, application }: ConfigEditorProps) {
       </div>
 
       {bundle.error ? (
-        <Notice tone="warning">
+        <Notice tone="warning" role="alert">
           <div>
             <strong>Configuration could not be loaded</strong>
             <p>
@@ -543,8 +548,31 @@ function SavedConfigEditor({ deployment, application }: ConfigEditorProps) {
               and save actions are disabled.
             </p>
           </div>
+          <Button
+            type="button"
+            variant="secondary"
+            busy={bundle.isFetching}
+            onClick={() => void bundle.refetch()}
+          >
+            <Icon name="refresh" /> Retry
+          </Button>
           <PlaceholderBadge>Local preview</PlaceholderBadge>
         </Notice>
+      ) : null}
+      {contextError ? (
+        <ErrorPanel
+          error={contextError}
+          title="Could not verify configuration access"
+          onRetry={() =>
+            void Promise.all([
+              capabilities.refetch(),
+              needsProjectContext ? projects.refetch() : Promise.resolve(),
+              needsEnvironmentContext
+                ? environments.refetch()
+                : Promise.resolve(),
+            ])
+          }
+        />
       ) : null}
       {draftError ? (
         <Notice tone="error" role="alert">
@@ -608,7 +636,10 @@ function SavedConfigEditor({ deployment, application }: ConfigEditorProps) {
               ? "A fresh exact public ingress IP observation is unavailable for this environment."
               : undefined
           }
-          readOnly={!canWriteConfig}
+          readOnly={
+            !canWriteConfig ||
+            Boolean(externalDNSCatalog.error || sslipHostname.error)
+          }
           middlewareEditingUnavailableReason={
             middlewareEditingUnavailableReason
           }
@@ -738,6 +769,7 @@ function SavedConfigEditor({ deployment, application }: ConfigEditorProps) {
             !canWriteConfig ||
             !baseConfig ||
             Boolean(bundle.error) ||
+            Boolean(externalDNSCatalog.error || sslipHostname.error) ||
             savePending ||
             Boolean(pullRequest) ||
             saveMutation.isPending ||
@@ -763,6 +795,7 @@ function SavedConfigEditor({ deployment, application }: ConfigEditorProps) {
             savePending ||
             Boolean(pullRequest) ||
             Boolean(bundle.error) ||
+            Boolean(externalDNSCatalog.error || sslipHostname.error) ||
             !matchingPreview ||
             previewMutation.isPending ||
             Boolean(yamlError || draftError)

@@ -12,6 +12,45 @@ afterEach(() => {
 });
 
 describe("RegistryPullCredentialsPanel", () => {
+  it("surfaces catalog failures and retries the credential queries", async () => {
+    const user = userEvent.setup();
+    const catalog = vi
+      .spyOn(api, "projectRegistryPullCredentials")
+      .mockRejectedValueOnce(new Error("credential catalog unavailable"))
+      .mockResolvedValue({ items: [], availableTargets: [] });
+    vi.spyOn(api, "applicationRegistryPullSelection").mockResolvedValue({
+      applicationId: "application-1",
+      type: "public",
+    });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={client}>
+        <RegistryPullCredentialsPanel
+          application={{
+            id: "application-1",
+            projectId: "project-1",
+            name: "API",
+          }}
+          project={{ id: "project-1", name: "Payments" }}
+          enabled
+          canManage
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(
+      await screen.findByText("Could not load image pull credentials"),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(catalog).toHaveBeenCalledTimes(2));
+    expect(
+      await screen.findByRole("heading", { name: "Image pull credentials" }),
+    ).toBeVisible();
+  });
+
   it("selects one of multiple project credentials without mixing builder settings", async () => {
     vi.spyOn(api, "projectRegistryPullCredentials").mockResolvedValue({
       items: [

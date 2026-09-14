@@ -169,6 +169,7 @@ export function RegistryTargetsPage() {
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    if (targets.error) return;
     if (editing && !editingIsCurrent) return;
     const nextErrors = validateTarget(draft);
     setErrors(nextErrors);
@@ -213,6 +214,8 @@ export function RegistryTargetsPage() {
     setEditing(undefined);
   };
 
+  const loadError = capabilities.error ?? me.error;
+
   return (
     <Page>
       <PageHeader
@@ -221,7 +224,14 @@ export function RegistryTargetsPage() {
         description="Configure managed or external OCI targets using credential references only. Registry secret material is never accepted or displayed here."
       />
 
-      {capabilities.isPending ? (
+      {loadError ? (
+        <ErrorPanel
+          error={loadError}
+          onRetry={() =>
+            void Promise.all([capabilities.refetch(), me.refetch()])
+          }
+        />
+      ) : capabilities.isPending || me.isPending ? (
         <Card>
           <Skeleton lines={5} />
         </Card>
@@ -262,14 +272,16 @@ export function RegistryTargetsPage() {
                 onRetry={() => void targets.refetch()}
               />
             ) : null}
-            {targets.data?.items.length === 0 ? (
+            {!targets.isPending &&
+            !targets.error &&
+            targets.data?.items.length === 0 ? (
               <EmptyState
                 compact
                 icon="layers"
                 title="No registry targets"
                 description="Add an approved OCI endpoint before attaching an App policy."
               />
-            ) : (
+            ) : !targets.isPending && !targets.error ? (
               <div className="grid gap-4">
                 {targets.data?.items.map((target) => (
                   <article
@@ -326,7 +338,7 @@ export function RegistryTargetsPage() {
                   </article>
                 ))}
               </div>
-            )}
+            ) : null}
           </Card>
 
           {canWrite && me.data?.authentication.kind === "session" ? (
@@ -441,7 +453,9 @@ export function RegistryTargetsPage() {
                   <Button
                     type="submit"
                     busy={save.isPending}
-                    disabled={Boolean(editing && !editingIsCurrent)}
+                    disabled={Boolean(
+                      targets.error || (editing && !editingIsCurrent),
+                    )}
                   >
                     <Icon name="check" />{" "}
                     {editing ? "Save target" : "Add target"}

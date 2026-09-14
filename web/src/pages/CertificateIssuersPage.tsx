@@ -154,6 +154,7 @@ export function CertificateIssuersPage() {
   });
 
   const deactivateIssuer = (entry: CertificateIssuerAdminEntry) => {
+    if (catalog.error) return;
     const signature = JSON.stringify({
       issuerId: entry.id,
       revision: entry.currentRevision,
@@ -173,7 +174,7 @@ export function CertificateIssuersPage() {
   };
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (editing && !editingIsCurrent) return;
+    if (catalog.error || (editing && !editingIsCurrent)) return;
     const { name, ...input } = draft;
     save.mutate({
       editorScope,
@@ -206,6 +207,19 @@ export function CertificateIssuersPage() {
     replayKey.current = crypto.randomUUID();
   };
 
+  const loadError = principal.error ?? capabilities.error;
+
+  if (loadError)
+    return (
+      <Page narrow className="[&>header]:mb-0">
+        <ErrorPanel
+          error={loadError}
+          onRetry={() =>
+            void Promise.all([principal.refetch(), capabilities.refetch()])
+          }
+        />
+      </Page>
+    );
   if (principal.isPending || capabilities.isPending)
     return (
       <Page narrow className="[&>header]:mb-0">
@@ -385,7 +399,11 @@ export function CertificateIssuersPage() {
           <FormActions>
             <Button
               type="submit"
-              disabled={save.isPending || Boolean(editing && !editingIsCurrent)}
+              disabled={
+                Boolean(catalog.error) ||
+                save.isPending ||
+                Boolean(editing && !editingIsCurrent)
+              }
             >
               {save.isPending
                 ? "Publishing…"
@@ -419,92 +437,99 @@ export function CertificateIssuersPage() {
       </Card>
 
       {catalog.isPending ? <Skeleton lines={5} /> : null}
-      {catalog.error ? <ErrorPanel error={catalog.error} /> : null}
-      {catalog.data?.items.length === 0 ? (
+      {catalog.error ? (
+        <ErrorPanel
+          error={catalog.error}
+          onRetry={() => void catalog.refetch()}
+        />
+      ) : null}
+      {!catalog.error && catalog.data?.items.length === 0 ? (
         <EmptyState
           title="No managed issuers"
           description="Create an HTTP-01 or Cloudflare DNS-01 profile. Bootstrap chart issuers remain separately protected."
         />
       ) : null}
-      <div className="grid grid-cols-[repeat(auto-fill,_minmax(min(100%,_320px),_1fr))] items-start gap-4 to-700:grid-cols-[minmax(0,_1fr)]">
-        {catalog.data?.items.map((entry) => (
-          <Card key={entry.id}>
-            <CardHeader>
-              <div>
-                <h2>{entry.name}</h2>
-                <p>
-                  Revision {entry.currentRevision} · {shortId(entry.id)} ·{" "}
-                  {entry.revision.environment}
-                </p>
-              </div>
-              <StatusPill value={entry.lifecycle} label={entry.lifecycle} />
-            </CardHeader>
-            <DetailList>
-              <div>
-                <dt>Solver</dt>
-                <dd>{entry.revision.solver}</dd>
-              </div>
-              <div>
-                <dt>Materialization</dt>
-                <dd>{entry.observation.state}</dd>
-              </div>
-              <div>
-                <dt>ACME email</dt>
-                <dd>{entry.revision.email}</dd>
-              </div>
-              <div>
-                <dt>Account Secret</dt>
-                <dd>
-                  <code>{entry.revision.accountPrivateKeySecretName}</code>
-                </dd>
-              </div>
-              {entry.revision.solver === "dns01-cloudflare" ? (
-                <>
-                  <div>
-                    <dt>Zones</dt>
-                    <dd>{entry.revision.dnsZones?.join(", ")}</dd>
-                  </div>
-                  <div>
-                    <dt>Token Secret</dt>
-                    <dd>
-                      <code>
-                        {entry.revision.apiTokenSecretName}/
-                        {entry.revision.apiTokenSecretKey}
-                      </code>
-                    </dd>
-                  </div>
-                </>
+      {!catalog.error ? (
+        <div className="grid grid-cols-[repeat(auto-fill,_minmax(min(100%,_320px),_1fr))] items-start gap-4 to-700:grid-cols-[minmax(0,_1fr)]">
+          {catalog.data?.items.map((entry) => (
+            <Card key={entry.id}>
+              <CardHeader>
+                <div>
+                  <h2>{entry.name}</h2>
+                  <p>
+                    Revision {entry.currentRevision} · {shortId(entry.id)} ·{" "}
+                    {entry.revision.environment}
+                  </p>
+                </div>
+                <StatusPill value={entry.lifecycle} label={entry.lifecycle} />
+              </CardHeader>
+              <DetailList>
+                <div>
+                  <dt>Solver</dt>
+                  <dd>{entry.revision.solver}</dd>
+                </div>
+                <div>
+                  <dt>Materialization</dt>
+                  <dd>{entry.observation.state}</dd>
+                </div>
+                <div>
+                  <dt>ACME email</dt>
+                  <dd>{entry.revision.email}</dd>
+                </div>
+                <div>
+                  <dt>Account Secret</dt>
+                  <dd>
+                    <code>{entry.revision.accountPrivateKeySecretName}</code>
+                  </dd>
+                </div>
+                {entry.revision.solver === "dns01-cloudflare" ? (
+                  <>
+                    <div>
+                      <dt>Zones</dt>
+                      <dd>{entry.revision.dnsZones?.join(", ")}</dd>
+                    </div>
+                    <div>
+                      <dt>Token Secret</dt>
+                      <dd>
+                        <code>
+                          {entry.revision.apiTokenSecretName}/
+                          {entry.revision.apiTokenSecretKey}
+                        </code>
+                      </dd>
+                    </div>
+                  </>
+                ) : null}
+                <div>
+                  <dt>Updated</dt>
+                  <dd>{formatDate(entry.observation.updatedAt)}</dd>
+                </div>
+              </DetailList>
+              {entry.observation.reason ? (
+                <p>{entry.observation.reason}</p>
               ) : null}
-              <div>
-                <dt>Updated</dt>
-                <dd>{formatDate(entry.observation.updatedAt)}</dd>
-              </div>
-            </DetailList>
-            {entry.observation.reason ? (
-              <p>{entry.observation.reason}</p>
-            ) : null}
-            {entry.lifecycle === "active" ? (
-              <FormActions>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => edit(entry)}
-                >
-                  Revise
-                </Button>
-                <Button
-                  type="button"
-                  variant="danger"
-                  disabled={deactivate.isPending}
-                  onClick={() => setDeactivationCandidate(entry)}
-                >
-                  Deactivate
-                </Button>
-              </FormActions>
-            ) : null}
-          </Card>
-        ))}
-      </div>
+              {entry.lifecycle === "active" ? (
+                <FormActions>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => edit(entry)}
+                  >
+                    Revise
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="danger"
+                    disabled={deactivate.isPending}
+                    onClick={() => setDeactivationCandidate(entry)}
+                  >
+                    Deactivate
+                  </Button>
+                </FormActions>
+              ) : null}
+            </Card>
+          ))}
+        </div>
+      ) : null}
       {deactivate.error ? <ErrorPanel error={deactivate.error} /> : null}
       {deactivationCandidate ? (
         <ConfirmDialog
@@ -515,6 +540,7 @@ export function CertificateIssuersPage() {
           busy={deactivate.isPending}
           onCancel={() => setDeactivationCandidate(undefined)}
           onConfirm={() => {
+            if (catalog.error) return;
             const entry = deactivationCandidate;
             setDeactivationCandidate(undefined);
             deactivateIssuer(entry);

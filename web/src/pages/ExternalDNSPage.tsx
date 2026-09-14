@@ -342,7 +342,12 @@ export function ExternalDNSPage() {
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (editing && !editingIsCurrent) return;
+    if (
+      integrations.error ||
+      environments.error ||
+      (editing && !editingIsCurrent)
+    )
+      return;
     const nextErrors = validateDraft(draft);
     setErrors(nextErrors);
     if (
@@ -368,6 +373,7 @@ export function ExternalDNSPage() {
   };
 
   const deactivateIntegration = (integrationId: string) => {
+    if (integrations.error || environments.error) return;
     const signature = JSON.stringify({ integrationId });
     const idempotencyKey =
       deactivateAttempt.current?.signature === signature
@@ -409,7 +415,7 @@ export function ExternalDNSPage() {
         description="Configure protected managed or operator-adopted integrations. Managed runtime changes are published through the platform Git authority; credential values and provider API endpoints are never accepted here."
       />
 
-      {capabilities.isPending ? (
+      {capabilities.isPending || me.isPending ? (
         <Card>
           <Skeleton lines={5} />
         </Card>
@@ -419,6 +425,14 @@ export function ExternalDNSPage() {
             error={capabilities.error}
             onRetry={() => void capabilities.refetch()}
             title="Could not verify External DNS access"
+          />
+        </Card>
+      ) : me.error ? (
+        <Card>
+          <ErrorPanel
+            error={me.error}
+            title="Could not verify operator identity"
+            onRetry={() => void me.refetch()}
           />
         </Card>
       ) : !featureEnabled ? (
@@ -446,7 +460,11 @@ export function ExternalDNSPage() {
                 <h2>Controller readiness</h2>
               </div>
               <StatusPill
-                value={status.data?.controllerReadiness ?? "unobserved"}
+                value={
+                  status.error
+                    ? "unobserved"
+                    : (status.data?.controllerReadiness ?? "unobserved")
+                }
               />
             </CardHeader>
             {status.isPending ? <Skeleton lines={3} /> : null}
@@ -456,7 +474,7 @@ export function ExternalDNSPage() {
                 onRetry={() => void status.refetch()}
               />
             ) : null}
-            {status.data ? (
+            {status.data && !status.error ? (
               <Notice
                 tone={status.data.runtimeAvailable ? "success" : "warning"}
               >
@@ -484,7 +502,7 @@ export function ExternalDNSPage() {
                   <Eyebrow>Profiles</Eyebrow>
                   <h2>Authorized integration catalog</h2>
                 </div>
-                {integrations.data?.truncated ? (
+                {!integrations.error && integrations.data?.truncated ? (
                   <span className="inline-flex w-max min-h-[22px] items-center py-0 px-2 border border-line rounded-md text-ink-soft bg-surface-soft text-xs font-semibold whitespace-nowrap">
                     First 100
                   </span>
@@ -503,14 +521,14 @@ export function ExternalDNSPage() {
                   onRetry={() => void integrations.refetch()}
                 />
               ) : null}
-              {integrations.data?.items.length === 0 ? (
+              {!integrations.error && integrations.data?.items.length === 0 ? (
                 <EmptyState
                   compact
                   icon="route"
                   title="No External DNS integrations"
                   description="Add a profile and assign at least one exact environment. This does not advertise controller readiness."
                 />
-              ) : (
+              ) : !integrations.error ? (
                 <div className="grid gap-4">
                   {integrations.data?.items.map((integration) => (
                     <article
@@ -603,7 +621,7 @@ export function ExternalDNSPage() {
                     </article>
                   ))}
                 </div>
-              )}
+              ) : null}
             </Card>
 
             {canWrite && me.data?.authentication.kind === "session" ? (
@@ -850,14 +868,22 @@ export function ExternalDNSPage() {
                     </div>
                   </Field>
                   {environments.error ? (
-                    <ErrorPanel error={environments.error} />
+                    <ErrorPanel
+                      error={environments.error}
+                      title="Could not load environments"
+                      onRetry={() => void environments.refetch()}
+                    />
                   ) : null}
                   {saveError ? <ErrorPanel error={saveError} /> : null}
                   <FormActions>
                     <Button
                       type="submit"
                       busy={save.isPending}
-                      disabled={Boolean(editing && !editingIsCurrent)}
+                      disabled={
+                        Boolean(integrations.error) ||
+                        Boolean(environments.error) ||
+                        Boolean(editing && !editingIsCurrent)
+                      }
                     >
                       <Icon name="check" />{" "}
                       {editing ? "Save profile" : "Add profile"}
@@ -887,6 +913,7 @@ export function ExternalDNSPage() {
           busy={deactivate.isPending}
           onCancel={() => setDeactivationCandidate(undefined)}
           onConfirm={() => {
+            if (integrations.error || environments.error) return;
             const integration = deactivationCandidate;
             setDeactivationCandidate(undefined);
             deactivateIntegration(integration.id);

@@ -208,9 +208,11 @@ export function HelmApplicationsPanel({
     );
   }
   if (head.isPending || history.isPending) return <Skeleton lines={8} />;
-  const noRelease = head.error instanceof ApiError && head.error.status === 404;
+  const noRelease =
+    !head.data && head.error instanceof ApiError && head.error.status === 404;
   const loadError = noRelease ? history.error : (head.error ?? history.error);
   if (loadError) return <ErrorPanel error={loadError} onRetry={refresh} />;
+  const stateError = Boolean((head.error && !noRelease) || history.error);
 
   const valuesBytes = new TextEncoder().encode(valuesYaml).byteLength;
   const sourceValid =
@@ -221,6 +223,7 @@ export function HelmApplicationsPanel({
       : Boolean(source.chart?.trim()));
   const canSave = canDeploy && sourceValid && valuesBytes <= maximumValuesBytes;
   const save = () => {
+    if (stateError) return;
     if (!canSave) return;
     if (valuesYaml.trim()) {
       const document = parseDocument(valuesYaml, { uniqueKeys: true });
@@ -358,13 +361,18 @@ export function HelmApplicationsPanel({
           />
         </Field>
         <ButtonRow>
-          <Button onClick={save} busy={deploy.isPending} disabled={!canSave}>
+          <Button
+            onClick={save}
+            busy={deploy.isPending}
+            disabled={!canSave || stateError}
+          >
             <Icon name="deploy" />{" "}
             {head.data?.desiredEnabled ? "Update App" : "Deploy App"}
           </Button>
           {head.data?.desiredEnabled && canDeploy ? (
             <Button
               variant="danger"
+              disabled={stateError}
               onClick={() => setConfirmAction({ kind: "disable" })}
             >
               Disable App
@@ -373,6 +381,7 @@ export function HelmApplicationsPanel({
           {head.data?.state === "failed" && canRetry ? (
             <Button
               variant="secondary"
+              disabled={stateError}
               onClick={() => setConfirmAction({ kind: "retry" })}
             >
               Retry apply
@@ -436,6 +445,7 @@ export function HelmApplicationsPanel({
                 revision.id !== head.data?.id ? (
                   <Button
                     variant="secondary"
+                    disabled={stateError}
                     onClick={() =>
                       setConfirmAction({ kind: "rollback", revision })
                     }
@@ -468,7 +478,10 @@ export function HelmApplicationsPanel({
           }
           busy={action.isPending}
           onCancel={() => setConfirmAction(null)}
-          onConfirm={() => action.mutate(confirmAction)}
+          onConfirm={() => {
+            if (stateError) return;
+            action.mutate(confirmAction);
+          }}
         />
       ) : null}
     </div>

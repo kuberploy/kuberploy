@@ -116,6 +116,28 @@ afterEach(() => {
 });
 
 describe("new deployment runtime controls", () => {
+  it("surfaces a capability lookup failure and retries it", async () => {
+    const user = userEvent.setup();
+    const capabilities = vi
+      .mocked(api.capabilities)
+      .mockRejectedValueOnce(new Error("capabilities unavailable"))
+      .mockResolvedValue({ features: { git: true, argo: true } });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(<NewDeploymentPage />, { wrapper: wrapper(queryClient) });
+
+    expect(await screen.findByText("capabilities unavailable")).toBeVisible();
+    expect(screen.queryByText("Protected GitOps is not ready")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByText("capabilities unavailable"),
+      ).not.toBeInTheDocument(),
+    );
+    expect(capabilities).toHaveBeenCalledTimes(2);
+  });
+
   it("deploys from the selected App with optional settings collapsed and preserves edited values", async () => {
     const user = userEvent.setup();
     router.search.projectId = "project-1";

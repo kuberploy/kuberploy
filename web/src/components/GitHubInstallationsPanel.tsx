@@ -37,7 +37,8 @@ export function GitHubInstallationsPanel({
   });
 
   const beginSetup = async (existingInstallationId?: number) => {
-    if (!humanSession || !canSetup || setupPending) return;
+    if (!humanSession || !canSetup || setupPending || installations.error)
+      return;
     setupTarget.current = existingInstallationId;
     const targetKey = existingInstallationId?.toString() ?? "new";
     if (!setupKeys.current.has(targetKey)) {
@@ -70,7 +71,7 @@ export function GitHubInstallationsPanel({
             Kuberploy never exposes an App key or repository token to this UI.
           </p>
         </div>
-        {featureEnabled && humanSession && canSetup ? (
+        {featureEnabled && humanSession && canSetup && !installations.error ? (
           <Button onClick={() => void beginSetup()} busy={setupPending}>
             <Icon name="git" /> Install GitHub App
           </Button>

@@ -136,6 +136,7 @@ export function ProjectsPage() {
   });
 
   const submitProject = (value: ProjectForm) => {
+    if (loadError) return;
     const input = {
       name: value.name,
       slug: value.slug || undefined,
@@ -151,6 +152,7 @@ export function ProjectsPage() {
   };
 
   const submitEnvironment = (value: EnvironmentForm) => {
+    if (loadError) return;
     const input = { ...value, slug: value.slug || undefined };
     const signature = JSON.stringify(input);
     const idempotencyKey =
@@ -256,13 +258,17 @@ export function ProjectsPage() {
             {environmentProjects.length ? (
               <Button
                 variant="secondary"
+                disabled={Boolean(loadError)}
                 onClick={() => setPanel("environment")}
               >
                 <Icon name="plus" /> Environment
               </Button>
             ) : null}
             {canCreateProject ? (
-              <Button onClick={() => setPanel("project")}>
+              <Button
+                disabled={Boolean(loadError)}
+                onClick={() => setPanel("project")}
+              >
                 <Icon name="plus" /> Project
               </Button>
             ) : null}
@@ -356,7 +362,11 @@ export function ProjectsPage() {
                   ))}
                 </Select>
               </Field>
-              <Button type="submit" busy={createProject.isPending}>
+              <Button
+                type="submit"
+                busy={createProject.isPending}
+                disabled={Boolean(loadError)}
+              >
                 Create project
               </Button>
               {createProject.error ? (
@@ -423,7 +433,11 @@ export function ProjectsPage() {
                 </Select>
               </Field>
               <input type="hidden" {...environmentForm.register("slug")} />
-              <Button type="submit" busy={createEnvironment.isPending}>
+              <Button
+                type="submit"
+                busy={createEnvironment.isPending}
+                disabled={Boolean(loadError)}
+              >
                 Create environment
               </Button>
               {createEnvironment.error ? (
@@ -436,7 +450,7 @@ export function ProjectsPage() {
         </Card>
       ) : null}
 
-      {!loading && grouped.length ? (
+      {!loading && !loadError && grouped.length ? (
         <div className="flex items-center gap-4 mb-5 [&_input]:max-w-[560px] [&_input]:bg-surface [&_span]:ml-[auto] [&_span]:text-ink-soft [&_span]:text-xs [&_span]:whitespace-nowrap to-760:items-stretch to-760:flex-col to-760:[&_input]:max-w-[none] to-760:[&_span]:ml-0">
           <input
             type="search"
@@ -455,7 +469,7 @@ export function ProjectsPage() {
         <Card>
           <Skeleton lines={8} />
         </Card>
-      ) : visibleProjects.length ? (
+      ) : loadError ? null : visibleProjects.length ? (
         <div className="grid grid-cols-[repeat(auto-fill,_minmax(min(100%,_340px),_1fr))] gap-4 to-700:grid-cols-[minmax(0,_1fr)]">
           {visibleProjects.map(
             ({

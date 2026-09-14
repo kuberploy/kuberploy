@@ -418,13 +418,15 @@ export function VariableSetsView({ environmentId }: { environmentId: string }) {
               key={`${environment.data.id}:${snapshot.scope}:${snapshot.indexedRevision}:${snapshot.etag ?? "absent"}`}
               environment={environment.data}
               snapshot={snapshot}
-              canWrite={canWriteVariableScope(
-                capabilities.data?.capabilities ?? [],
-                me.data?.authentication.kind === "session",
-                snapshot,
-                environment.data,
-                project?.teamId,
-              )}
+              canWrite={
+                canWriteVariableScope(
+                  capabilities.data?.capabilities ?? [],
+                  me.data?.authentication.kind === "session",
+                  snapshot,
+                  environment.data,
+                  project?.teamId,
+                ) && !loadError
+              }
             />
           ))}
         </div>

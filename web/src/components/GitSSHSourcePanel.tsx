@@ -165,6 +165,7 @@ export function GitSSHSourcePanel({
     },
   });
   const mutate = (operation: "create" | "rotate" | "revoke") => {
+    if (selectedQuery.error) return;
     const idempotencyKey =
       attempt.current?.operation === operation &&
       attempt.current.scope === scope
@@ -325,13 +326,20 @@ export function GitSSHSourcePanel({
           }
         />
       )}
+      {definitions.error ? (
+        <ErrorPanel
+          error={definitions.error}
+          title="Git SSH source configuration could not be loaded"
+          onRetry={() => void definitions.refetch()}
+        />
+      ) : null}
       {mutation.error ? (
         <ErrorPanel
           error={mutation.error}
           title="Git SSH key operation failed"
         />
       ) : null}
-      {activeKey && buildConfigured && canManageBuilds ? (
+      {activeKey && buildConfigured && canManageBuilds && !definitions.error ? (
         <section className="grid gap-5 p-7 [&_+_.service-settings-section]:border-t [&_+_.service-settings-section]:border-t-line [&>.field]:max-w-[calc(50%_-_7px)] to-760:[&>.field]:max-w-[none]">
           <div className="[&_h2]:mt-1 [&_h2]:mx-0 [&_h2]:mb-0 [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:tracking-[-0.02em] [&_p]:mt-1.5 [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-ink-soft [&_p]:text-meta [&_p]:leading-[1.5] flex items-start justify-between gap-5">
             <div>
@@ -480,7 +488,10 @@ export function GitSSHSourcePanel({
           confirmLabel={confirmation === "rotate" ? "Rotate key" : "Revoke key"}
           busy={mutation.isPending}
           onCancel={() => setConfirmation(null)}
-          onConfirm={() => mutate(confirmation)}
+          onConfirm={() => {
+            if (selectedQuery.error) return;
+            mutate(confirmation);
+          }}
         />
       ) : null}
     </PageStack>

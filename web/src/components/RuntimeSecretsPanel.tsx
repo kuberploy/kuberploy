@@ -1050,7 +1050,11 @@ export function RuntimeSecretsPanel({
           </Select>
         </Field>
         {canCreate ? (
-          <Button type="button" onClick={() => setCreating((value) => !value)}>
+          <Button
+            type="button"
+            disabled={Boolean(list.error)}
+            onClick={() => setCreating((value) => !value)}
+          >
             <Icon name="plus" /> New binding
           </Button>
         ) : null}
@@ -1068,7 +1072,7 @@ export function RuntimeSecretsPanel({
         </Notice>
       ) : null}
 
-      {creating && canCreate ? (
+      {creating && canCreate && !list.error ? (
         <CreateSecretBindingForm
           application={application}
           environment={selectedEnvironment}
@@ -1094,7 +1098,7 @@ export function RuntimeSecretsPanel({
         <Card>
           <Skeleton lines={6} />
         </Card>
-      ) : list.data?.items.length ? (
+      ) : !list.error && list.data?.items.length ? (
         <div className="grid grid-cols-[minmax(250px,_0.7fr)_minmax(420px,_1.3fr)] items-start gap-4 to-1120:grid-cols-[1fr]">
           <Card className="overflow-hidden p-0 [&>div:last-child]:grid">
             <CardHeader bar>
@@ -1183,7 +1187,7 @@ export function RuntimeSecretsPanel({
             )}
           </div>
         </div>
-      ) : list.data && !creating ? (
+      ) : !list.error && list.data && !creating ? (
         <EmptyState
           icon="code"
           title="No runtime-secret bindings"

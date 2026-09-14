@@ -62,8 +62,9 @@ export function PlatformArgoGitBindingPage() {
   const bindingMissing = isStatus(binding.error, 404);
   const canSelectAuthority = humanPlatformAdmin && bindingMissing;
   const argoReady =
-    capabilities.data?.features?.argoCD === true ||
-    capabilities.data?.features?.argo === true;
+    !capabilities.error &&
+    (capabilities.data?.features?.argoCD === true ||
+      capabilities.data?.features?.argo === true);
   const installations = useQuery({
     queryKey: ["github-installations"],
     queryFn: api.githubInstallations,
@@ -98,6 +99,8 @@ export function PlatformArgoGitBindingPage() {
       ),
     [repositories.data],
   );
+  const catalogError = installations.error ?? repositories.error;
+  const catalogHealthy = !catalogError;
 
   const repositoryId = activeRepositories.some(
     (item) => item.id === repositoryChoice,
@@ -127,6 +130,7 @@ export function PlatformArgoGitBindingPage() {
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    if (!catalogHealthy) return;
     const branch = gitRefLabel(targetRef.trim());
     const exactRef = canonicalBranchRef(branch);
     if (!installationId || !repositoryId) {
@@ -177,6 +181,12 @@ export function PlatformArgoGitBindingPage() {
         <Card>
           <Skeleton lines={6} />
         </Card>
+      ) : me.error ? (
+        <ErrorPanel
+          error={me.error}
+          title="Could not verify platform administrator access"
+          onRetry={() => void me.refetch()}
+        />
       ) : !humanPlatformAdmin ? (
         <Card>
           <EmptyState
@@ -233,6 +243,13 @@ export function PlatformArgoGitBindingPage() {
               <dd>{formatDate(binding.data.updatedAt)}</dd>
             </div>
           </DetailList>
+          {capabilities.error ? (
+            <ErrorPanel
+              error={capabilities.error}
+              title="Could not verify Argo readiness"
+              onRetry={() => void capabilities.refetch()}
+            />
+          ) : null}
           <Notice role="status">
             <div>
               <strong>
@@ -297,7 +314,9 @@ export function PlatformArgoGitBindingPage() {
                   setRepositoryId("");
                   setConfirmed(false);
                 }}
-                disabled={installations.isPending || create.isPending}
+                disabled={
+                  !catalogHealthy || installations.isPending || create.isPending
+                }
               >
                 {installations.data?.items.length ? null : (
                   <option value="">No verified installation available</option>
@@ -318,7 +337,10 @@ export function PlatformArgoGitBindingPage() {
                   setConfirmed(false);
                 }}
                 disabled={
-                  !installationId || repositories.isPending || create.isPending
+                  !catalogHealthy ||
+                  !installationId ||
+                  repositories.isPending ||
+                  create.isPending
                 }
               >
                 {activeRepositories.length ? null : (
@@ -354,7 +376,7 @@ export function PlatformArgoGitBindingPage() {
                 type="checkbox"
                 checked={confirmed}
                 onChange={(event) => setConfirmed(event.target.checked)}
-                disabled={!repositoryId || create.isPending}
+                disabled={!catalogHealthy || !repositoryId || create.isPending}
               />
               <span>
                 I understand this repository and branch become the protected
@@ -377,6 +399,7 @@ export function PlatformArgoGitBindingPage() {
                 !confirmed ||
                 !installationId ||
                 !repositoryId ||
+                !catalogHealthy ||
                 installations.isPending ||
                 repositories.isPending
               }

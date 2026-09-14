@@ -122,6 +122,46 @@ describe("copyable invitation link", () => {
 });
 
 describe("team creation", () => {
+  it("surfaces bootstrap failures and retries the affected queries", async () => {
+    const user = userEvent.setup();
+    const me = vi
+      .spyOn(api, "me")
+      .mockRejectedValueOnce(new Error("session bootstrap unavailable"))
+      .mockResolvedValue({
+        id: "user_admin",
+        displayName: "Admin",
+        role: "platform-admin",
+        authentication: { kind: "session" },
+      });
+    vi.spyOn(api, "capabilities").mockResolvedValue({ capabilities: [] });
+    vi.spyOn(api, "teams").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "users").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "githubInstallations").mockResolvedValue({
+      items: [],
+      nextCursor: undefined,
+    });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={client}>
+        <TeamsPage />
+      </QueryClientProvider>,
+    );
+
+    expect(
+      await screen.findByText("session bootstrap unavailable"),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(me).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(
+        screen.queryByText("session bootstrap unavailable"),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
   it("preserves a newer team draft when the earlier create completes", async () => {
     vi.spyOn(api, "me").mockResolvedValue({
       id: "user_admin",

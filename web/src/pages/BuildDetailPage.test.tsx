@@ -60,6 +60,44 @@ afterEach(() => {
 });
 
 describe("build detail log availability", () => {
+  it("surfaces a capability lookup failure and retries it", async () => {
+    const user = userEvent.setup();
+    const capabilities = vi
+      .spyOn(api, "capabilities")
+      .mockRejectedValueOnce(new Error("capabilities unavailable"))
+      .mockResolvedValue({ features: { builds: false, buildLogs: false } });
+    vi.spyOn(api, "me").mockResolvedValue({
+      id: "user-safe",
+      displayName: "Build observer",
+      role: "viewer",
+      authentication: { kind: "session" },
+    });
+    vi.spyOn(api, "buildAttempt").mockResolvedValue(attempt);
+    vi.spyOn(api, "application").mockResolvedValue({
+      id: "application-safe",
+      projectId: "project-safe",
+      name: "API",
+    });
+    vi.spyOn(api, "projects").mockResolvedValue({
+      items: [{ id: "project-safe", name: "Payments" }],
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <BuildDetailPage />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("capabilities unavailable")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(
+      await screen.findByText("Source builds are not ready"),
+    ).toBeVisible();
+    expect(capabilities).toHaveBeenCalledTimes(2);
+  });
+
   it("waits through preparation and recovers when the running builder source appears", async () => {
     vi.useFakeTimers();
     const logs = vi

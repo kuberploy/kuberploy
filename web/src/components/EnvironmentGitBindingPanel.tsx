@@ -87,6 +87,8 @@ export function EnvironmentGitBindingPanel({
       ),
     [repositories.data],
   );
+  const catalogError = installations.error ?? repositories.error;
+  const catalogHealthy = !catalogError;
 
   const repositoryId = activeRepositories.some(
     (item) => item.id === repositoryChoice,
@@ -121,6 +123,7 @@ export function EnvironmentGitBindingPanel({
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    if (!catalogHealthy) return;
     const branch = gitRefLabel(targetRef.trim());
     const value = {
       installationId,
@@ -241,6 +244,7 @@ export function EnvironmentGitBindingPanel({
           <Field label="Verified installation" required>
             <Select
               value={installationId}
+              disabled={!catalogHealthy || create.isPending}
               onChange={(event) => {
                 setInstallationId(event.target.value);
                 setRepositoryId("");
@@ -258,7 +262,9 @@ export function EnvironmentGitBindingPanel({
           <Field label="Verified repository" required>
             <Select
               value={repositoryId}
-              disabled={!installationId || repositories.isPending}
+              disabled={
+                !catalogHealthy || !installationId || repositories.isPending
+              }
               onChange={(event) => {
                 setRepositoryId(event.target.value);
                 setConfirmed(false);
@@ -291,7 +297,7 @@ export function EnvironmentGitBindingPanel({
             <input
               type="checkbox"
               checked={confirmed}
-              disabled={!installationId || !repositoryId}
+              disabled={!catalogHealthy || !installationId || !repositoryId}
               onChange={(event) => setConfirmed(event.target.checked)}
             />
             <span>
@@ -302,7 +308,9 @@ export function EnvironmentGitBindingPanel({
           <Button
             type="submit"
             busy={create.isPending}
-            disabled={!installationId || !repositoryId || !confirmed}
+            disabled={
+              !catalogHealthy || !installationId || !repositoryId || !confirmed
+            }
           >
             <Icon name="git" /> Create Git authority
           </Button>

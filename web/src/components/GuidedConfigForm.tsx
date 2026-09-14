@@ -1221,6 +1221,7 @@ export function GuidedConfigForm({
                   <Select
                     disabled={
                       externalDNSCatalogPending ||
+                      Boolean(externalDNSCatalogError) ||
                       !automaticDNSRuntimeReady ||
                       selectedDNSIntegration?.runtimeAvailable === false
                     }

@@ -74,6 +74,12 @@ export function AuditPage() {
       </Card>
       {me.isPending || (canQuery && timeline.isPending) ? (
         <Skeleton lines={5} />
+      ) : me.error ? (
+        <ErrorPanel
+          error={me.error}
+          title="Could not verify audit access"
+          onRetry={() => void me.refetch()}
+        />
       ) : !canQuery ? (
         <EmptyState
           title="Choose one exact resource"

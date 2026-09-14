@@ -209,6 +209,7 @@ export function ApplicationPage() {
     (environment) => environment.id === deployment.data?.environmentId,
   );
   const canStop = Boolean(
+    !loadError &&
     application.data &&
     deployment.data &&
     helmEnvironment &&
@@ -222,6 +223,7 @@ export function ApplicationPage() {
     ),
   );
   const canDeploy = Boolean(
+    !loadError &&
     application.data &&
     deployment.data &&
     helmEnvironment &&
@@ -385,6 +387,7 @@ export function ApplicationPage() {
             setStopOpen(false);
           }}
           onConfirm={() => {
+            if (!canStop) return;
             const key = stopAttempt.current ?? crypto.randomUUID();
             stopAttempt.current = key;
             stopDeployment.mutate(key);
@@ -412,6 +415,7 @@ export function ApplicationPage() {
             setDeployOpen(false);
           }}
           onConfirm={() => {
+            if (!canDeploy) return;
             const key = deployAttempt.current ?? crypto.randomUUID();
             deployAttempt.current = key;
             redeployDeployment.mutate(key);

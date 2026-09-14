@@ -61,6 +61,7 @@ export function DeploymentRollbackPanel({
     enabled: allowed,
     retry: false,
   });
+  const catalogHealthy = !sources.error && !gitBundle.error;
   const [selected, setSelected] = useState<DeploymentRollbackCandidate>();
   const [confirmed, setConfirmed] = useState(false);
   const [idempotencyKey, setIdempotencyKey] = useState("");
@@ -175,6 +176,7 @@ export function DeploymentRollbackPanel({
               type="button"
               variant="secondary"
               onClick={() => {
+                if (!catalogHealthy) return;
                 setSelected(candidate);
                 setConfirmed(false);
                 setIdempotencyKey(crypto.randomUUID());
@@ -221,18 +223,20 @@ export function DeploymentRollbackPanel({
               variant="danger"
               busy={rollback.isPending}
               disabled={
+                !catalogHealthy ||
                 !confirmed ||
                 idempotencyKey === "" ||
                 gitBundle.data?.etag === undefined
               }
-              onClick={() =>
+              onClick={() => {
+                if (!catalogHealthy) return;
                 rollback.mutate({
                   deploymentId: deployment.id,
                   candidate: selected,
                   idempotencyKey,
                   gitETag: gitBundle.data?.etag ?? "",
-                })
-              }
+                });
+              }}
             >
               Confirm rollback
             </Button>

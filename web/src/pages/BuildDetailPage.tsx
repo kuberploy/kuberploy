@@ -117,6 +117,25 @@ export function BuildDetailPage() {
       </Page>
     );
   }
+  if (loadError) {
+    return (
+      <Page>
+        <PageHeader eyebrow="Delivery" title="Build detail" />
+        <ErrorPanel
+          error={loadError}
+          onRetry={() =>
+            void Promise.all([
+              me.refetch(),
+              capabilities.refetch(),
+              attempt.refetch(),
+              application.refetch(),
+              projects.refetch(),
+            ])
+          }
+        />
+      </Page>
+    );
+  }
   if (!buildsEnabled && !buildLogsEnabled) {
     return (
       <Page>
@@ -142,23 +161,6 @@ export function BuildDetailPage() {
             description="A coarse action union or an Environment-only grant does not authorize App-wide build metadata."
           />
         </Card>
-      </Page>
-    );
-  }
-  if (loadError) {
-    return (
-      <Page>
-        <PageHeader eyebrow="Delivery" title="Build detail" />
-        <ErrorPanel
-          error={loadError}
-          onRetry={() =>
-            void Promise.all([
-              attempt.refetch(),
-              application.refetch(),
-              projects.refetch(),
-            ])
-          }
-        />
       </Page>
     );
   }

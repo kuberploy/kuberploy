@@ -399,6 +399,7 @@ function CleanupPanel({
     });
   };
   const executePlan = (nextPlan: RegistryCleanupPlan) => {
+    if (status.error) return;
     const signature = JSON.stringify({
       planId: nextPlan.id,
       confirmation,
@@ -487,7 +488,8 @@ function CleanupPanel({
               className="grid gap-4 pt-4 border-t border-t-line [&_[data-slot='button']]:justify-self-start"
               onSubmit={(event) => {
                 event.preventDefault();
-                if (confirmation === plan.id) executePlan(plan);
+                if (!status.error && confirmation === plan.id)
+                  executePlan(plan);
               }}
             >
               <Field
@@ -511,7 +513,11 @@ function CleanupPanel({
                 type="submit"
                 variant="danger"
                 busy={execute.isPending}
-                disabled={confirmation !== plan.id || preview.isPending}
+                disabled={
+                  Boolean(status.error) ||
+                  confirmation !== plan.id ||
+                  preview.isPending
+                }
               >
                 Execute now
               </Button>
@@ -853,7 +859,7 @@ export function RegistryPanel({
               onRetry={() => void targets.refetch()}
             />
           ) : null}
-          {attachableTargets.length === 0 ? (
+          {targets.error ? null : attachableTargets.length === 0 ? (
             <MutedCopy>
               Every configured target is already attached to this App.
             </MutedCopy>

@@ -1,8 +1,10 @@
 import { openSelect, selectOption } from "../test/selectOption";
-import { cleanup, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { api } from "../api/client";
 import {
   defaultGuidedTraefikMiddleware,
   traefikMiddlewareKinds,
@@ -18,12 +20,18 @@ function Harness({
   issue = "",
   readOnly = false,
   editingUnavailableReason,
+  applicationId,
+  environmentId,
+  reusableProfilesEnabled = false,
 }: {
   initialDefinitions?: GuidedTraefikMiddleware[];
   initialRefs?: string[];
   issue?: string;
   readOnly?: boolean;
   editingUnavailableReason?: string;
+  applicationId?: string;
+  environmentId?: string;
+  reusableProfilesEnabled?: boolean;
 }) {
   const [state, setState] = useState({
     definitions: initialDefinitions,
@@ -37,12 +45,46 @@ function Harness({
       routeEnabled
       readOnly={readOnly}
       editingUnavailableReason={editingUnavailableReason}
+      applicationId={applicationId}
+      environmentId={environmentId}
+      reusableProfilesEnabled={reusableProfilesEnabled}
       onChange={setState}
     />
   );
 }
 
 describe("Traefik middleware Guided editor", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("surfaces reusable profile failures and retries the profile query", async () => {
+    const user = userEvent.setup();
+    const profiles = vi
+      .spyOn(api, "assignedMiddlewareProfiles")
+      .mockRejectedValueOnce(new Error("profile catalog unavailable"))
+      .mockResolvedValue({ items: [] });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <Harness
+          applicationId="application-1"
+          environmentId="environment-1"
+          reusableProfilesEnabled
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(
+      await screen.findByText("Could not load reusable profiles"),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(profiles).toHaveBeenCalledTimes(2));
+    expect(
+      screen.queryByText("Could not load reusable profiles"),
+    ).not.toBeInTheDocument();
+  });
+
   it("offers every allowlisted family as bounded controls without a JSON input", async () => {
     const user = userEvent.setup();
     render(<Harness />);

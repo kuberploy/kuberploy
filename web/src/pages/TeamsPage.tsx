@@ -316,6 +316,16 @@ export function TeamsPage() {
   });
 
   const submitTeam = (values: TeamForm) => {
+    if (
+      me.error ||
+      capabilities.error ||
+      teams.error ||
+      users.error ||
+      installations.error ||
+      members.error ||
+      accessibleTeamMembers.some((query) => query.error)
+    )
+      return;
     const input = { name: values.name, slug: values.slug || undefined };
     const signature = JSON.stringify(input);
     const idempotencyKey =
@@ -327,6 +337,16 @@ export function TeamsPage() {
   };
 
   const submitMember = (input: MemberForm) => {
+    if (
+      me.error ||
+      capabilities.error ||
+      teams.error ||
+      users.error ||
+      installations.error ||
+      members.error ||
+      accessibleTeamMembers.some((query) => query.error)
+    )
+      return;
     const signature = JSON.stringify({ teamId: selectedTeamId, input });
     const idempotencyKey =
       memberAttempt.current?.signature === signature
@@ -337,6 +357,16 @@ export function TeamsPage() {
   };
 
   const submitInvitation = (input: InvitationForm) => {
+    if (
+      me.error ||
+      capabilities.error ||
+      teams.error ||
+      users.error ||
+      installations.error ||
+      members.error ||
+      accessibleTeamMembers.some((query) => query.error)
+    )
+      return;
     const signature = JSON.stringify(input);
     const idempotencyKey =
       invitationAttempt.current?.signature === signature
@@ -359,19 +389,31 @@ export function TeamsPage() {
   );
   const availableUsers =
     users.data?.items.filter((user) => !memberIds.has(user.id)) ?? [];
+  const memberCatalogError = accessibleTeamMembers.find(
+    (query) => query.error,
+  )?.error;
+  const loadError =
+    me.error ??
+    capabilities.error ??
+    teams.error ??
+    users.error ??
+    installations.error ??
+    members.error ??
+    memberCatalogError;
   const canManageSelectedTeam =
-    me.data?.role === "platform-admin" ||
-    members.data?.items.some(
-      (member) => member.userId === me.data?.id && member.role === "owner",
-    ) ||
-    capabilities.data?.capabilities?.some(
-      (capability) =>
-        capability.actions?.includes("team-members:write") &&
-        ((capability.scopeType === "platform" &&
-          capability.scopeId === "platform") ||
-          (capability.scopeType === "team" &&
-            capability.scopeId === selectedTeamId)),
-    );
+    !loadError &&
+    (me.data?.role === "platform-admin" ||
+      members.data?.items.some(
+        (member) => member.userId === me.data?.id && member.role === "owner",
+      ) ||
+      capabilities.data?.capabilities?.some(
+        (capability) =>
+          capability.actions?.includes("team-members:write") &&
+          ((capability.scopeType === "platform" &&
+            capability.scopeId === "platform") ||
+            (capability.scopeType === "team" &&
+              capability.scopeId === selectedTeamId)),
+      ));
   const teamsById = useMemo(
     () => new Map(teams.data?.items.map((team) => [team.id, team]) ?? []),
     [teams.data],
@@ -403,8 +445,6 @@ export function TeamsPage() {
     );
   }, [me.data, teamOwnerIDs, teams.data]);
 
-  const loadError = teams.error ?? users.error ?? installations.error;
-
   return (
     <Page>
       <PageHeader
@@ -412,7 +452,10 @@ export function TeamsPage() {
         title="Teams & GitHub Apps"
         description="Group users for collaboration and explicitly choose whether each accessible GitHub App installation stays private or is shared with one team."
         actions={
-          <Button onClick={() => setCreateOpen(true)}>
+          <Button
+            disabled={Boolean(loadError)}
+            onClick={() => setCreateOpen(true)}
+          >
             <Icon name="plus" /> Create team
           </Button>
         }
@@ -423,9 +466,13 @@ export function TeamsPage() {
           error={loadError}
           onRetry={() =>
             void Promise.all([
+              me.refetch(),
+              capabilities.refetch(),
               teams.refetch(),
               users.refetch(),
               installations.refetch(),
+              selectedTeamId ? members.refetch() : Promise.resolve(),
+              ...accessibleTeamMembers.map((query) => query.refetch()),
             ])
           }
         />
@@ -471,7 +518,11 @@ export function TeamsPage() {
                 {...teamForm.register("slug")}
               />
             </Field>
-            <Button type="submit" busy={createTeam.isPending}>
+            <Button
+              type="submit"
+              busy={createTeam.isPending}
+              disabled={Boolean(loadError)}
+            >
               Create team
             </Button>
             {createTeam.error ? (
@@ -532,7 +583,11 @@ export function TeamsPage() {
               title="No team yet"
               description="Create a team before sharing a GitHub App installation."
               action={
-                <Button variant="secondary" onClick={() => setCreateOpen(true)}>
+                <Button
+                  variant="secondary"
+                  disabled={Boolean(loadError)}
+                  onClick={() => setCreateOpen(true)}
+                >
                   <Icon name="plus" /> Create team
                 </Button>
               }
@@ -553,6 +608,7 @@ export function TeamsPage() {
                 {canManageSelectedTeam ? (
                   <Button
                     variant="danger"
+                    disabled={Boolean(loadError)}
                     onClick={() => {
                       deleteTeam.reset();
                       setDeleteTeamTarget(selectedTeam);
@@ -709,7 +765,7 @@ export function TeamsPage() {
                     type="submit"
                     variant="secondary"
                     busy={addMember.isPending}
-                    disabled={!availableUsers.length}
+                    disabled={Boolean(loadError) || !availableUsers.length}
                   >
                     <Icon name="plus" /> Add member
                   </Button>
@@ -765,7 +821,11 @@ export function TeamsPage() {
                   })}
                 />
               </Field>
-              <Button type="submit" busy={createInvitation.isPending}>
+              <Button
+                type="submit"
+                busy={createInvitation.isPending}
+                disabled={Boolean(loadError)}
+              >
                 Create one-time invitation
               </Button>
               {createInvitation.error ? (
@@ -818,7 +878,9 @@ export function TeamsPage() {
                 </span>
                 <Button
                   variant="danger"
-                  disabled={user.id === me.data?.id || !user.email}
+                  disabled={
+                    Boolean(loadError) || user.id === me.data?.id || !user.email
+                  }
                   onClick={() => {
                     deleteUser.reset();
                     setDeleteUserTarget(user);
@@ -855,15 +917,16 @@ export function TeamsPage() {
                 ? teamsById.get(installation.teamId)
                 : undefined;
               const canManageSharing =
-                me.data?.role === "platform-admin" ||
-                me.data?.id === installation.ownerUserId ||
-                (installation.visibility === "team" &&
-                  Boolean(
-                    installation.teamId &&
-                    teamOwnerIDs
-                      .get(installation.teamId)
-                      ?.has(me.data?.id ?? ""),
-                  ));
+                !loadError &&
+                (me.data?.role === "platform-admin" ||
+                  me.data?.id === installation.ownerUserId ||
+                  (installation.visibility === "team" &&
+                    Boolean(
+                      installation.teamId &&
+                      teamOwnerIDs
+                        .get(installation.teamId)
+                        ?.has(me.data?.id ?? ""),
+                    )));
               return (
                 <article
                   className="grid min-h-[75px] grid-cols-[40px_minmax(150px,_1fr)_minmax(150px,_0.9fr)_minmax(120px,_0.7fr)_auto] items-center gap-3 py-3 px-3 border-b border-b-line last:border-b-0 to-1120:grid-cols-[40px_minmax(140px,_1fr)_minmax(130px,_0.9fr)_auto] to-1120:[&>[data-slot='button']]:row-[1_/_span_2] to-1120:[&>[data-slot='button']]:col-[4] to-820:grid-cols-[40px_minmax(0,_1fr)_auto] to-820:[&>[data-slot='button']]:row-[1_/_span_3] to-820:[&>[data-slot='button']]:col-[3] to-580:grid-cols-[35px_minmax(0,_1fr)] to-580:[&>[data-slot='button']]:row-[auto] to-580:[&>[data-slot='button']]:col-[2] to-580:[&>[data-slot='button']]:w-max to-580:[&>[data-slot='button']]:justify-self-start"
@@ -938,6 +1001,7 @@ export function TeamsPage() {
           error={changeSharing.error}
           onCancel={() => setShareTarget(null)}
           onConfirm={(input) => {
+            if (loadError) return;
             const signature = JSON.stringify({
               installationId: shareTarget.id,
               input,
@@ -970,7 +1034,10 @@ export function TeamsPage() {
             removeMember.reset();
             setRemoveTarget(null);
           }}
-          onConfirm={() => removeMember.mutate(removeTarget)}
+          onConfirm={() => {
+            if (loadError) return;
+            removeMember.mutate(removeTarget);
+          }}
         />
       ) : null}
       {deleteTeamTarget ? (
@@ -985,6 +1052,7 @@ export function TeamsPage() {
             setDeleteTeamTarget(null);
           }}
           onConfirm={() => {
+            if (loadError) return;
             const idempotencyKey =
               deleteTeamAttempt.current?.targetId === deleteTeamTarget.id
                 ? deleteTeamAttempt.current.key
@@ -1009,6 +1077,7 @@ export function TeamsPage() {
             setDeleteUserTarget(null);
           }}
           onConfirm={() => {
+            if (loadError) return;
             const idempotencyKey =
               deleteUserAttempt.current?.targetId === deleteUserTarget.id
                 ? deleteUserAttempt.current.key

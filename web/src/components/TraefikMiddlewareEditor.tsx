@@ -23,6 +23,7 @@ import {
 import {
   Select,
   Button,
+  ErrorPanel,
   Field,
   FieldLabel,
   FormGrid,
@@ -1019,6 +1020,13 @@ function ReusableProfileAttacher({
   });
   return (
     <div className="grid grid-cols-[minmax(220px,_360px)_auto] items-end gap-3 [&>[data-slot='button']]:justify-self-start to-760:grid-cols-[1fr]">
+      {profiles.error ? (
+        <ErrorPanel
+          error={profiles.error}
+          title="Could not load reusable profiles"
+          onRetry={() => void profiles.refetch()}
+        />
+      ) : null}
       <Field
         label="Reusable middleware profile"
         hint="Only exact active revisions assigned to this App and Environment are shown."
@@ -1043,7 +1051,11 @@ function ReusableProfileAttacher({
       <Button
         type="button"
         variant="secondary"
-        disabled={!selectedProfile || definitions.length >= 32}
+        disabled={
+          !selectedProfile ||
+          definitions.length >= 32 ||
+          Boolean(profiles.error)
+        }
         onClick={() => {
           const profile = profiles.data?.items.find(
             (candidate) =>

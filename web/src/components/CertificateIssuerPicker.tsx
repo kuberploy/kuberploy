@@ -44,7 +44,13 @@ export function CertificateIssuerPicker({
       <Select
         aria-label="Approved certificate issuer"
         value={value}
-        disabled={disabled || !enabled || !scoped || catalog.isPending}
+        disabled={
+          disabled ||
+          !enabled ||
+          !scoped ||
+          catalog.isPending ||
+          Boolean(catalog.error)
+        }
         onChange={(event) => onChange(event.target.value)}
       >
         <option value="">Choose an approved issuer…</option>

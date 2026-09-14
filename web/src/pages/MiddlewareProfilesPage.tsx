@@ -283,7 +283,7 @@ export function MiddlewareProfilesPage() {
   });
 
   const saveProfile = () => {
-    if (!editingIsCurrent) return;
+    if (catalog.error || !editingIsCurrent) return;
     const signature = JSON.stringify({
       profileId: editing?.profile.id,
       revision: editing?.revision.revision,
@@ -310,6 +310,7 @@ export function MiddlewareProfilesPage() {
   };
 
   const deactivateProfile = (entry: MiddlewareProfileEntry) => {
+    if (catalog.error) return;
     const signature = JSON.stringify({
       profileId: entry.profile.id,
       revision: entry.revision.revision,
@@ -323,6 +324,7 @@ export function MiddlewareProfilesPage() {
   };
 
   const cloneProfile = (entry: MiddlewareProfileEntry) => {
+    if (catalog.error) return;
     const signature = JSON.stringify({
       profileId: entry.profile.id,
       revision: entry.revision.revision,
@@ -337,11 +339,34 @@ export function MiddlewareProfilesPage() {
     clone.mutate({ entry, assignment, idempotencyKey });
   };
 
-  if (
-    [me, capabilities, projects, environments, applications].some(
-      (query) => query.isPending,
-    )
-  )
+  const loadError =
+    me.error ??
+    capabilities.error ??
+    projects.error ??
+    environments.error ??
+    applications.error;
+  const loading = [me, capabilities, projects, environments, applications].some(
+    (query) => query.isPending,
+  );
+
+  if (loadError)
+    return (
+      <Page narrow className="[&>header]:mb-0">
+        <ErrorPanel
+          error={loadError}
+          onRetry={() =>
+            void Promise.all([
+              me.refetch(),
+              capabilities.refetch(),
+              projects.refetch(),
+              environments.refetch(),
+              applications.refetch(),
+            ])
+          }
+        />
+      </Page>
+    );
+  if (loading)
     return (
       <Page narrow className="[&>header]:mb-0">
         <Skeleton lines={8} />
@@ -440,7 +465,7 @@ export function MiddlewareProfilesPage() {
               refs={[]}
               issue=""
               routeEnabled={false}
-              readOnly={!canMutate || save.isPending}
+              readOnly={!canMutate || save.isPending || Boolean(catalog.error)}
               applicationId={applicationId}
               environmentId={environmentId}
               onChange={({ definitions: next }) =>
@@ -458,6 +483,7 @@ export function MiddlewareProfilesPage() {
               <Button
                 disabled={
                   !canMutate ||
+                  Boolean(catalog.error) ||
                   !editingIsCurrent ||
                   !name.trim() ||
                   definitions.length !== 1
@@ -493,61 +519,68 @@ export function MiddlewareProfilesPage() {
                 title="Profile was not deleted"
               />
             ) : null}
-            {catalog.error ? <ErrorPanel error={catalog.error} /> : null}
-            {(catalog.data?.items ?? []).map((entry) => (
-              <div
-                className="flex items-center justify-between flex-wrap gap-y-2 gap-x-4 min-h-[60px] py-3 px-0 border-b border-b-line last:border-b-0"
-                key={entry.profile.id}
-              >
-                <div>
-                  <strong>{entry.profile.name}</strong>
-                  <small>
-                    Revision {entry.revision.revision} ·{" "}
-                    {Object.keys(entry.revision.spec)[0]}
-                  </small>
+            {catalog.isPending ? <Skeleton lines={5} /> : null}
+            {catalog.error ? (
+              <ErrorPanel
+                error={catalog.error}
+                onRetry={() => void catalog.refetch()}
+              />
+            ) : null}
+            {!catalog.error &&
+              (catalog.data?.items ?? []).map((entry) => (
+                <div
+                  className="flex items-center justify-between flex-wrap gap-y-2 gap-x-4 min-h-[60px] py-3 px-0 border-b border-b-line last:border-b-0"
+                  key={entry.profile.id}
+                >
+                  <div>
+                    <strong>{entry.profile.name}</strong>
+                    <small>
+                      Revision {entry.revision.revision} ·{" "}
+                      {Object.keys(entry.revision.spec)[0]}
+                    </small>
+                  </div>
+                  <StatusPill value={entry.profile.lifecycle} />
+                  <ButtonRow>
+                    <Button
+                      variant="secondary"
+                      disabled={entry.profile.lifecycle !== "active"}
+                      onClick={() => {
+                        const parsed = guidedTraefikMiddlewareState(
+                          [{ name: "profile-spec", spec: entry.revision.spec }],
+                          [],
+                        );
+                        if (!parsed.definitions[0]) return;
+                        editorSessionRef.current += 1;
+                        setEditing(entry);
+                        setName(entry.profile.name);
+                        setDefinitions(parsed.definitions);
+                      }}
+                    >
+                      Revise
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      disabled={
+                        !canMutate || entry.profile.lifecycle !== "active"
+                      }
+                      busy={clone.isPending}
+                      onClick={() => cloneProfile(entry)}
+                    >
+                      Clone
+                    </Button>
+                    <Button
+                      variant="danger"
+                      disabled={
+                        !canMutate || entry.profile.lifecycle !== "active"
+                      }
+                      busy={deactivate.isPending}
+                      onClick={() => setDeactivationCandidate(entry)}
+                    >
+                      Delete
+                    </Button>
+                  </ButtonRow>
                 </div>
-                <StatusPill value={entry.profile.lifecycle} />
-                <ButtonRow>
-                  <Button
-                    variant="secondary"
-                    disabled={entry.profile.lifecycle !== "active"}
-                    onClick={() => {
-                      const parsed = guidedTraefikMiddlewareState(
-                        [{ name: "profile-spec", spec: entry.revision.spec }],
-                        [],
-                      );
-                      if (!parsed.definitions[0]) return;
-                      editorSessionRef.current += 1;
-                      setEditing(entry);
-                      setName(entry.profile.name);
-                      setDefinitions(parsed.definitions);
-                    }}
-                  >
-                    Revise
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    disabled={
-                      !canMutate || entry.profile.lifecycle !== "active"
-                    }
-                    busy={clone.isPending}
-                    onClick={() => cloneProfile(entry)}
-                  >
-                    Clone
-                  </Button>
-                  <Button
-                    variant="danger"
-                    disabled={
-                      !canMutate || entry.profile.lifecycle !== "active"
-                    }
-                    busy={deactivate.isPending}
-                    onClick={() => setDeactivationCandidate(entry)}
-                  >
-                    Delete
-                  </Button>
-                </ButtonRow>
-              </div>
-            ))}
+              ))}
           </Card>
         </>
       ) : (
@@ -566,6 +599,7 @@ export function MiddlewareProfilesPage() {
           busy={deactivate.isPending}
           onCancel={() => setDeactivationCandidate(undefined)}
           onConfirm={() => {
+            if (catalog.error) return;
             const entry = deactivationCandidate;
             setDeactivationCandidate(undefined);
             deactivateProfile(entry);

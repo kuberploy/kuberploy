@@ -6,6 +6,7 @@ import {
   Card,
   CardHeader,
   EmptyState,
+  ErrorPanel,
   Eyebrow,
   Notice,
   Page,
@@ -66,6 +67,22 @@ export function UpgradePage() {
     release && canUpgrade
       ? `helm upgrade "$RELEASE_NAME" ${helmChart} --version ${release.version} --namespace "$NAMESPACE" --values "$VALUES_FILE" --reset-values --server-side=false --wait --timeout ${operatorHelmTimeout}`
       : "";
+
+  if (capabilities.error) {
+    return (
+      <Page>
+        <PageHeader
+          eyebrow="Platform settings"
+          title="Kuberploy releases"
+          description="Inspect the verified public release and compatibility envelope. Upgrade or rollback the installer Helm release with operator credentials; Kuberploy never mutates an Argo-owned child release."
+        />
+        <ErrorPanel
+          error={capabilities.error}
+          onRetry={() => void capabilities.refetch()}
+        />
+      </Page>
+    );
+  }
 
   return (
     <Page>

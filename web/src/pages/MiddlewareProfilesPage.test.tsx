@@ -24,6 +24,31 @@ function renderPage() {
 }
 
 describe("middleware profile management", () => {
+  it("surfaces a capability lookup failure and retries it", async () => {
+    const user = userEvent.setup();
+    const capabilities = vi
+      .spyOn(api, "capabilities")
+      .mockRejectedValueOnce(new Error("capabilities unavailable"))
+      .mockResolvedValue({ features: { middlewareProfiles: false } });
+    vi.spyOn(api, "me").mockResolvedValue({
+      id: "user-a",
+      displayName: "Admin",
+      role: "platform-admin",
+      authentication: { kind: "session" },
+    });
+    vi.spyOn(api, "projects").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "environments").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "applications").mockResolvedValue({ items: [] });
+    renderPage();
+
+    expect(await screen.findByText("capabilities unavailable")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(
+      await screen.findByText("Middleware profile management unavailable"),
+    ).toBeVisible();
+    expect(capabilities).toHaveBeenCalledTimes(2);
+  });
+
   it("does not query profile metadata for a service account", async () => {
     vi.spyOn(api, "me").mockResolvedValue({
       id: "user-a",

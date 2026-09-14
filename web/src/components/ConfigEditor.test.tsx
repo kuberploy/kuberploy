@@ -695,9 +695,28 @@ describe("deployment ConfigEditor preview binding", () => {
   );
 
   it("preserves real configuration failures for an image-backed stopped source App", async () => {
-    vi.spyOn(api, "deploymentConfig").mockRejectedValue(
-      new Error("Configuration projection missing"),
-    );
+    const configuration = vi
+      .spyOn(api, "deploymentConfig")
+      .mockRejectedValueOnce(new Error("Configuration projection missing"))
+      .mockResolvedValue({
+        kind: "ConfigBundle",
+        etag: `"sha256:${"a".repeat(64)}"`,
+        targetHeadRevision: "a".repeat(40),
+        indexedRevision: "a".repeat(40),
+        configRevision: "a".repeat(40),
+        freshness: "fresh",
+        documents: [
+          {
+            id: "app.yaml",
+            documentId: "app.yaml",
+            rawYaml: defaultConfigYaml({
+              name: "Saved App",
+              image: `registry.example/app@sha256:${"a".repeat(64)}`,
+              port: 8080,
+            }),
+          },
+        ],
+      });
     vi.spyOn(api, "capabilities").mockResolvedValue({
       features: {},
       capabilities: [],
@@ -732,6 +751,11 @@ describe("deployment ConfigEditor preview binding", () => {
     expect(
       await screen.findByText("Configuration could not be loaded"),
     ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(configuration).toHaveBeenCalledTimes(2));
+    expect(
+      screen.queryByText("Configuration could not be loaded"),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("heading", { name: "Build this App first" }),
     ).not.toBeInTheDocument();

@@ -7,7 +7,6 @@ import {
   Button,
   Card,
   ConfirmDialog,
-  EmptyState,
   ErrorPanel,
   Field,
   FormCardHeading,
@@ -216,9 +215,10 @@ export function RegistryPullCredentialsPanel({
   if (catalog.error || current.error) {
     return (
       <Card>
-        <EmptyState
-          title="Image pull credentials are unavailable"
-          description="The project credential catalog could not be loaded. No credential selection was changed."
+        <ErrorPanel
+          error={catalog.error ?? current.error}
+          title="Could not load image pull credentials"
+          onRetry={() => void refresh()}
         />
       </Card>
     );

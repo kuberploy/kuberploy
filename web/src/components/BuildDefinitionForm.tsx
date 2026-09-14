@@ -265,6 +265,8 @@ export function BuildDefinitionForm({
     },
   });
   const submit = (value: DefinitionForm) => {
+    if (installations.error || repositories.error || secretProfiles.error)
+      return;
     setParseError(undefined);
     setSavedSourceId("");
     try {
@@ -769,7 +771,13 @@ export function BuildDefinitionForm({
         <Button
           type="submit"
           busy={create.isPending}
-          disabled={noInstallations || noTargets}
+          disabled={
+            noInstallations ||
+            noTargets ||
+            Boolean(
+              installations.error || repositories.error || secretProfiles.error,
+            )
+          }
         >
           <Icon name="git" />{" "}
           {source ? "Save App source" : "Connect App source"}
