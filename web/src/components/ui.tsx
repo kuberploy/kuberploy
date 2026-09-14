@@ -584,6 +584,7 @@ type FieldControlProps = {
   id?: string;
   children?: ReactNode;
   "aria-describedby"?: string;
+  "aria-invalid"?: boolean | "true" | "false";
 };
 
 const labelableFieldControls = new Set([
@@ -597,6 +598,7 @@ function wireNestedFieldControl(
   node: ReactNode,
   controlId: string,
   descriptionId?: string,
+  invalid?: boolean,
 ): { node: ReactNode; wired: boolean } {
   if (!isValidElement<FieldControlProps>(node)) return { node, wired: false };
 
@@ -605,6 +607,7 @@ function wireNestedFieldControl(
       node: cloneElement(node, {
         id: node.props.id ?? controlId,
         "aria-describedby": node.props["aria-describedby"] ?? descriptionId,
+        "aria-invalid": node.props["aria-invalid"] ?? (invalid || undefined),
       }),
       wired: true,
     };
@@ -617,7 +620,12 @@ function wireNestedFieldControl(
   let wired = false;
   const nestedChildren = Children.map(node.props.children, (child) => {
     if (wired) return child;
-    const result = wireNestedFieldControl(child, controlId, descriptionId);
+    const result = wireNestedFieldControl(
+      child,
+      controlId,
+      descriptionId,
+      invalid,
+    );
     wired = result.wired;
     return result.node;
   });
@@ -651,9 +659,15 @@ export function Field({
       control = cloneElement(child, {
         id: controlId,
         "aria-describedby": child.props["aria-describedby"] ?? describedBy,
+        "aria-invalid": child.props["aria-invalid"] ?? (!!error || undefined),
       });
     } else {
-      const wired = wireNestedFieldControl(child, controlId, describedBy);
+      const wired = wireNestedFieldControl(
+        child,
+        controlId,
+        describedBy,
+        !!error,
+      );
       control = wired.node;
     }
   }

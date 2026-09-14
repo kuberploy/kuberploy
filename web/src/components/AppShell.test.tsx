@@ -94,6 +94,21 @@ describe("appearance", () => {
   });
 });
 
+describe("mobile navigation", () => {
+  it("closes the off-canvas nav on Escape", async () => {
+    const user = userEvent.setup();
+    renderShell({});
+
+    await user.click(screen.getByLabelText("Open navigation"));
+    // The off-canvas panel's own close button stays mounted (CSS-hidden) at
+    // any viewport, so the scrim button is what proves the open state here.
+    expect(screen.getAllByLabelText("Close navigation")).toHaveLength(2);
+
+    await user.keyboard("{Escape}");
+    expect(screen.getAllByLabelText("Close navigation")).toHaveLength(1);
+  });
+});
+
 describe("session logout", () => {
   it("marks the observed principal signed out after revocation", async () => {
     vi.spyOn(api, "logout").mockResolvedValue(undefined);
