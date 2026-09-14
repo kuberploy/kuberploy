@@ -749,6 +749,8 @@ jobs:
           set -Eeuo pipefail
           kp_k3s_pid=""
           kp_port_forward_pid=""
+          kp_web_port_forward_pid=""
+          kp_cloudflared_pid=""
           kp_cleanup() {
             kp_status=$?
             trap - EXIT
@@ -764,6 +766,14 @@ jobs:
                 --selector app.kubernetes.io/part-of=kuberploy \
                 --output custom-columns=NAMESPACE:.metadata.namespace,NAME:.metadata.name,PHASE:.status.phase \
                 2>/dev/null || true
+            fi
+            if [[ -n "${kp_cloudflared_pid}" ]]; then
+              kill "${kp_cloudflared_pid}" 2>/dev/null
+              wait "${kp_cloudflared_pid}" 2>/dev/null
+            fi
+            if [[ -n "${kp_web_port_forward_pid}" ]]; then
+              kill "${kp_web_port_forward_pid}" 2>/dev/null
+              wait "${kp_web_port_forward_pid}" 2>/dev/null
             fi
             if [[ -n "${kp_port_forward_pid}" ]]; then
               kill "${kp_port_forward_pid}" 2>/dev/null
@@ -908,6 +918,55 @@ jobs:
           curl --fail --silent --show-error http://127.0.0.1:18080/v1/meta \
             | jq -e --arg version "${VERSION}" '.version == $version' >/dev/null
 
+          kp_cloudflared_version='2026.9.1'
+          kp_cloudflared_sha256='03f1f25d1cc93b9ad6c60569d44060bc4f17ed97075760ed8cfca4b12dcd68cc'
+          kp_cloudflared_path="${RUNNER_TEMP}/cloudflared"
+          curl --fail --silent --show-error --location \
+            --output "${kp_cloudflared_path}" \
+            "https://github.com/cloudflare/cloudflared/releases/download/${kp_cloudflared_version}/cloudflared-linux-amd64"
+          printf '%s  %s\n' "${kp_cloudflared_sha256}" "${kp_cloudflared_path}" \
+            | sha256sum --check /dev/stdin
+          chmod 0755 "${kp_cloudflared_path}"
+
+          kubectl --context default --namespace kuberploy-system port-forward \
+            service/kuberploy-web 18081:8080 >"${RUNNER_TEMP}/web-port-forward.log" 2>&1 &
+          kp_web_port_forward_pid=$!
+          for _ in {1..60}; do
+            curl --fail --silent --show-error http://127.0.0.1:18081/healthz >/dev/null 2>&1 && break
+            sleep 1
+          done
+          [[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            http://127.0.0.1:18081/healthz)" == 200 ]]
+
+          "${kp_cloudflared_path}" tunnel --no-autoupdate \
+            --url http://127.0.0.1:18081 >"${RUNNER_TEMP}/cloudflared.log" 2>&1 &
+          kp_cloudflared_pid=$!
+          kp_public_url=""
+          for _ in {1..90}; do
+            kp_public_url="$(sed -nE \
+              's#.*(https://[a-z0-9-]+\.trycloudflare\.com).*#\1#p' \
+              "${RUNNER_TEMP}/cloudflared.log" \
+              | grep -v '^https://api\.trycloudflare\.com$' | head -n 1 || true)"
+            if [[ "${kp_public_url}" =~ ^https://[a-z0-9-]+\.trycloudflare\.com$ ]]; then
+              break
+            fi
+            sleep 1
+          done
+          [[ "${kp_public_url}" =~ ^https://[a-z0-9-]+\.trycloudflare\.com$ ]]
+          kp_public_health_code=""
+          for _ in {1..90}; do
+            kp_public_health_code="$(curl --silent --show-error --output /dev/null \
+              --write-out '%{http_code}' "${kp_public_url}/healthz" || true)"
+            [[ "${kp_public_health_code}" == 200 ]] && break
+            sleep 1
+          done
+          [[ "${kp_public_health_code}" == 200 ]]
+          curl --fail --silent --show-error "${kp_public_url}/" \
+            | grep -F '<!doctype html>' >/dev/null
+          curl --fail --silent --show-error "${kp_public_url}/v1/meta" \
+            | jq -e --arg version "${VERSION}" '.version == $version' >/dev/null
+          kp_public_base="${kp_public_url}"
+
           kp_bootstrap_job="$(kubectl --context default --namespace kuberploy-system get jobs.batch \
             --selector app.kubernetes.io/component=bootstrap-token -o json \
             | jq -er 'select((.items | length) == 1) | .items[0].metadata.name')"
@@ -931,7 +990,7 @@ jobs:
           [[ "$(curl --silent --show-error --cookie-jar "${kp_cookie_jar}" --dump-header "${kp_headers}" \
             --output "${kp_response}" --write-out '%{http_code}' \
             --header 'Content-Type: application/json' --data-binary "@${kp_request}" \
-            http://127.0.0.1:18080/v1/auth/bootstrap)" == 201 ]]
+            "${kp_public_base}/v1/auth/bootstrap")" == 201 ]]
           jq -e --arg email "${kp_admin_email}" \
             '.email == $email and .displayName == "Qualification Admin" and .role == "platform-admin" and (has("username") | not)' \
             "${kp_response}" >/dev/null
@@ -939,26 +998,30 @@ jobs:
           [[ -n "${kp_csrf}" ]]
           [[ "$(curl --silent --show-error --output "${kp_response}" --write-out '%{http_code}' \
             --header 'Content-Type: application/json' --data-binary "@${kp_request}" \
-            http://127.0.0.1:18080/v1/auth/bootstrap)" == 409 ]]
+            "${kp_public_base}/v1/auth/bootstrap")" == 409 ]]
           jq -e '.code == "BootstrapConsumed"' "${kp_response}" >/dev/null
           curl --fail --silent --show-error --cookie "${kp_cookie_jar}" \
-            http://127.0.0.1:18080/v1/me \
+            "${kp_public_base}/v1/me" \
             | jq -e --arg email "${kp_admin_email}" \
               '.email == $email and .displayName == "Qualification Admin" and .authentication.kind == "session" and (has("username") | not)' >/dev/null
           [[ "$(curl --silent --show-error --cookie "${kp_cookie_jar}" --cookie-jar "${kp_cookie_jar}" \
             --output /dev/null --write-out '%{http_code}' --request POST \
-            --header "X-CSRF-Token: ${kp_csrf}" http://127.0.0.1:18080/v1/auth/logout)" == 204 ]]
+            --header "X-CSRF-Token: ${kp_csrf}" "${kp_public_base}/v1/auth/logout")" == 204 ]]
           [[ "$(curl --silent --show-error --cookie "${kp_cookie_jar}" \
-            --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18080/v1/me)" == 401 ]]
+            --output /dev/null --write-out '%{http_code}' "${kp_public_base}/v1/me")" == 401 ]]
           jq -n --arg email "${kp_admin_email}" --arg password "${kp_admin_password}" \
             '{email:$email,password:$password}' >"${kp_request}"
           [[ "$(curl --silent --show-error --cookie-jar "${kp_cookie_jar}" \
             --output "${kp_response}" --write-out '%{http_code}' \
             --header 'Content-Type: application/json' --data-binary "@${kp_request}" \
-            http://127.0.0.1:18080/v1/auth/login)" == 200 ]]
+            "${kp_public_base}/v1/auth/login")" == 200 ]]
           jq -e --arg email "${kp_admin_email}" \
             '.email == $email and .displayName == "Qualification Admin" and (has("username") | not)' \
             "${kp_response}" >/dev/null
+          curl --fail --silent --show-error --cookie "${kp_cookie_jar}" \
+            "${kp_public_base}/v1/me" \
+            | jq -e --arg email "${kp_admin_email}" \
+              '.email == $email and .displayName == "Qualification Admin" and .authentication.kind == "session" and (has("username") | not)' >/dev/null
           echo "Fresh remote K3s installer qualification passed for ${VERSION}."
 
   repair-image-tags:

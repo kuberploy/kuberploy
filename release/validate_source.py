@@ -461,6 +461,14 @@ def main() -> None:
         "/v1/auth/login",
         "job/kuberploy-installer-application-health --all-containers=true",
         "for _ in {1..120}; do",
+        "kp_cloudflared_version='2026.9.1'",
+        "kp_cloudflared_sha256='03f1f25d1cc93b9ad6c60569d44060bc4f17ed97075760ed8cfca4b12dcd68cc'",
+        "cloudflared-linux-amd64",
+        "service/kuberploy-web 18081:8080",
+        "cloudflared.log",
+        "trycloudflare\\.com",
+        "grep -F '<!doctype html>'",
+        '"${kp_public_base}/v1/me"',
         "trap kp_cleanup EXIT",
     )
     missing_fresh_k3s = [control for control in fresh_k3s_controls if control not in fresh_k3s_job]
