@@ -1,6 +1,6 @@
 {
-  "breakingChanges": true,
-  "summary": "Desktop App and administration pages fail closed on failed refreshes instead of showing cached stale workspace, setup, monitoring, variables, or runtime action state. Add App validation rejects blank names before mutation; runtime views suppress stale inventory and metric samples, Helm saves create a fresh revision after completion, and source, Git SSH delivery, and ExternalDNS rollout state remain visible.",
+  "breakingChanges": false,
+  "summary": "Mobile navigation now closes on Escape, disabled Add App source cards no longer show a pointer cursor, and Field-driven form controls report aria-invalid when they carry a validation error.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.470"
+  "version": "0.1.0-rc.471"
 }
