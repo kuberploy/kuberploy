@@ -41,7 +41,11 @@ const tokenRecord: ServiceAccountToken = {
   name: "production deploy",
   prefix: "kp_sa_abcdefgh",
   scopes: ["app.read", "app.edit"],
-  expiresAt: "2026-09-01T00:00:00Z",
+  // A fixed date rots: tokenState() derives "active" vs "expired" from the
+  // real clock, so a hardcoded past-relative date eventually makes the
+  // fixture read as expired and hides the "Revoke" button this test looks
+  // for. Stay comfortably in the future instead.
+  expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
   createdBy: "user-admin",
   createdAt: "2026-08-09T00:01:00Z",
 };
