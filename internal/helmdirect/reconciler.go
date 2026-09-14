@@ -16,6 +16,7 @@ type ApplicationAPI interface {
 
 type ApplicationState struct {
 	Exists              bool
+	Generation          int64
 	EnvironmentID       string
 	ApplicationID       string
 	ProjectID           string
@@ -40,6 +41,19 @@ func (r ArgoReconciler) Reconcile(ctx context.Context, revision Revision) error 
 	}
 	name := ApplicationName(revision.Target.EnvironmentID, revision.Target.ApplicationID)
 	legacyName := legacyApplicationName(revision.Target.ApplicationID)
+	// A concurrent, later-generation reconcile can already have applied a
+	// newer revision by the time this call reaches Kubernetes (each
+	// revision's Argo write happens outside the database lock that orders
+	// revision creation). Applying or deleting on behalf of a stale
+	// revision here would silently discard that newer live state, so skip
+	// once a newer generation is already observed live.
+	live, err := r.API.Observe(ctx, r.Namespace, name)
+	if err != nil {
+		return err
+	}
+	if live.Exists && live.Generation >= revision.Generation {
+		return nil
+	}
 	if !revision.DesiredEnabled {
 		if err := r.API.Delete(ctx, r.Namespace, name); err != nil {
 			return err

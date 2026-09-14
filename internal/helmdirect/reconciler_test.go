@@ -87,6 +87,37 @@ func TestArgoReconcilerAppliesAndDeletesOnlyOwnedApplication(t *testing.T) {
 	}
 }
 
+func TestArgoReconcilerSkipsApplyWhenNewerGenerationIsAlreadyLive(t *testing.T) {
+	stale := renderFixture(SourceGit)
+	newer := renderFixture(SourceGit)
+	newer.Generation, newer.ID = 2, "66666666-6666-4666-8666-666666666666"
+	live := observedRevisionState(newer)
+	live.Generation = newer.Generation
+	api := &recordingApplicationAPI{state: live, exists: map[string]bool{
+		ApplicationName(stale.Target.EnvironmentID, stale.Target.ApplicationID): true,
+	}}
+	reconciler := ArgoReconciler{API: api, Namespace: ArgoNamespace}
+	if err := reconciler.Reconcile(t.Context(), stale); err != nil {
+		t.Fatalf("stale reconcile behind a newer live generation should be a no-op, got err=%v", err)
+	}
+	if len(api.applied) != 0 || len(api.deleted) != 0 {
+		t.Fatalf("stale reconcile must not mutate a newer live generation: applied=%d deleted=%v", len(api.applied), api.deleted)
+	}
+}
+
+func TestArgoReconcilerAppliesWhenLiveGenerationIsOlder(t *testing.T) {
+	current := renderFixture(SourceGit)
+	older := observedRevisionState(current)
+	older.Generation = current.Generation - 1
+	api := &recordingApplicationAPI{state: older, exists: map[string]bool{
+		ApplicationName(current.Target.EnvironmentID, current.Target.ApplicationID): true,
+	}}
+	reconciler := ArgoReconciler{API: api, Namespace: ArgoNamespace}
+	if err := reconciler.Reconcile(t.Context(), current); err != nil || len(api.applied) == 0 {
+		t.Fatalf("reconcile behind the current generation must still apply, err=%v applied=%d", err, len(api.applied))
+	}
+}
+
 func TestArgoReconcilerWaitsForHealthAndReportsArgoFailure(t *testing.T) {
 	revision := renderFixture(SourceHelmRepository)
 	settledAt := revision.UpdatedAt.Add(time.Second)

@@ -33,6 +33,26 @@ func TestInClusterApplicationAPIObserveParsesOwnershipAndReconcileTime(t *testin
 	}
 }
 
+func TestInClusterApplicationAPIObserveParsesGeneration(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write([]byte(`{"metadata":{"annotations":{"kuberploy.io/helm-generation":"7"}},"status":{"sync":{"status":"Synced"},"health":{"status":"Healthy"}}}`))
+	}))
+	t.Cleanup(server.Close)
+	tokenPath := t.TempDir() + "/token"
+	if err := os.WriteFile(tokenPath, []byte("test-token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	api := &InClusterApplicationAPI{baseURL: server.URL, tokenPath: tokenPath, http: server.Client()}
+	state, err := api.Observe(t.Context(), ArgoNamespace, "kp-h-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.Exists || state.Generation != 7 {
+		t.Fatalf("state=%+v", state)
+	}
+}
+
 func TestInClusterApplicationAPIObserveLeavesInvalidReconcileTimePending(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
 		response.Header().Set("Content-Type", "application/json")

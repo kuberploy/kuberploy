@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -105,7 +106,8 @@ func (c *InClusterApplicationAPI) Observe(ctx context.Context, namespace, name s
 	}
 	var payload struct {
 		Metadata struct {
-			Labels map[string]string `json:"labels"`
+			Labels      map[string]string `json:"labels"`
+			Annotations map[string]string `json:"annotations"`
 		} `json:"metadata"`
 		Spec struct {
 			Project string `json:"project"`
@@ -134,8 +136,10 @@ func (c *InClusterApplicationAPI) Observe(ctx context.Context, namespace, name s
 	if err = json.NewDecoder(limited).Decode(&payload); err != nil {
 		return ApplicationState{}, fmt.Errorf("decode Kubernetes Argo Application: %w", err)
 	}
+	generation, _ := strconv.ParseInt(payload.Metadata.Annotations["kuberploy.io/helm-generation"], 10, 64)
 	state := ApplicationState{
 		Exists:              true,
+		Generation:          generation,
 		EnvironmentID:       payload.Metadata.Labels["kuberploy.io/environment-id"],
 		ApplicationID:       payload.Metadata.Labels["kuberploy.io/application-id"],
 		ProjectID:           payload.Metadata.Labels["kuberploy.io/project-id"],
