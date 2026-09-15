@@ -1007,6 +1007,8 @@ func purgeDeletedSecretBindings(ctx context.Context, tx pgx.Tx, scopeColumn, sco
 	for _, statement := range []string{
 		`DELETE FROM secret_binding_references WHERE binding_id IN (` + bindingIDs + `)`,
 		`DELETE FROM secret_binding_runtime_reconciliations WHERE binding_id IN (` + bindingIDs + `)`,
+		`DELETE FROM tls_certificate_versions WHERE binding_id IN (` + bindingIDs + `)`,
+		`DELETE FROM registry_pull_credential_versions WHERE binding_id IN (` + bindingIDs + `)`,
 		`DELETE FROM secret_binding_versions WHERE binding_id IN (` + bindingIDs + `)`,
 		`DELETE FROM secret_bindings WHERE id IN (` + bindingIDs + `)`,
 	} {

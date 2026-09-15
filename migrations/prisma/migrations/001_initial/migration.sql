@@ -1186,7 +1186,10 @@ CREATE FUNCTION public.protect_tls_certificate_version() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 BEGIN
-    RAISE EXCEPTION 'certificate attestations are append-only' USING ERRCODE='23514';
+    IF TG_OP = 'UPDATE' THEN
+        RAISE EXCEPTION 'certificate attestations are append-only' USING ERRCODE='23514';
+    END IF;
+    RETURN OLD;
 END;
 $$;
 
@@ -1199,7 +1202,10 @@ CREATE FUNCTION public.protect_registry_pull_credential_version() RETURNS trigge
     LANGUAGE plpgsql
     AS $$
 BEGIN
-    RAISE EXCEPTION 'registry pull credential attestations are append-only' USING ERRCODE='23514';
+    IF TG_OP = 'UPDATE' THEN
+        RAISE EXCEPTION 'registry pull credential attestations are append-only' USING ERRCODE='23514';
+    END IF;
+    RETURN OLD;
 END;
 $$;
 
