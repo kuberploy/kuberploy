@@ -329,6 +329,70 @@ func TestPostgreSQLApplicationAndEnvironmentDeletion(t *testing.T) {
 	}
 	assertSecretHistoryIdentity(t, store, deletedBindingID, deletedVersionID)
 	assertSecretCleanupLockOrder(t, store, application.Value.ID, deletedBindingID, deletedVersionID)
+	// A registry pull credential or custom certificate binding also leaves a
+	// permanent append-only attestation row behind once deleted. App deletion
+	// must still succeed: the append-only trigger only blocks UPDATE, not the
+	// DELETE this cascade performs once the App itself is gone.
+	registryBindingID, registryVersionID := id.New(), id.New()
+	if _, err = store.pool.Exec(ctx, `INSERT INTO secret_bindings(
+		id,organization_id,project_id,environment_id,application_id,target_namespace,name,provider,state,
+		active_version,created_by,created_at,updated_at,delete_started_at,deleted_at,purpose)
+		VALUES($1,NULL,$2,$3,$4,$5,'deleted-registry-credential','sealed-secrets','deleted',0,$6,$7,$7,$7,$7,'registry-pull-credential')`,
+		registryBindingID, project.Value.ID, environment.Value.ID, application.Value.ID, environment.Value.Namespace, actorID, now); err != nil {
+		t.Fatal(err)
+	}
+	digest64 := "sha256:" + strings.Repeat("7", 64)
+	if _, err = store.pool.Exec(ctx, `INSERT INTO secret_binding_versions(
+		id,binding_id,version_number,provider,state,fingerprint_key_id,content_fingerprint,
+		provider_object_name,target_secret_name,provider_revision,manifest_digest,sealed_key_fingerprint,
+		ciphertext_digest,target_secret_type,staged_at,activated_at,retained_at,created_at,updated_at)
+		VALUES($1,$2,1,'sealed-secrets','retained','resource-delete-test',decode(repeat('00',32),'hex'),
+		'rc485-cred','rc485-cred','v1',$3,$3,$3,'kubernetes.io/dockerconfigjson',$4,$4,$4,$4,$4)`,
+		registryVersionID, registryBindingID, digest64, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.pool.Exec(ctx, `INSERT INTO secret_binding_events(
+		id,binding_id,version_id,actor_id,kind,request_id,occurred_at)
+		VALUES($1,$2,$3,$4,'version-staging',$5,$6)`, id.New(), registryBindingID,
+		registryVersionID, actorID, "registry-staging-"+suffix, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.pool.Exec(ctx, `INSERT INTO registry_pull_credential_versions(
+		version_id,binding_id,version_number,secret_content_fingerprint,host,username,created_by,created_at)
+		VALUES($1,$2,1,decode(repeat('00',32),'hex'),'registry.example.com','deletion-test-user',$3,$4)`,
+		registryVersionID, registryBindingID, actorID, now); err != nil {
+		t.Fatal(err)
+	}
+	tlsBindingID, tlsVersionID := id.New(), id.New()
+	if _, err = store.pool.Exec(ctx, `INSERT INTO secret_bindings(
+		id,organization_id,project_id,environment_id,application_id,target_namespace,name,provider,state,
+		active_version,created_by,created_at,updated_at,delete_started_at,deleted_at,purpose)
+		VALUES($1,NULL,$2,$3,$4,$5,'deleted-tls-certificate','sealed-secrets','deleted',0,$6,$7,$7,$7,$7,'tls-certificate')`,
+		tlsBindingID, project.Value.ID, environment.Value.ID, application.Value.ID, environment.Value.Namespace, actorID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.pool.Exec(ctx, `INSERT INTO secret_binding_versions(
+		id,binding_id,version_number,provider,state,fingerprint_key_id,content_fingerprint,
+		provider_object_name,target_secret_name,provider_revision,manifest_digest,sealed_key_fingerprint,
+		ciphertext_digest,target_secret_type,staged_at,activated_at,retained_at,created_at,updated_at)
+		VALUES($1,$2,1,'sealed-secrets','retained','resource-delete-test',decode(repeat('00',32),'hex'),
+		'rc485-tls','rc485-tls','v1',$3,$3,$3,'kubernetes.io/tls',$4,$4,$4,$4,$4)`,
+		tlsVersionID, tlsBindingID, digest64, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.pool.Exec(ctx, `INSERT INTO secret_binding_events(
+		id,binding_id,version_id,actor_id,kind,request_id,occurred_at)
+		VALUES($1,$2,$3,$4,'version-staging',$5,$6)`, id.New(), tlsBindingID,
+		tlsVersionID, actorID, "tls-staging-"+suffix, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.pool.Exec(ctx, `INSERT INTO tls_certificate_versions(
+		version_id,binding_id,version_number,secret_content_fingerprint,leaf_fingerprint,public_key_fingerprint,
+		dns_names,ip_addresses,not_before,not_after,created_by,created_at)
+		VALUES($1,$2,1,decode(repeat('00',32),'hex'),$3,$3,'["deletion-test.example.com"]'::jsonb,'[]'::jsonb,$4,$5,$6,$4)`,
+		tlsVersionID, tlsBindingID, digest64, now, now.Add(90*24*time.Hour), actorID); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = store.pool.Exec(ctx, `INSERT INTO mutation_receipts(
 		actor_id,receipt_kind,namespace,scope_key,idempotency_key,request_fingerprint,secret_binding_id,secret_version_id,created_at)
 		VALUES($1,'secret-binding','create',$2,$3,decode(repeat('11',32),'hex'),$4,$5,$6)`,
@@ -393,6 +457,15 @@ func TestPostgreSQLApplicationAndEnvironmentDeletion(t *testing.T) {
 	var deletedBindingExists bool
 	if err = store.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM secret_bindings WHERE id=$1)`, deletedBindingID).Scan(&deletedBindingExists); err != nil || deletedBindingExists {
 		t.Fatalf("deleted secret tombstone remained after App deletion exists=%t err=%v", deletedBindingExists, err)
+	}
+	var orphanedExtensionRows int
+	if err = store.pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM secret_bindings WHERE id IN ($1,$2)) +
+		(SELECT count(*) FROM secret_binding_versions WHERE id IN ($3,$4)) +
+		(SELECT count(*) FROM registry_pull_credential_versions WHERE binding_id=$1) +
+		(SELECT count(*) FROM tls_certificate_versions WHERE binding_id=$2)`,
+		registryBindingID, tlsBindingID, registryVersionID, tlsVersionID).Scan(&orphanedExtensionRows); err != nil || orphanedExtensionRows != 0 {
+		t.Fatalf("App deletion left registry-credential/TLS-certificate rows behind rows=%d err=%v", orphanedExtensionRows, err)
 	}
 	var retainedReceipt bool
 	if err = store.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM mutation_receipts WHERE secret_binding_id=$1 AND secret_version_id=$2)`, deletedBindingID, deletedVersionID).Scan(&retainedReceipt); err != nil || !retainedReceipt {
