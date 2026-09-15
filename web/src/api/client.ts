@@ -82,6 +82,10 @@ import type {
   ProjectRegistryPullCredential,
   ProjectRegistryPullCredentialCatalog,
   ApplicationRegistryPullSelection,
+  RegistryCredentialBindingDetail,
+  RegistryCredentialBindingMetadata,
+  CreateRegistryCredentialBinding,
+  RotateRegistryCredentialBinding,
   CreateRuntimeSecretBinding,
   RotateRuntimeSecretBinding,
   RotateCertificateBinding,
@@ -1036,6 +1040,39 @@ function safeCertificateDetail(
       ipAddresses: (version.ipAddresses ?? []).slice(0, 128),
       notBefore: version.notBefore,
       notAfter: version.notAfter,
+      createdBy: version.createdBy,
+      createdAt: version.createdAt,
+    })),
+  };
+}
+
+function safeRegistryCredentialMetadata(
+  binding: RegistryCredentialBindingMetadata,
+): RegistryCredentialBindingMetadata {
+  return {
+    id: binding.id,
+    applicationId: binding.applicationId,
+    environmentId: binding.environmentId,
+    name: binding.name,
+    state: binding.state,
+    activeVersion: binding.activeVersion,
+    createdBy: binding.createdBy,
+    createdAt: binding.createdAt,
+    updatedAt: binding.updatedAt,
+    deleteStartedAt: binding.deleteStartedAt,
+    deletedAt: binding.deletedAt,
+  };
+}
+
+function safeRegistryCredentialDetail(
+  binding: RegistryCredentialBindingDetail,
+): RegistryCredentialBindingDetail {
+  return {
+    ...safeRegistryCredentialMetadata(binding),
+    versions: (binding.versions ?? []).slice(0, 256).map((version) => ({
+      number: version.number,
+      host: version.host,
+      username: version.username,
       createdBy: version.createdBy,
       createdAt: version.createdAt,
     })),
@@ -2782,6 +2819,65 @@ export const api = {
       method: "DELETE",
       headers: { "Idempotency-Key": idempotencyKey },
     }),
+  registryCredentialBindings: (applicationId: string, environmentId?: string) => {
+    const query = new URLSearchParams();
+    if (environmentId !== undefined) query.set("environmentId", environmentId);
+    const search = query.toString();
+    return request<
+      | Collection<RegistryCredentialBindingMetadata>
+      | RegistryCredentialBindingMetadata[]
+    >(
+      `/v1/applications/${encodeURIComponent(applicationId)}/registry-credential-bindings${search ? `?${search}` : ""}`,
+    ).then((response): Collection<RegistryCredentialBindingMetadata> => {
+      const collection = asCollection(response);
+      return {
+        items: collection.items
+          .map(safeRegistryCredentialMetadata)
+          .filter(
+            (binding) =>
+              binding.applicationId === applicationId &&
+              (environmentId === undefined ||
+                binding.environmentId === environmentId),
+          ),
+        nextCursor: collection.nextCursor,
+      };
+    });
+  },
+  registryCredentialBinding: (bindingId: string) =>
+    request<RegistryCredentialBindingDetail>(
+      `/v1/registry-credential-bindings/${encodeURIComponent(bindingId)}`,
+    ).then(safeRegistryCredentialDetail),
+  createRegistryCredentialBinding: (
+    applicationId: string,
+    input: CreateRegistryCredentialBinding,
+    idempotencyKey: string,
+  ) =>
+    request<RegistryCredentialBindingDetail>(
+      `/v1/applications/${encodeURIComponent(applicationId)}/registry-credential-bindings`,
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: input,
+      },
+    ).then(safeRegistryCredentialDetail),
+  rotateRegistryCredentialBinding: (
+    bindingId: string,
+    input: RotateRegistryCredentialBinding,
+    idempotencyKey: string,
+  ) =>
+    request<RegistryCredentialBindingDetail>(
+      `/v1/registry-credential-bindings/${encodeURIComponent(bindingId)}/versions`,
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: input,
+      },
+    ).then(safeRegistryCredentialDetail),
+  deleteRegistryCredentialBinding: (bindingId: string, idempotencyKey: string) =>
+    request<void>(
+      `/v1/registry-credential-bindings/${encodeURIComponent(bindingId)}`,
+      { method: "DELETE", headers: { "Idempotency-Key": idempotencyKey } },
+    ),
   applicationSSLIPHostname: (applicationId: string, environmentId: string) => {
     const query = new URLSearchParams({ environmentId });
     return request<SSLIPHostnamePreview>(

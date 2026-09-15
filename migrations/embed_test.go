@@ -15,7 +15,7 @@ func TestMigrationHistoryMatchesPublishedBaseline(t *testing.T) {
 	if history[0].Name != "001_initial" {
 		t.Fatalf("first migration = %q, want 001_initial", history[0].Name)
 	}
-	const baselineChecksum = "ca8e0785834c44ea29fd318f548ebd543e0267e9efba6118296de5ea8f66264a"
+	const baselineChecksum = "aad19c2e589bb0992597707308b84653a51a8cde95f4a456f4d411c6bb9beda2"
 	if history[0].Checksum != baselineChecksum {
 		t.Fatalf("001_initial checksum = %q, want baseline checksum %q", history[0].Checksum, baselineChecksum)
 	}

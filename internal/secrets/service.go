@@ -160,7 +160,8 @@ func normalizeBindingPurpose(value BindingPurpose) BindingPurpose {
 
 func validPurposeTarget(purpose BindingPurpose, provider ProviderKind, targetType TargetSecretType) bool {
 	return purpose == PurposeRuntimeSecret && targetType == TargetSecretOpaque ||
-		purpose == PurposeTLSCertificate && provider == ProviderSealedSecrets && targetType == TargetSecretTLS
+		purpose == PurposeTLSCertificate && provider == ProviderSealedSecrets && targetType == TargetSecretTLS ||
+		purpose == PurposeRegistryPullCredential && provider == ProviderSealedSecrets && targetType == TargetSecretDockerConfigJSON
 }
 
 func (s Service) stage(ctx context.Context, result MutationResult, material *Material, actorID, requestID string) (MutationResult, error) {

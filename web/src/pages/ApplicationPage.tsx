@@ -23,9 +23,11 @@ import { OperationTimeline } from "../components/OperationTimeline";
 import { RuntimeSecretsPanel } from "../components/RuntimeSecretsPanel";
 import { RegistryPanel } from "../components/RegistryPanel";
 import { CertificateBindingsPanel } from "../components/CertificateBindingsPanel";
+import { RegistryCredentialsPanel } from "../components/RegistryCredentialsPanel";
 import { HelmApplicationsPanel } from "../components/HelmApplicationsPanel";
 import { DeploymentRollbackPanel } from "../components/DeploymentRollbackPanel";
 import { certificateEnvironments } from "../lib/certificateAccess";
+import { registryCredentialEnvironments } from "../lib/registryCredentialAccess";
 import { formatDate, shortId, titleCase } from "../lib/format";
 import { hasHelmCapability } from "../lib/helmAccess";
 import { hasRegistryApplicationCapability } from "../lib/registryAccess";
@@ -37,6 +39,7 @@ type Tab =
   | "config"
   | "variables"
   | "certificates"
+  | "registry-credentials"
   | "helm"
   | "releases"
   | "artifacts"
@@ -85,6 +88,8 @@ export function ApplicationPage() {
   const registryFeatureEnabled = capabilities.data?.features?.registry === true;
   const certificateFeatureEnabled =
     capabilities.data?.features?.customCertificates === true;
+  const registryCredentialFeatureEnabled =
+    capabilities.data?.features?.registryCredentials === true;
   const managedRegistryFeatureEnabled =
     capabilities.data?.features?.managedRegistry === true;
   const helmFeatureEnabled =
@@ -194,6 +199,18 @@ export function ApplicationPage() {
     : [];
   const showCertificatesTab =
     certificateFeatureEnabled && readableCertificateEnvironments.length > 0;
+  const readableRegistryCredentialEnvironments = application.data
+    ? registryCredentialEnvironments(
+        effectiveCapabilities,
+        "registry-credential-bindings:read",
+        application.data,
+        environments.data?.items ?? [],
+        applicationProject,
+      )
+    : [];
+  const showRegistryCredentialsTab =
+    registryCredentialFeatureEnabled &&
+    readableRegistryCredentialEnvironments.length > 0;
   const showArtifactsTab =
     registryFeatureEnabled &&
     Boolean(
@@ -315,6 +332,7 @@ export function ApplicationPage() {
     "config",
     ...(showVariablesTab ? (["variables"] as const) : []),
     ...(showCertificatesTab ? (["certificates"] as const) : []),
+    ...(showRegistryCredentialsTab ? (["registry-credentials"] as const) : []),
     ...(showHelmTab ? (["helm"] as const) : []),
     "releases",
     ...(showArtifactsTab ? (["artifacts"] as const) : []),
@@ -685,6 +703,17 @@ export function ApplicationPage() {
               project={applicationProject}
               capabilities={effectiveCapabilities}
               featureEnabled={certificateFeatureEnabled}
+              humanSession={me.data?.authentication.kind === "session"}
+            />
+          ) : null}
+          {activeTab === "registry-credentials" ? (
+            <RegistryCredentialsPanel
+              key={application.data.id}
+              application={application.data}
+              environments={environments.data?.items ?? []}
+              project={applicationProject}
+              capabilities={effectiveCapabilities}
+              featureEnabled={registryCredentialFeatureEnabled}
               humanSession={me.data?.authentication.kind === "session"}
             />
           ) : null}

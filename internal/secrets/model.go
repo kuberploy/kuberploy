@@ -85,12 +85,13 @@ const (
 type BindingPurpose string
 
 const (
-	PurposeRuntimeSecret  BindingPurpose = "runtime-secret"
-	PurposeTLSCertificate BindingPurpose = "tls-certificate"
+	PurposeRuntimeSecret          BindingPurpose = "runtime-secret"
+	PurposeTLSCertificate         BindingPurpose = "tls-certificate"
+	PurposeRegistryPullCredential BindingPurpose = "registry-pull-credential"
 )
 
 func (p BindingPurpose) valid() bool {
-	return p == PurposeRuntimeSecret || p == PurposeTLSCertificate
+	return p == PurposeRuntimeSecret || p == PurposeTLSCertificate || p == PurposeRegistryPullCredential
 }
 
 type VersionState string
@@ -111,12 +112,13 @@ const (
 type TargetSecretType string
 
 const (
-	TargetSecretOpaque TargetSecretType = "Opaque"
-	TargetSecretTLS    TargetSecretType = "kubernetes.io/tls"
+	TargetSecretOpaque           TargetSecretType = "Opaque"
+	TargetSecretTLS              TargetSecretType = "kubernetes.io/tls"
+	TargetSecretDockerConfigJSON TargetSecretType = "kubernetes.io/dockerconfigjson"
 )
 
 func (t TargetSecretType) valid() bool {
-	return t == TargetSecretOpaque || t == TargetSecretTLS
+	return t == TargetSecretOpaque || t == TargetSecretTLS || t == TargetSecretDockerConfigJSON
 }
 
 // Scope is the complete tenant and workload boundary. OrganizationID maps to

@@ -1425,6 +1425,52 @@ export type CertificateBindingReference = {
   version: number;
 };
 
+export type RegistryCredentialBindingState =
+  "provisioning" | "ready" | "deleting" | "deleted" | "failed";
+
+export type RegistryCredentialBindingMetadata = {
+  id: string;
+  applicationId: string;
+  environmentId: string;
+  name: string;
+  state: RegistryCredentialBindingState;
+  activeVersion?: number;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  deleteStartedAt?: string;
+  deletedAt?: string;
+};
+
+export type RegistryCredentialVersionMetadata = {
+  number: number;
+  host: string;
+  username: string;
+  createdBy: string;
+  createdAt: string;
+};
+
+export type RegistryCredentialBindingDetail = RegistryCredentialBindingMetadata & {
+  versions: RegistryCredentialVersionMetadata[];
+};
+
+export type CreateRegistryCredentialBinding = {
+  environmentId: string;
+  name: string;
+  host: string;
+  username: string;
+  password: string;
+  email?: string;
+};
+
+export type RotateRegistryCredentialBinding = {
+  expectedActiveVersion: number;
+  host: string;
+  username: string;
+  password: string;
+  email?: string;
+};
+
 export type SSLIPHostnamePreview = {
   mode: "sslip";
   hostname: string;

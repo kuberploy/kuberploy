@@ -25,6 +25,7 @@ var rolePermissions = map[domain.AccessRole][]domain.Permission{
 		domain.PermissionMetricsRead,
 		domain.PermissionSecretsRead,
 		domain.PermissionCertificatesRead,
+		domain.PermissionRegistryCredentialsRead,
 		domain.PermissionBuildsRead,
 		domain.PermissionHelmRead,
 		domain.PermissionRegistryRead,
@@ -41,6 +42,7 @@ var rolePermissions = map[domain.AccessRole][]domain.Permission{
 		domain.PermissionSecretsRead,
 		domain.PermissionSecretsBind,
 		domain.PermissionCertificatesRead,
+		domain.PermissionRegistryCredentialsRead,
 		domain.PermissionBuildsRead,
 		domain.PermissionBuildsCancel,
 		domain.PermissionBuildsRetry,
@@ -67,6 +69,10 @@ var rolePermissions = map[domain.AccessRole][]domain.Permission{
 		domain.PermissionCertificatesCreate,
 		domain.PermissionCertificatesRotate,
 		domain.PermissionCertificatesDelete,
+		domain.PermissionRegistryCredentialsRead,
+		domain.PermissionRegistryCredentialsCreate,
+		domain.PermissionRegistryCredentialsRotate,
+		domain.PermissionRegistryCredentialsDelete,
 		domain.PermissionBuildsRead,
 		domain.PermissionBuildsManage,
 		domain.PermissionBuildsCancel,
@@ -100,6 +106,10 @@ var rolePermissions = map[domain.AccessRole][]domain.Permission{
 		domain.PermissionCertificatesCreate,
 		domain.PermissionCertificatesRotate,
 		domain.PermissionCertificatesDelete,
+		domain.PermissionRegistryCredentialsRead,
+		domain.PermissionRegistryCredentialsCreate,
+		domain.PermissionRegistryCredentialsRotate,
+		domain.PermissionRegistryCredentialsDelete,
 		domain.PermissionBuildsRead,
 		domain.PermissionBuildsManage,
 		domain.PermissionBuildsCancel,
@@ -133,6 +143,10 @@ var rolePermissions = map[domain.AccessRole][]domain.Permission{
 		domain.PermissionCertificatesCreate,
 		domain.PermissionCertificatesRotate,
 		domain.PermissionCertificatesDelete,
+		domain.PermissionRegistryCredentialsRead,
+		domain.PermissionRegistryCredentialsCreate,
+		domain.PermissionRegistryCredentialsRotate,
+		domain.PermissionRegistryCredentialsDelete,
 		domain.PermissionBuildsRead,
 		domain.PermissionBuildsManage,
 		domain.PermissionBuildsCancel,
@@ -318,6 +332,14 @@ func permissionActions(permission domain.Permission, scope domain.AccessScopeTyp
 		return []string{"certificate-bindings:rotate"}
 	case domain.PermissionCertificatesDelete:
 		return []string{"certificate-bindings:delete"}
+	case domain.PermissionRegistryCredentialsRead:
+		return []string{"registry-credential-bindings:read"}
+	case domain.PermissionRegistryCredentialsCreate:
+		return []string{"registry-credential-bindings:create"}
+	case domain.PermissionRegistryCredentialsRotate:
+		return []string{"registry-credential-bindings:rotate"}
+	case domain.PermissionRegistryCredentialsDelete:
+		return []string{"registry-credential-bindings:delete"}
 	case domain.PermissionBuildsRead:
 		return []string{"app-sources:read", "builds:read"}
 	case domain.PermissionBuildsManage:

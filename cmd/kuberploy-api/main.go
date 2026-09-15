@@ -258,6 +258,13 @@ func run() error {
 	if certificateRuntime != nil {
 		defer certificateRuntime.Close()
 	}
+	registryCredentialRuntime, err := newRegistryCredentialAPI(ctx, databaseURL, runtimeSecretConfig)
+	if err != nil {
+		return err
+	}
+	if registryCredentialRuntime != nil {
+		defer registryCredentialRuntime.Close()
+	}
 	gitProjection, err := newGitProjectionAPI(ctx, databaseURL, gitProjectionConfig, runtimeSecretConfig, certificateObservationConfig, certificateIssuerConfig, runtimeRegistryPullConfig, edgeRuntimeConfig, externalDNSOperationalConfig, db)
 	if err != nil {
 		return err
@@ -350,6 +357,7 @@ func run() error {
 	var certificateBackend httpapi.CertificateManagementBackend
 	var certificateReadiness httpapi.ReadinessProbe
 	var certificateReferences httpapi.CertificateReferenceBackend
+	var registryCredentialBackend httpapi.RegistryCredentialManagementBackend
 	var helmApplicationBackend httpapi.HelmApplicationBackend
 	if sourceBuilds != nil {
 		githubSetup, githubWebhook, buildBackend, buildReadiness, builderSettings = sourceBuilds.setup, sourceBuilds.webhook, sourceBuilds.backend, sourceBuilds.readiness, sourceBuilds.settings
@@ -384,6 +392,9 @@ func run() error {
 		if err = db.ConfigureCertificateReferences(certificateRuntime.resolver); err != nil {
 			return err
 		}
+	}
+	if registryCredentialRuntime != nil {
+		registryCredentialBackend = registryCredentialRuntime.backend
 	}
 	if helmApplications != nil {
 		helmApplicationBackend = helmApplications.runtime
@@ -425,7 +436,7 @@ func run() error {
 		GitHubSetup: githubSetup, GitHubWebhook: githubWebhook, Builds: buildBackend, SourceDeployments: sourceDeploymentBackend, BuildPromotions: buildPromotions, BuildLogs: buildLogService, GitBindingRepositories: gitBindingRepositories, PlatformGitBinding: platformGitBindingConfig, BuildReadiness: buildReadiness, BuilderSettings: builderSettings, BuildLogReadiness: buildLogReadiness, ValkeyReadiness: valkeyReadinessProbe{pinger: releaseCache}, OperationCache: operationCache, AppConfigRenderedPreviews: appConfigRenderedPreviews,
 		GitProjection: gitProjectionBackend, GitProjectionReadiness: gitProjectionReadiness, ArgoReadiness: argoReadiness,
 		RuntimeSecrets: runtimeSecretBackend, RuntimeSecretReadiness: runtimeSecretReadiness,
-		Certificates: certificateBackend, CertificateReadiness: certificateReadiness, CertificateReferences: certificateReferences, CertificateIssuers: certificateIssuerCatalog,
+		Certificates: certificateBackend, CertificateReadiness: certificateReadiness, RegistryCredentials: registryCredentialBackend, CertificateReferences: certificateReferences, CertificateIssuers: certificateIssuerCatalog,
 		CertificateIssuerAdmin: certificateIssuerAdmin, CertificateIssuerRuntimeReadiness: certificateIssuerReadiness,
 		RegistryPullReadiness: runtimeRegistryPullReadiness(runtimeRegistryPulls), RegistryPulls: db, RegistryPullConfig: runtimeRegistryPullConfig,
 		ImageResolution: imageResolution,

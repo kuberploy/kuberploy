@@ -210,6 +210,7 @@ func (s *Server) capabilities(w http.ResponseWriter, r *http.Request) {
 			"helmDeployments":      helmDeploymentsConfigured, "helmRollbacks": helmRollbacksConfigured,
 			"rollbacks":   aggregateRollbacksConfigured(deploymentRollbacksConfigured, helmRollbacksConfigured),
 			"certManager": certManagerConfigured, "customCertificates": customCertificatesConfigured,
+			"registryCredentials":         s.registryCredentials != nil,
 			"certificateIssuerCatalog":    certManagerConfigured && s.certificateIssuers != nil,
 			"certificateIssuerManagement": certificateIssuerManagementConfigured,
 			"sslip":                       sslipConfigured,

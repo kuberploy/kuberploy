@@ -22,31 +22,34 @@ type highRiskPolicy struct {
 }
 
 var (
-	bootstrapLimit           = highRiskPolicy{bucket: "auth-bootstrap", limit: 5, window: 15 * time.Minute}
-	loginLimit               = highRiskPolicy{bucket: "auth-login", limit: 30, window: 15 * time.Minute}
-	invitationAcceptLimit    = highRiskPolicy{bucket: "auth-invitation-accept", limit: 30, window: 15 * time.Minute}
-	invitationIssueLimit     = highRiskPolicy{bucket: "auth-invitation-issue", limit: 20, window: time.Hour}
-	accessControlLimit       = highRiskPolicy{bucket: "access-control", limit: 100, window: time.Hour}
-	serviceAccountLimit      = highRiskPolicy{bucket: "service-account", limit: 30, window: time.Hour}
-	secretCreateLimit        = highRiskPolicy{bucket: "runtime-secret-create", limit: 30, window: time.Hour}
-	secretRotateLimit        = highRiskPolicy{bucket: "runtime-secret-rotate", limit: 60, window: time.Hour}
-	secretDeleteLimit        = highRiskPolicy{bucket: "runtime-secret-delete", limit: 30, window: time.Hour}
-	certificateCreateLimit   = highRiskPolicy{bucket: "certificate-binding-create", limit: 20, window: time.Hour}
-	certificateRotateLimit   = highRiskPolicy{bucket: "certificate-binding-rotate", limit: 30, window: time.Hour}
-	certificateDeleteLimit   = highRiskPolicy{bucket: "certificate-binding-delete", limit: 20, window: time.Hour}
-	githubSetupLimit         = highRiskPolicy{bucket: "github-setup", limit: 20, window: time.Hour}
-	gitBindingLimit          = highRiskPolicy{bucket: "git-binding", limit: 30, window: time.Hour}
-	gitSSHKeyLimit           = highRiskPolicy{bucket: "git-ssh-key", limit: 30, window: time.Hour}
-	variableSetMutationLimit = highRiskPolicy{bucket: "variable-set-mutation", limit: 120, window: time.Hour}
-	platformGitBindingLimit  = highRiskPolicy{bucket: "argo-platform-git-binding", limit: 10, window: time.Hour}
-	buildDefinitionLimit     = highRiskPolicy{bucket: "build-definition", limit: 30, window: time.Hour}
-	buildCommandLimit        = highRiskPolicy{bucket: "build-command", limit: 60, window: time.Hour}
-	deploymentRollbackLimit  = highRiskPolicy{bucket: "deployment-rollback", limit: 60, window: time.Hour}
-	registryTargetLimit      = highRiskPolicy{bucket: "registry-target", limit: 30, window: time.Hour}
-	registryPolicyLimit      = highRiskPolicy{bucket: "registry-policy", limit: 60, window: time.Hour}
-	registryPreviewLimit     = highRiskPolicy{bucket: "registry-cleanup-preview", limit: 30, window: time.Hour}
-	registryExecuteLimit     = highRiskPolicy{bucket: "registry-cleanup-execute", limit: 10, window: time.Hour}
-	externalDNSManageLimit   = highRiskPolicy{bucket: "external-dns-integration", limit: 30, window: time.Hour}
+	bootstrapLimit                = highRiskPolicy{bucket: "auth-bootstrap", limit: 5, window: 15 * time.Minute}
+	loginLimit                    = highRiskPolicy{bucket: "auth-login", limit: 30, window: 15 * time.Minute}
+	invitationAcceptLimit         = highRiskPolicy{bucket: "auth-invitation-accept", limit: 30, window: 15 * time.Minute}
+	invitationIssueLimit          = highRiskPolicy{bucket: "auth-invitation-issue", limit: 20, window: time.Hour}
+	accessControlLimit            = highRiskPolicy{bucket: "access-control", limit: 100, window: time.Hour}
+	serviceAccountLimit           = highRiskPolicy{bucket: "service-account", limit: 30, window: time.Hour}
+	secretCreateLimit             = highRiskPolicy{bucket: "runtime-secret-create", limit: 30, window: time.Hour}
+	secretRotateLimit             = highRiskPolicy{bucket: "runtime-secret-rotate", limit: 60, window: time.Hour}
+	secretDeleteLimit             = highRiskPolicy{bucket: "runtime-secret-delete", limit: 30, window: time.Hour}
+	certificateCreateLimit        = highRiskPolicy{bucket: "certificate-binding-create", limit: 20, window: time.Hour}
+	certificateRotateLimit        = highRiskPolicy{bucket: "certificate-binding-rotate", limit: 30, window: time.Hour}
+	certificateDeleteLimit        = highRiskPolicy{bucket: "certificate-binding-delete", limit: 20, window: time.Hour}
+	registryCredentialCreateLimit = highRiskPolicy{bucket: "registry-credential-binding-create", limit: 20, window: time.Hour}
+	registryCredentialRotateLimit = highRiskPolicy{bucket: "registry-credential-binding-rotate", limit: 30, window: time.Hour}
+	registryCredentialDeleteLimit = highRiskPolicy{bucket: "registry-credential-binding-delete", limit: 20, window: time.Hour}
+	githubSetupLimit              = highRiskPolicy{bucket: "github-setup", limit: 20, window: time.Hour}
+	gitBindingLimit               = highRiskPolicy{bucket: "git-binding", limit: 30, window: time.Hour}
+	gitSSHKeyLimit                = highRiskPolicy{bucket: "git-ssh-key", limit: 30, window: time.Hour}
+	variableSetMutationLimit      = highRiskPolicy{bucket: "variable-set-mutation", limit: 120, window: time.Hour}
+	platformGitBindingLimit       = highRiskPolicy{bucket: "argo-platform-git-binding", limit: 10, window: time.Hour}
+	buildDefinitionLimit          = highRiskPolicy{bucket: "build-definition", limit: 30, window: time.Hour}
+	buildCommandLimit             = highRiskPolicy{bucket: "build-command", limit: 60, window: time.Hour}
+	deploymentRollbackLimit       = highRiskPolicy{bucket: "deployment-rollback", limit: 60, window: time.Hour}
+	registryTargetLimit           = highRiskPolicy{bucket: "registry-target", limit: 30, window: time.Hour}
+	registryPolicyLimit           = highRiskPolicy{bucket: "registry-policy", limit: 60, window: time.Hour}
+	registryPreviewLimit          = highRiskPolicy{bucket: "registry-cleanup-preview", limit: 30, window: time.Hour}
+	registryExecuteLimit          = highRiskPolicy{bucket: "registry-cleanup-execute", limit: 10, window: time.Hour}
+	externalDNSManageLimit        = highRiskPolicy{bucket: "external-dns-integration", limit: 30, window: time.Hour}
 )
 
 type rateLimitSubject func(*http.Request) (string, error)

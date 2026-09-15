@@ -1786,6 +1786,22 @@ model tls_certificate_versions {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model registry_pull_credential_versions {
+  version_id                 String   @id @db.Uuid
+  binding_id                 String   @db.Uuid
+  version_number             BigInt
+  secret_content_fingerprint Bytes
+  host                       String
+  username                   String
+  created_by                 String   @db.Uuid
+  created_at                 DateTime @db.Timestamptz(6)
+
+  @@unique([binding_id, version_number])
+  @@unique([version_id, binding_id])
+  @@index([binding_id, version_number], map: "registry_pull_credential_versions_binding_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model user_invitations {
   id               String    @id @db.Uuid
   token_hash       Bytes     @unique

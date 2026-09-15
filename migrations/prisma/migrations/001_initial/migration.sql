@@ -167,7 +167,9 @@ BEGIN
     IF NOT (
         (binding_purpose='runtime-secret' AND NEW.target_secret_type='Opaque') OR
         (binding_purpose='tls-certificate' AND binding_provider='sealed-secrets'
-         AND NEW.provider='sealed-secrets' AND NEW.target_secret_type='kubernetes.io/tls')
+         AND NEW.provider='sealed-secrets' AND NEW.target_secret_type='kubernetes.io/tls') OR
+        (binding_purpose='registry-pull-credential' AND binding_provider='sealed-secrets'
+         AND NEW.provider='sealed-secrets' AND NEW.target_secret_type='kubernetes.io/dockerconfigjson')
     ) THEN
         RAISE EXCEPTION 'secret binding purpose and target type mismatch' USING ERRCODE='23514';
     END IF;
@@ -1185,6 +1187,19 @@ CREATE FUNCTION public.protect_tls_certificate_version() RETURNS trigger
     AS $$
 BEGIN
     RAISE EXCEPTION 'certificate attestations are append-only' USING ERRCODE='23514';
+END;
+$$;
+
+
+--
+-- Name: protect_registry_pull_credential_version(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.protect_registry_pull_credential_version() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    RAISE EXCEPTION 'registry pull credential attestations are append-only' USING ERRCODE='23514';
 END;
 $$;
 
@@ -2438,6 +2453,72 @@ BEGIN
         END;
         previous := value;
     END LOOP;
+    RETURN NEW;
+END;
+$_$;
+
+
+--
+-- Name: validate_registry_pull_credential_version(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_registry_pull_credential_version() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $_$
+DECLARE
+    stored_binding_id uuid;
+    stored_number bigint;
+    stored_binding_purpose text;
+    stored_binding_provider text;
+    stored_version_provider text;
+    stored_target_type text;
+    stored_state text;
+    stored_fingerprint bytea;
+    stored_artifact boolean;
+    staging_actor uuid;
+BEGIN
+    SELECT v.binding_id,v.version_number,b.purpose,b.provider,v.provider,
+           v.target_secret_type,v.state,v.content_fingerprint,
+           (v.provider_object_name IS NOT NULL)
+      INTO stored_binding_id,stored_number,stored_binding_purpose,
+           stored_binding_provider,stored_version_provider,stored_target_type,
+           stored_state,stored_fingerprint,stored_artifact
+      FROM secret_binding_versions v
+      JOIN secret_bindings b ON b.id=v.binding_id
+      WHERE v.id=NEW.version_id;
+    IF NOT FOUND OR stored_binding_id<>NEW.binding_id OR
+       stored_number<>NEW.version_number OR
+       stored_binding_purpose<>'registry-pull-credential' OR
+       stored_binding_provider<>'sealed-secrets' OR
+       stored_version_provider<>'sealed-secrets' OR
+       stored_target_type<>'kubernetes.io/dockerconfigjson' OR
+       stored_state NOT IN ('awaiting-readiness','active','retained') OR
+       NOT stored_artifact OR
+       stored_fingerprint IS DISTINCT FROM NEW.secret_content_fingerprint THEN
+        RAISE EXCEPTION 'registry pull credential attestation does not match its sealed version'
+            USING ERRCODE='23514';
+    END IF;
+    SELECT actor_id INTO staging_actor
+      FROM secret_binding_events
+      WHERE binding_id=NEW.binding_id AND version_id=NEW.version_id
+        AND kind='version-staging';
+    IF NOT FOUND OR staging_actor IS DISTINCT FROM NEW.created_by THEN
+        RAISE EXCEPTION 'registry pull credential actor does not match the staging event'
+            USING ERRCODE='23514';
+    END IF;
+    IF NEW.created_at IS DISTINCT FROM (
+        SELECT created_at FROM secret_binding_versions WHERE id=NEW.version_id
+    ) THEN
+        RAISE EXCEPTION 'registry pull credential creation time does not match its secret version'
+            USING ERRCODE='23514';
+    END IF;
+    IF NEW.host<>lower(NEW.host) OR NEW.host<>btrim(NEW.host) OR length(NEW.host)>253 OR
+       NOT (NEW.host ~ '^[a-z0-9](?:[-a-z0-9]{0,62})?(?:\.[a-z0-9](?:[-a-z0-9]{0,62})?)*(?::[0-9]{1,5})?$') THEN
+        RAISE EXCEPTION 'registry pull credential host is not canonical' USING ERRCODE='23514';
+    END IF;
+    IF NEW.username='' OR NEW.username<>btrim(NEW.username) OR length(NEW.username)>256 THEN
+        RAISE EXCEPTION 'registry pull credential username is not canonical' USING ERRCODE='23514';
+    END IF;
     RETURN NEW;
 END;
 $_$;
@@ -4763,7 +4844,7 @@ CREATE TABLE public.secret_binding_versions (
     CONSTRAINT secret_binding_versions_provider_check CHECK ((provider = ANY (ARRAY['external-secrets'::text, 'sealed-secrets'::text]))),
     CONSTRAINT secret_binding_versions_provider_revision_check CHECK (((provider_revision IS NULL) OR ((length(provider_revision) >= 1) AND (length(provider_revision) <= 256) AND (provider_revision = btrim(provider_revision)) AND (provider_revision !~ '[[:cntrl:]]'::text)))),
     CONSTRAINT secret_binding_versions_state_check CHECK ((state = ANY (ARRAY['staging'::text, 'awaiting-readiness'::text, 'active'::text, 'retained'::text, 'failed'::text, 'deleted'::text]))),
-    CONSTRAINT secret_binding_versions_target_type_check CHECK ((target_secret_type = ANY (ARRAY['Opaque'::text, 'kubernetes.io/tls'::text]))),
+    CONSTRAINT secret_binding_versions_target_type_check CHECK ((target_secret_type = ANY (ARRAY['Opaque'::text, 'kubernetes.io/tls'::text, 'kubernetes.io/dockerconfigjson'::text]))),
     CONSTRAINT secret_binding_versions_version_number_check CHECK ((version_number > 0))
 );
 
@@ -4795,7 +4876,7 @@ CREATE TABLE public.secret_bindings (
     CONSTRAINT secret_bindings_check2 CHECK ((((state = 'deleting'::text) AND (delete_started_at IS NOT NULL) AND (deleted_at IS NULL)) OR ((state = 'deleted'::text) AND (delete_started_at IS NOT NULL) AND (deleted_at IS NOT NULL) AND (deleted_at >= delete_started_at)) OR ((state <> ALL (ARRAY['deleting'::text, 'deleted'::text])) AND (delete_started_at IS NULL) AND (deleted_at IS NULL)))),
     CONSTRAINT secret_bindings_name_check CHECK (((length(name) >= 1) AND (length(name) <= 63) AND (name ~ '^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$'::text))),
     CONSTRAINT secret_bindings_provider_check CHECK ((provider = ANY (ARRAY['external-secrets'::text, 'sealed-secrets'::text]))),
-    CONSTRAINT secret_bindings_purpose_check CHECK (((purpose = 'runtime-secret'::text) OR ((purpose = 'tls-certificate'::text) AND (provider = 'sealed-secrets'::text)))),
+    CONSTRAINT secret_bindings_purpose_check CHECK (((purpose = 'runtime-secret'::text) OR ((purpose = 'tls-certificate'::text) AND (provider = 'sealed-secrets'::text)) OR ((purpose = 'registry-pull-credential'::text) AND (provider = 'sealed-secrets'::text)))),
     CONSTRAINT secret_bindings_state_check CHECK ((state = ANY (ARRAY['provisioning'::text, 'ready'::text, 'deleting'::text, 'deleted'::text, 'failed'::text])))
 );
 
@@ -4977,6 +5058,26 @@ CREATE TABLE public.tls_certificate_versions (
     CONSTRAINT tls_certificate_versions_public_key_fingerprint_check CHECK ((public_key_fingerprint ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT tls_certificate_versions_secret_content_fingerprint_check CHECK ((octet_length(secret_content_fingerprint) = 32)),
     CONSTRAINT tls_certificate_versions_version_number_check CHECK ((version_number > 0))
+);
+
+
+--
+-- Name: registry_pull_credential_versions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.registry_pull_credential_versions (
+    version_id uuid NOT NULL,
+    binding_id uuid NOT NULL,
+    version_number bigint NOT NULL,
+    secret_content_fingerprint bytea NOT NULL,
+    host text NOT NULL,
+    username text NOT NULL,
+    created_by uuid NOT NULL,
+    created_at timestamp with time zone NOT NULL,
+    CONSTRAINT registry_pull_credential_versions_host_check CHECK ((length(host) <= 253)),
+    CONSTRAINT registry_pull_credential_versions_secret_content_fingerprint_check CHECK ((octet_length(secret_content_fingerprint) = 32)),
+    CONSTRAINT registry_pull_credential_versions_username_check CHECK ((length(username) >= 1) AND (length(username) <= 256)),
+    CONSTRAINT registry_pull_credential_versions_version_number_check CHECK ((version_number > 0))
 );
 
 
@@ -6199,6 +6300,30 @@ ALTER TABLE ONLY public.tls_certificate_versions
 
 
 --
+-- Name: registry_pull_credential_versions registry_pull_credential_versions_binding_id_version_number_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.registry_pull_credential_versions
+    ADD CONSTRAINT registry_pull_credential_versions_binding_id_version_number_key UNIQUE (binding_id, version_number);
+
+
+--
+-- Name: registry_pull_credential_versions registry_pull_credential_versions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.registry_pull_credential_versions
+    ADD CONSTRAINT registry_pull_credential_versions_pkey PRIMARY KEY (version_id);
+
+
+--
+-- Name: registry_pull_credential_versions registry_pull_credential_versions_version_id_binding_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.registry_pull_credential_versions
+    ADD CONSTRAINT registry_pull_credential_versions_version_id_binding_id_key UNIQUE (version_id, binding_id);
+
+
+--
 -- Name: user_invitations user_invitations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6963,6 +7088,13 @@ CREATE INDEX tls_certificate_versions_binding_idx ON public.tls_certificate_vers
 
 
 --
+-- Name: registry_pull_credential_versions_binding_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX registry_pull_credential_versions_binding_idx ON public.registry_pull_credential_versions USING btree (binding_id, version_number);
+
+
+--
 -- Name: user_invitations_expires_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -7443,6 +7575,20 @@ CREATE TRIGGER tls_certificate_versions_protect BEFORE DELETE OR UPDATE ON publi
 --
 
 CREATE TRIGGER tls_certificate_versions_validate BEFORE INSERT ON public.tls_certificate_versions FOR EACH ROW EXECUTE FUNCTION public.validate_tls_certificate_version();
+
+
+--
+-- Name: registry_pull_credential_versions registry_pull_credential_versions_protect; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER registry_pull_credential_versions_protect BEFORE DELETE OR UPDATE ON public.registry_pull_credential_versions FOR EACH ROW EXECUTE FUNCTION public.protect_registry_pull_credential_version();
+
+
+--
+-- Name: registry_pull_credential_versions registry_pull_credential_versions_validate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER registry_pull_credential_versions_validate BEFORE INSERT ON public.registry_pull_credential_versions FOR EACH ROW EXECUTE FUNCTION public.validate_registry_pull_credential_version();
 
 
 --
@@ -8930,6 +9076,22 @@ ALTER TABLE ONLY public.tls_certificate_versions
 
 ALTER TABLE ONLY public.tls_certificate_versions
     ADD CONSTRAINT tls_certificate_versions_version_id_binding_id_fkey FOREIGN KEY (version_id, binding_id) REFERENCES public.secret_binding_versions(id, binding_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: registry_pull_credential_versions registry_pull_credential_versions_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.registry_pull_credential_versions
+    ADD CONSTRAINT registry_pull_credential_versions_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: registry_pull_credential_versions registry_pull_credential_versions_version_id_binding_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.registry_pull_credential_versions
+    ADD CONSTRAINT registry_pull_credential_versions_version_id_binding_id_fkey FOREIGN KEY (version_id, binding_id) REFERENCES public.secret_binding_versions(id, binding_id) ON DELETE RESTRICT;
 
 
 --
