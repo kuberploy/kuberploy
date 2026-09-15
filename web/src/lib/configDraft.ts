@@ -55,6 +55,55 @@ export type GuidedResourceOverrides = {
   serviceAccountYaml: string;
 };
 
+// Only routes[0]'s middleware chain is Guided-editable, matching the single
+// shared TraefikMiddlewareEditor UI. Every route still carries its own
+// middlewareRefs so add/remove never disturbs another route's chain: routes
+// beyond the first are parsed and re-serialized verbatim, never validated or
+// rewritten by Guided.
+const knownRouteKeys = new Set([
+  "host",
+  "path",
+  "port",
+  "dns",
+  "tls",
+  "middlewareRefs",
+]);
+
+export type GuidedRoute = {
+  host: string;
+  path: string;
+  tlsMode: "httpOnly" | "letsencrypt" | "customCertificate";
+  redirectHttp: boolean;
+  issuerRef: string;
+  certificateRef: CertificateBindingReference | null;
+  dnsMode: "manual" | "externalDns" | "sslip";
+  dnsIntegrationRef: string;
+  dnsTtl: number;
+  middlewareRefs: string[];
+  // Any Advanced-only route fields Guided does not model (for example a
+  // caller-set id or ingressClassName). Carried verbatim through add/remove
+  // so an unrelated Guided edit never drops them, keyed by identity on the
+  // route object itself rather than its array position, since add/remove is
+  // supported and array positions are not stable route identity.
+  extraFields: Record<string, unknown>;
+};
+
+export function defaultGuidedRoute(): GuidedRoute {
+  return {
+    host: "",
+    path: "/",
+    tlsMode: "httpOnly",
+    redirectHttp: true,
+    issuerRef: "",
+    certificateRef: null,
+    dnsMode: "manual",
+    dnsIntegrationRef: "",
+    dnsTtl: 300,
+    middlewareRefs: [],
+    extraFields: {},
+  };
+}
+
 export type GuidedConfig = GuidedRuntimeProcess & {
   workingDirectory: string;
   replicas: number;
@@ -80,17 +129,8 @@ export type GuidedConfig = GuidedRuntimeProcess & {
   tolerationsYaml: string;
   priorityClassName: string;
   probes: GuidedProbes;
-  host: string;
-  path: string;
-  tlsMode: "httpOnly" | "letsencrypt" | "customCertificate";
-  redirectHttp: boolean;
-  issuerRef: string;
-  certificateRef: CertificateBindingReference | null;
-  dnsMode: "manual" | "externalDns" | "sslip";
-  dnsIntegrationRef: string;
-  dnsTtl: number;
+  routes: GuidedRoute[];
   middlewares: GuidedTraefikMiddleware[];
-  middlewareRefs: string[];
   middlewareGuidedIssue: string;
   resourceOverrides: GuidedResourceOverrides;
 };
@@ -684,12 +724,9 @@ export function guidedConfigFromYaml(rawYaml: string): GuidedConfig {
   const env = Array.isArray(runtime.env)
     ? (runtime.env as Array<Record<string, unknown>>)
     : [];
-  const routes = Array.isArray(spec.routes)
+  const rawRoutes = Array.isArray(spec.routes)
     ? (spec.routes as Array<Record<string, unknown>>)
     : [];
-  const route = routes[0] ?? {};
-  const tls = (route.tls ?? {}) as Record<string, unknown>;
-  const dns = (route.dns ?? {}) as Record<string, unknown>;
   const guidedPorts: GuidedPort[] =
     ports.length > 0
       ? ports.map((port, index) => ({
@@ -709,11 +746,12 @@ export function guidedConfigFromYaml(rawYaml: string): GuidedConfig {
   const defaultProbePort =
     guidedPorts.find((port) => port.protocol === "TCP")?.name || "http";
   const probes = isObject(runtime.probes) ? runtime.probes : {};
+  const firstRoute = rawRoutes[0] ?? {};
   const middlewareState = guidedTraefikMiddlewareState(
     spec.middlewares,
-    route.middlewareRefs,
+    firstRoute.middlewareRefs,
   );
-  const additionalRouteUsesMiddleware = routes
+  const additionalRouteUsesMiddleware = rawRoutes
     .slice(1)
     .some(
       (item) =>
@@ -726,6 +764,39 @@ export function guidedConfigFromYaml(rawYaml: string): GuidedConfig {
     (additionalRouteUsesMiddleware
       ? "Guided middleware editing cannot safely update definitions referenced by additional routes. The original YAML is preserved; use Advanced YAML to inspect or change the complete route graph."
       : "");
+  const routes: GuidedRoute[] = rawRoutes.map((route, index) => {
+    const tls = (route.tls ?? {}) as Record<string, unknown>;
+    const dns = (route.dns ?? {}) as Record<string, unknown>;
+    return {
+      host: stringValue(route.host),
+      path: stringValue(route.path, "/"),
+      tlsMode:
+        tls.mode === "letsencrypt" || tls.mode === "customCertificate"
+          ? tls.mode
+          : "httpOnly",
+      redirectHttp: booleanValue(tls.redirectHttp, true),
+      issuerRef: stringValue(tls.issuerRef),
+      certificateRef:
+        tls.mode === "customCertificate"
+          ? exactGuidedCertificateReference(tls.secretRef)
+          : null,
+      dnsMode:
+        dns.mode === "externalDns" || dns.mode === "sslip"
+          ? dns.mode
+          : "manual",
+      dnsIntegrationRef: stringValue(dns.integrationRef),
+      dnsTtl: numberValue(dns.ttl, 300),
+      middlewareRefs:
+        index === 0
+          ? middlewareState.refs
+          : Array.isArray(route.middlewareRefs)
+            ? route.middlewareRefs.map((ref) => String(ref))
+            : [],
+      extraFields: Object.fromEntries(
+        Object.entries(route).filter(([key]) => !knownRouteKeys.has(key)),
+      ),
+    };
+  });
 
   return {
     replicas: numberValue(runtime.replicas, 1),
@@ -781,24 +852,8 @@ export function guidedConfigFromYaml(rawYaml: string): GuidedConfig {
       readiness: guidedProbeFromValue(probes.readiness, defaultProbePort),
       liveness: guidedProbeFromValue(probes.liveness, defaultProbePort),
     },
-    host: stringValue(route.host),
-    path: stringValue(route.path, "/"),
-    tlsMode:
-      tls.mode === "letsencrypt" || tls.mode === "customCertificate"
-        ? tls.mode
-        : "httpOnly",
-    redirectHttp: booleanValue(tls.redirectHttp, true),
-    issuerRef: stringValue(tls.issuerRef),
-    certificateRef:
-      tls.mode === "customCertificate"
-        ? exactGuidedCertificateReference(tls.secretRef)
-        : null,
-    dnsMode:
-      dns.mode === "externalDns" || dns.mode === "sslip" ? dns.mode : "manual",
-    dnsIntegrationRef: stringValue(dns.integrationRef),
-    dnsTtl: numberValue(dns.ttl, 300),
+    routes,
     middlewares: middlewareState.definitions,
-    middlewareRefs: middlewareState.refs,
     middlewareGuidedIssue,
     resourceOverrides: {
       deploymentYaml: yamlFragment(overrides.deployment, "{}"),
@@ -837,7 +892,7 @@ export function applyGuidedConfig(
     }
     const middlewareError = validateGuidedTraefikMiddlewares(
       values.middlewares,
-      values.middlewareRefs,
+      values.routes[0]?.middlewareRefs ?? [],
     );
     if (middlewareError) throw new Error(middlewareError);
     const currentDefinitions = guidedTraefikMiddlewaresToValue(
@@ -985,49 +1040,52 @@ export function applyGuidedConfig(
   });
   if (!hasResourceOverride) document.deleteIn(["spec", "overrides"]);
 
-  if (!values.host.trim()) {
-    if (currentRoutes.length <= 1) {
-      document.setIn(["spec", "routes"], []);
-    } else if (stringValue(currentRoute.host)) {
-      throw new Error(
-        "Guided cannot remove only the first of multiple public routes. The routes are preserved; use Advanced YAML.",
-      );
-    }
-  } else {
-    const tls: Record<string, unknown> = { mode: values.tlsMode };
-    if (values.tlsMode === "letsencrypt") {
-      tls.issuerRef = values.issuerRef;
-      tls.redirectHttp = values.redirectHttp;
-    }
-    if (values.tlsMode === "customCertificate") {
-      if (!values.certificateRef) {
-        throw new Error(
-          "Choose one exact ready certificate binding and active version before saving custom TLS.",
-        );
+  const portName = values.ports[0]?.name || "http";
+  const nextRoutes = values.routes
+    .filter((route) => route.host.trim())
+    .map((route, index) => {
+      const tls: Record<string, unknown> = { mode: route.tlsMode };
+      if (route.tlsMode === "letsencrypt") {
+        tls.issuerRef = route.issuerRef;
+        tls.redirectHttp = route.redirectHttp;
       }
-      tls.secretRef = exactGuidedCertificateReference(values.certificateRef);
-      tls.redirectHttp = values.redirectHttp;
-    }
-    const dns: Record<string, unknown> = { mode: values.dnsMode };
-    if (values.dnsMode === "externalDns") {
-      dns.integrationRef = values.dnsIntegrationRef;
-      dns.ttl = values.dnsTtl;
-    }
-    document.setIn(["spec", "routes", 0, "host"], values.host.trim());
-    document.setIn(["spec", "routes", 0, "path"], values.path || "/");
-    document.setIn(
-      ["spec", "routes", 0, "port"],
-      values.ports[0]?.name || "http",
-    );
-    document.setIn(["spec", "routes", 0, "dns"], dns);
-    document.setIn(["spec", "routes", 0, "tls"], tls);
-    if (!values.middlewareGuidedIssue) {
-      document.setIn(
-        ["spec", "routes", 0, "middlewareRefs"],
-        values.middlewareRefs,
-      );
-    }
-  }
+      if (route.tlsMode === "customCertificate") {
+        if (!route.certificateRef) {
+          throw new Error(
+            "Choose one exact ready certificate binding and active version before saving custom TLS.",
+          );
+        }
+        tls.secretRef = exactGuidedCertificateReference(route.certificateRef);
+        tls.redirectHttp = route.redirectHttp;
+      }
+      const dns: Record<string, unknown> = { mode: route.dnsMode };
+      if (route.dnsMode === "externalDns") {
+        dns.integrationRef = route.dnsIntegrationRef;
+        dns.ttl = route.dnsTtl;
+      }
+      const value: Record<string, unknown> = {
+        ...route.extraFields,
+        host: route.host.trim(),
+        path: route.path || "/",
+        port: portName,
+        dns,
+        tls,
+      };
+      // Only route index 0's chain is Guided-editable when representable;
+      // every other route's middlewareRefs is carried through verbatim from
+      // what was parsed, never rewritten by this function. When route 0's
+      // own chain cannot be safely represented, its original raw value is
+      // preserved untouched instead of being dropped.
+      if (index === 0 && values.middlewareGuidedIssue) {
+        if (currentRoute.middlewareRefs !== undefined) {
+          value.middlewareRefs = currentRoute.middlewareRefs;
+        }
+      } else {
+        value.middlewareRefs = route.middlewareRefs;
+      }
+      return value;
+    });
+  document.setIn(["spec", "routes"], nextRoutes);
   return document.toString();
 }
 

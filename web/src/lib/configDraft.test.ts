@@ -3,6 +3,7 @@ import { parse, stringify } from "yaml";
 import {
   applyGuidedConfig,
   defaultGuidedProbes,
+  defaultGuidedRoute,
   defaultConfigYaml,
   guidedConfigFromYaml,
   validateGuidedRuntimeProcess,
@@ -112,8 +113,7 @@ describe("shared AppConfig draft", () => {
       ports: [{ name: "http", containerPort: 3000, protocol: "TCP" }],
       cpuRequest: "50m",
       memoryRequest: "100Mi",
-      tlsMode: "httpOnly",
-      dnsMode: "manual",
+      routes: [],
       workloadType: "Deployment",
       nodeSelectorYaml: "kubernetes.io/arch: amd64",
       secretVariables: [
@@ -145,16 +145,21 @@ describe("shared AppConfig draft", () => {
     const updated = applyGuidedConfig(source, {
       ...guided,
       replicas: 3,
-      host: "hello.example.com",
-      tlsMode: "letsencrypt",
-      issuerRef: "local-acme",
-      dnsMode: "externalDns",
-      dnsIntegrationRef: "local-dns",
+      routes: [
+        {
+          ...defaultGuidedRoute(),
+          host: "hello.example.com",
+          tlsMode: "letsencrypt",
+          issuerRef: "local-acme",
+          dnsMode: "externalDns",
+          dnsIntegrationRef: "local-dns",
+          middlewareRefs: ["secure-headers", "compress"],
+        },
+      ],
       middlewares: [
         defaultGuidedTraefikMiddleware("headers", "secure-headers"),
         defaultGuidedTraefikMiddleware("compress", "compress"),
       ],
-      middlewareRefs: ["secure-headers", "compress"],
     });
 
     expect(updated).toContain("# This comment must survive a guided edit.");
@@ -190,13 +195,18 @@ describe("shared AppConfig draft", () => {
     const guided = guidedConfigFromYaml(source);
     const configured = applyGuidedConfig(source, {
       ...guided,
-      host: "api.example.test",
-      tlsMode: "customCertificate",
-      certificateRef: {
-        bindingId: "55555555-5555-7555-8555-555555555555",
-        name: "public-edge",
-        version: 4,
-      },
+      routes: [
+        {
+          ...defaultGuidedRoute(),
+          host: "api.example.test",
+          tlsMode: "customCertificate",
+          certificateRef: {
+            bindingId: "55555555-5555-7555-8555-555555555555",
+            name: "public-edge",
+            version: 4,
+          },
+        },
+      ],
     });
     const parsed = parse(configured) as {
       spec: {
@@ -210,7 +220,7 @@ describe("shared AppConfig draft", () => {
       name: "public-edge",
       version: 4,
     });
-    expect(guidedConfigFromYaml(configured).certificateRef).toEqual({
+    expect(guidedConfigFromYaml(configured).routes[0]?.certificateRef).toEqual({
       bindingId: "55555555-5555-7555-8555-555555555555",
       name: "public-edge",
       version: 4,
@@ -220,10 +230,11 @@ describe("shared AppConfig draft", () => {
       "caller-secret-name" as unknown as Record<string, unknown>;
     const legacy = stringify(parsed);
     expect(() => guidedConfigFromYaml(legacy)).toThrow(/Legacy string Secret/i);
+    const reparsed = guidedConfigFromYaml(configured);
     expect(() =>
       applyGuidedConfig(configured, {
-        ...guidedConfigFromYaml(configured),
-        certificateRef: null,
+        ...reparsed,
+        routes: [{ ...reparsed.routes[0]!, certificateRef: null }],
       }),
     ).toThrow(/Choose one exact ready certificate/i);
   });
@@ -232,10 +243,15 @@ describe("shared AppConfig draft", () => {
     const guided = guidedConfigFromYaml(source);
     const configured = applyGuidedConfig(source, {
       ...guided,
-      host: "api-203-0-113-10.sslip.io",
-      dnsMode: "sslip",
-      dnsIntegrationRef: "must-not-be-used",
-      dnsTtl: 30,
+      routes: [
+        {
+          ...defaultGuidedRoute(),
+          host: "api-203-0-113-10.sslip.io",
+          dnsMode: "sslip",
+          dnsIntegrationRef: "must-not-be-used",
+          dnsTtl: 30,
+        },
+      ],
     });
     const parsed = parse(configured) as {
       spec: {
@@ -250,7 +266,7 @@ describe("shared AppConfig draft", () => {
       dns: { mode: "sslip" },
     });
     expect(Object.keys(parsed.spec.routes[0]!.dns)).toEqual(["mode"]);
-    expect(guidedConfigFromYaml(configured).dnsMode).toBe("sslip");
+    expect(guidedConfigFromYaml(configured).routes[0]?.dnsMode).toBe("sslip");
     expect(configured).not.toContain("must-not-be-used");
   });
 
@@ -603,9 +619,17 @@ describe("shared AppConfig draft", () => {
       ingressClassName: "traefik",
       middlewareRefs: ["advanced-headers"],
     });
-    expect(parsed.spec.routes[1]).toEqual(
-      (parse(advanced) as { spec: { routes: unknown[] } }).spec.routes[1],
-    );
+    expect(parsed.spec.routes[1]).toEqual({
+      ...(parse(advanced) as { spec: { routes: Array<Record<string, unknown>> } })
+        .spec.routes[1],
+      // Guided has full host/path/TLS/DNS parity across every route now, so
+      // it always fully re-derives each route's dns/tls/path/port exactly
+      // like route 0 -- an absent dns key becomes an explicit manual-mode
+      // object, and an absent middlewareRefs key becomes an explicit empty
+      // array (middleware chain selection itself stays route-0-only).
+      dns: { mode: "manual" },
+      middlewareRefs: [],
+    });
   });
 
   it("round-trips ordered typed middleware definitions and route references", () => {
@@ -613,13 +637,18 @@ describe("shared AppConfig draft", () => {
     const guided = guidedConfigFromYaml(draft);
     const configured = applyGuidedConfig(draft, {
       ...guided,
-      host: "api.example.com",
+      routes: [
+        {
+          ...defaultGuidedRoute(),
+          host: "api.example.com",
+          middlewareRefs: ["secure-headers", "api-rate", "response-compress"],
+        },
+      ],
       middlewares: [
         defaultGuidedTraefikMiddleware("rateLimit", "api-rate"),
         defaultGuidedTraefikMiddleware("headers", "secure-headers"),
         defaultGuidedTraefikMiddleware("compress", "response-compress"),
       ],
-      middlewareRefs: ["secure-headers", "api-rate", "response-compress"],
     });
     const reparsed = guidedConfigFromYaml(configured);
     expect(reparsed.middlewareGuidedIssue).toBe("");
@@ -628,7 +657,7 @@ describe("shared AppConfig draft", () => {
       "secure-headers",
       "response-compress",
     ]);
-    expect(reparsed.middlewareRefs).toEqual([
+    expect(reparsed.routes[0]?.middlewareRefs).toEqual([
       "secure-headers",
       "api-rate",
       "response-compress",
@@ -641,11 +670,16 @@ describe("shared AppConfig draft", () => {
     const guided = guidedConfigFromYaml(draft);
     const configured = applyGuidedConfig(draft, {
       ...guided,
-      host: "api.example.com",
+      routes: [
+        {
+          ...defaultGuidedRoute(),
+          host: "api.example.com",
+          middlewareRefs: ["secure-headers"],
+        },
+      ],
       middlewares: [
         defaultGuidedTraefikMiddleware("headers", "secure-headers"),
       ],
-      middlewareRefs: ["secure-headers"],
     });
     const document = parse(configured) as {
       spec: { routes: Array<Record<string, unknown>> };

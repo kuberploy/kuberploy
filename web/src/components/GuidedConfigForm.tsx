@@ -1,6 +1,12 @@
 import { useEffect } from "react";
-import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import {
+  useFieldArray,
+  useForm,
+  useWatch,
+  type UseFormReturn,
+} from "react-hook-form";
+import {
+  defaultGuidedRoute,
   validateGuidedProbes,
   validateGuidedResourceOverrides,
   validateGuidedRuntimeProcess,
@@ -376,6 +382,471 @@ export function HealthProbeEditor({
   );
 }
 
+function RouteFields({
+  index,
+  totalRoutes,
+  form,
+  commit,
+  onRemove,
+  externalDNSCatalog,
+  externalDNSCatalogPending = false,
+  externalDNSCatalogError,
+  externalDNSRuntimeEnabled = false,
+  runtimeSecretApplicationId,
+  runtimeSecretEnvironmentId,
+  certificateReferencesEnabled = false,
+  certificateReferencesUnavailableReason,
+  certificateIssuersEnabled = false,
+  certificateIssuersUnavailableReason,
+  sslipHostnameEnabled = false,
+  sslipHostnamePreview,
+  sslipHostnamePending = false,
+  sslipHostnameError,
+  readOnly = false,
+}: {
+  index: number;
+  totalRoutes: number;
+  form: UseFormReturn<GuidedConfig>;
+  commit: () => void;
+  onRemove: () => void;
+  externalDNSCatalog?: ExternalDNSCatalog;
+  externalDNSCatalogPending?: boolean;
+  externalDNSCatalogError?: string;
+  externalDNSRuntimeEnabled?: boolean;
+  runtimeSecretApplicationId?: string;
+  runtimeSecretEnvironmentId?: string;
+  certificateReferencesEnabled?: boolean;
+  certificateReferencesUnavailableReason?: string;
+  certificateIssuersEnabled?: boolean;
+  certificateIssuersUnavailableReason?: string;
+  sslipHostnameEnabled?: boolean;
+  sslipHostnamePreview?: SSLIPHostnamePreview;
+  sslipHostnamePending?: boolean;
+  sslipHostnameError?: string;
+  readOnly?: boolean;
+}) {
+  const tlsMode = useWatch({
+    control: form.control,
+    name: `routes.${index}.tlsMode`,
+  });
+  const issuerRef = useWatch({
+    control: form.control,
+    name: `routes.${index}.issuerRef`,
+  });
+  const dnsMode = useWatch({
+    control: form.control,
+    name: `routes.${index}.dnsMode`,
+  });
+  const host = useWatch({
+    control: form.control,
+    name: `routes.${index}.host`,
+  });
+  const certificateRef = useWatch({
+    control: form.control,
+    name: `routes.${index}.certificateRef`,
+  });
+  const dnsIntegrationRef = useWatch({
+    control: form.control,
+    name: `routes.${index}.dnsIntegrationRef`,
+  });
+  useEffect(() => {
+    if (
+      readOnly ||
+      dnsMode !== "sslip" ||
+      !sslipHostnamePreview?.hostname ||
+      form.getValues(`routes.${index}.host`) === sslipHostnamePreview.hostname
+    ) {
+      return;
+    }
+    form.setValue(`routes.${index}.host`, sslipHostnamePreview.hostname, {
+      shouldDirty: true,
+    });
+    form.setValue(`routes.${index}.dnsIntegrationRef`, "", {
+      shouldDirty: true,
+    });
+    commit();
+  }, [commit, dnsMode, form, index, readOnly, sslipHostnamePreview?.hostname]);
+  const dnsIntegrations = externalDNSCatalog?.items ?? [];
+  const selectedDNSIntegration = dnsIntegrations.find(
+    (integration) => integration.slug === dnsIntegrationRef,
+  );
+  const automaticDNSRuntimeReady =
+    externalDNSRuntimeEnabled &&
+    externalDNSCatalog?.runtimeAvailable === true &&
+    dnsIntegrations.some(
+      (integration) => integration.runtimeAvailable === true,
+    );
+  const selectedDNSIntegrationReady =
+    automaticDNSRuntimeReady &&
+    selectedDNSIntegration?.runtimeAvailable === true;
+  const automaticDNSPrerequisiteUnavailable =
+    !externalDNSCatalogPending &&
+    !externalDNSCatalogError &&
+    !externalDNSRuntimeEnabled &&
+    externalDNSCatalog?.runtimeAvailable === true &&
+    selectedDNSIntegration?.runtimeAvailable === true;
+  const dnsIntegrationError =
+    dnsMode !== "externalDns" || externalDNSCatalogPending
+      ? undefined
+      : externalDNSCatalogError
+        ? externalDNSCatalogError
+        : !selectedDNSIntegration
+          ? "Select an integration authorized for this App and Environment."
+          : selectedDNSIntegration.runtimeAvailable !== true
+            ? "The selected External DNS integration revision is not freshly observed ready."
+            : host &&
+                !externalDNSHostnameAllowed(
+                  host,
+                  selectedDNSIntegration.allowedDomainSuffixes,
+                )
+              ? `Hostname must be inside: ${selectedDNSIntegration.allowedDomainSuffixes.join(", ")}.`
+              : undefined;
+  const automaticDNSUnavailable =
+    !externalDNSCatalogPending &&
+    (!automaticDNSRuntimeReady ||
+      Boolean(externalDNSCatalogError) ||
+      dnsIntegrations.length === 0);
+  const label = totalRoutes > 1 ? `Route ${index + 1}` : "Public route";
+
+  return (
+    <section className="border-b border-line px-0 py-6 last:border-b-0 [&_h3]:m-0 [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:tracking-[-0.01em] [&_h3]:text-ink [&_p]:mx-0 [&_p]:mt-1 [&_p]:mb-0 [&_p]:text-xs [&_p]:text-ink-faint">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="grid grid-cols-[34px_1fr] items-center gap-3">
+          <span className="grid size-8 place-items-center rounded-[9px] bg-mint-soft text-mint-dark [&_svg]:w-[15px]">
+            <Icon name="route" />
+          </span>
+          <div>
+            <h3>{label}</h3>
+            <p>
+              Traefik exposure, TLS, and DNS are one Git-backed route.
+              {index === 0
+                ? " Ordered middleware applies to this route."
+                : ""}
+            </p>
+          </div>
+        </div>
+        {totalRoutes > 1 ? (
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={readOnly}
+            onClick={() => {
+              onRemove();
+              commit();
+            }}
+          >
+            Remove route
+          </Button>
+        ) : null}
+      </div>
+      <FormGrid>
+        <Field
+          label="Hostname"
+          hint={
+            dnsMode === "sslip"
+              ? "Read-only server-derived sslip.io hostname. No caller IP or free-form sslip hostname is accepted."
+              : "Leave empty for an internal-only Service."
+          }
+        >
+          <input
+            aria-label={totalRoutes > 1 ? `${label} hostname` : "Hostname"}
+            placeholder="hello.example.com"
+            readOnly={dnsMode === "sslip"}
+            aria-readonly={dnsMode === "sslip"}
+            {...form.register(`routes.${index}.host`, { onChange: commit })}
+          />
+        </Field>
+        <Field label="Path">
+          <input
+            aria-label={totalRoutes > 1 ? `${label} path` : "Path"}
+            placeholder="/"
+            {...form.register(`routes.${index}.path`, { onChange: commit })}
+          />
+        </Field>
+      </FormGrid>
+      {host || (index === 0 && sslipHostnameEnabled) ? (
+        <>
+          <div className="mt-5 mx-0 mb-3">
+            <FieldLabel>TLS mode</FieldLabel>
+            <div className="grid gap-2 mt-2 [&_label]:cursor-pointer [&_input]:absolute [&_input]:w-px [&_input]:h-px [&_input]:opacity-0 [&_label_>_span]:flex [&_label_>_span]:min-h-[60px] [&_label_>_span]:flex-col [&_label_>_span]:justify-center [&_label_>_span]:py-3 [&_label_>_span]:px-3 [&_label_>_span]:border [&_label_>_span]:border-line [&_label_>_span]:rounded-lg [&_label_>_span]:bg-surface [&_label_>_span]:transition [&_label_>_span]:duration-(--motion-fast) [&_label_>_span]:ease-(--ease-standard) [&_input:checked_+_span]:border-mint [&_input:checked_+_span]:bg-mint-soft [&_input:checked_+_span]:shadow-[0_0_0_2px_rgba(67_215_160_0.12)] [&_strong]:text-meta [&_small]:mt-1 [&_small]:text-ink-faint [&_small]:text-xs to-580:grid-cols-[1fr] grid-cols-[repeat(3,_minmax(0,_1fr))]">
+              <label>
+                <input
+                  type="radio"
+                  value="httpOnly"
+                  {...form.register(`routes.${index}.tlsMode`, {
+                    onChange: commit,
+                  })}
+                />
+                <span>
+                  <strong>HTTP only</strong>
+                  <small>No certificate or redirect.</small>
+                </span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  value="letsencrypt"
+                  {...form.register(`routes.${index}.tlsMode`, {
+                    onChange: commit,
+                  })}
+                />
+                <span>
+                  <strong>Let's Encrypt</strong>
+                  <small>Admin-approved HTTP-01 or DNS-01.</small>
+                </span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  value="customCertificate"
+                  {...form.register(`routes.${index}.tlsMode`, {
+                    onChange: commit,
+                  })}
+                />
+                <span>
+                  <strong>Custom certificate</strong>
+                  <small>Use a scoped certificate.</small>
+                </span>
+              </label>
+            </div>
+          </div>
+          {tlsMode === "letsencrypt" ? (
+            <FormGrid>
+              <CertificateIssuerPicker
+                applicationId={runtimeSecretApplicationId}
+                environmentId={runtimeSecretEnvironmentId}
+                hostname={
+                  dnsMode === "sslip" ? sslipHostnamePreview?.hostname : host
+                }
+                value={issuerRef}
+                enabled={certificateIssuersEnabled}
+                disabled={readOnly}
+                unavailableReason={certificateIssuersUnavailableReason}
+                onChange={(issuer) => {
+                  form.setValue(`routes.${index}.issuerRef`, issuer, {
+                    shouldDirty: true,
+                  });
+                  commit();
+                }}
+              />
+              <Field label="HTTP redirect">
+                <label className="flex min-h-[39px] items-center gap-2 text-meta cursor-pointer [&_input]:absolute [&_input]:w-px [&_input]:h-px [&_input]:opacity-0 [&_span]:relative [&_span]:w-8 [&_span]:h-[18px] [&_span]:rounded-full [&_span]:bg-line-strong [&_span]:transition [&_span]:duration-(--motion-fast) [&_span]:ease-(--ease-standard) [&_span::after]:absolute [&_span::after]:top-[3px] [&_span::after]:left-[3px] [&_span::after]:w-3 [&_span::after]:h-3 [&_span::after]:content-[''] [&_span::after]:rounded-full [&_span::after]:bg-surface [&_span::after]:shadow-[0_1px_3px_rgba(0_0_0_0.2)] [&_span::after]:transition [&_span::after]:duration-(--motion-fast) [&_span::after]:ease-(--ease-standard) [&_input:checked_+_span]:bg-mint [&_input:checked_+_span::after]:transform-[translateX(14px)]">
+                  <input
+                    type="checkbox"
+                    {...form.register(`routes.${index}.redirectHttp`, {
+                      onChange: commit,
+                    })}
+                  />
+                  <span />
+                  Redirect port 80 to HTTPS
+                </label>
+              </Field>
+            </FormGrid>
+          ) : null}
+          {tlsMode === "customCertificate" ? (
+            <CertificateReferencePicker
+              applicationId={runtimeSecretApplicationId}
+              environmentId={runtimeSecretEnvironmentId}
+              value={certificateRef}
+              enabled={certificateReferencesEnabled}
+              disabled={readOnly}
+              unavailableReason={certificateReferencesUnavailableReason}
+              onChange={(reference) => {
+                form.setValue(`routes.${index}.certificateRef`, reference, {
+                  shouldDirty: true,
+                });
+                commit();
+              }}
+            />
+          ) : null}
+
+          <div className="mt-5 mx-0 mb-3">
+            <FieldLabel>DNS management</FieldLabel>
+            <div className="grid gap-2 mt-2 [&_label]:cursor-pointer [&_input]:absolute [&_input]:w-px [&_input]:h-px [&_input]:opacity-0 [&_label_>_span]:flex [&_label_>_span]:min-h-[60px] [&_label_>_span]:flex-col [&_label_>_span]:justify-center [&_label_>_span]:py-3 [&_label_>_span]:px-3 [&_label_>_span]:border [&_label_>_span]:border-line [&_label_>_span]:rounded-lg [&_label_>_span]:bg-surface [&_label_>_span]:transition [&_label_>_span]:duration-(--motion-fast) [&_label_>_span]:ease-(--ease-standard) [&_input:checked_+_span]:border-mint [&_input:checked_+_span]:bg-mint-soft [&_input:checked_+_span]:shadow-[0_0_0_2px_rgba(67_215_160_0.12)] [&_strong]:text-meta [&_small]:mt-1 [&_small]:text-ink-faint [&_small]:text-xs to-580:grid-cols-[1fr] grid-cols-[repeat(3,_minmax(0,_1fr))]">
+              <label>
+                <input
+                  type="radio"
+                  value="manual"
+                  {...form.register(`routes.${index}.dnsMode`, {
+                    onChange: commit,
+                  })}
+                />
+                <span>
+                  <strong>Manual DNS</strong>
+                  <small>Show the exact required record.</small>
+                </span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  value="externalDns"
+                  disabled={
+                    automaticDNSUnavailable && dnsMode !== "externalDns"
+                  }
+                  {...form.register(`routes.${index}.dnsMode`, {
+                    onChange: commit,
+                  })}
+                />
+                <span>
+                  <strong>Automatic DNS</strong>
+                  <small>Use an allowed external-dns integration.</small>
+                </span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  value="sslip"
+                  disabled={
+                    (!sslipHostnamePreview ||
+                      sslipHostnamePending ||
+                      Boolean(sslipHostnameError)) &&
+                    dnsMode !== "sslip"
+                  }
+                  {...form.register(`routes.${index}.dnsMode`, {
+                    onChange: (event) => {
+                      if (
+                        event.target.value === "sslip" &&
+                        sslipHostnamePreview?.hostname
+                      ) {
+                        form.setValue(
+                          `routes.${index}.host`,
+                          sslipHostnamePreview.hostname,
+                          { shouldDirty: true },
+                        );
+                        form.setValue(`routes.${index}.dnsIntegrationRef`, "", {
+                          shouldDirty: true,
+                        });
+                      }
+                      commit();
+                    },
+                  })}
+                />
+                <span>
+                  <strong>Free sslip.io hostname</strong>
+                  <small>Test/convenience only · server-derived.</small>
+                </span>
+              </label>
+            </div>
+          </div>
+          {dnsMode === "sslip" ? (
+            <Notice tone="warning" role="status">
+              <div>
+                <strong>
+                  {sslipHostnamePreview
+                    ? sslipHostnamePreview.hostname
+                    : "sslip.io hostname unavailable"}
+                </strong>
+                <p>
+                  A public ingress IP and exact fresh edge runtime readiness
+                  are required. Dynamic ALB/load-balancer hostnames are not
+                  eligible unless the operator provides a verified static
+                  public IP observation. No External DNS integration is used.
+                </p>
+                {sslipHostnamePreview ? (
+                  <small>
+                    Source: {sslipHostnamePreview.source} · observed{" "}
+                    {sslipHostnamePreview.observedAt}
+                  </small>
+                ) : sslipHostnamePending ? (
+                  <small>Loading the exact server-derived preview…</small>
+                ) : (
+                  <small>
+                    {sslipHostnameError ??
+                      "This mode fails closed until a fresh exact preview is available."}
+                  </small>
+                )}
+              </div>
+            </Notice>
+          ) : null}
+          {dnsMode === "externalDns" ? (
+            <FormGrid>
+              <Field
+                label="DNS integration"
+                error={dnsIntegrationError}
+                hint={
+                  externalDNSCatalogPending
+                    ? "Loading the authorized environment catalog…"
+                    : "Only exact profiles authorized for this App and Environment are selectable."
+                }
+              >
+                <Select
+                  disabled={
+                    externalDNSCatalogPending ||
+                    Boolean(externalDNSCatalogError) ||
+                    !automaticDNSRuntimeReady ||
+                    selectedDNSIntegration?.runtimeAvailable === false
+                  }
+                  {...form.register(`routes.${index}.dnsIntegrationRef`, {
+                    onChange: commit,
+                  })}
+                  value={form.watch(`routes.${index}.dnsIntegrationRef`)}
+                >
+                  {dnsIntegrationRef && !selectedDNSIntegration ? (
+                    <option value={dnsIntegrationRef} disabled>
+                      {dnsIntegrationRef} (unavailable)
+                    </option>
+                  ) : null}
+                  <option value="">
+                    {externalDNSCatalogPending
+                      ? "Loading integrations…"
+                      : dnsIntegrations.length === 0
+                        ? "No authorized integrations"
+                        : "Select an integration"}
+                  </option>
+                  {dnsIntegrations.map((integration) => (
+                    <option
+                      value={integration.slug}
+                      key={integration.id}
+                      disabled={!integration.runtimeAvailable}
+                    >
+                      {integration.name} · {integration.providerKind} ·{" "}
+                      {integration.allowedDomainSuffixes.join(", ")}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="TTL (seconds)">
+                <input
+                  type="number"
+                  min={30}
+                  {...form.register(`routes.${index}.dnsTtl`, {
+                    valueAsNumber: true,
+                    onChange: commit,
+                  })}
+                />
+              </Field>
+              <Notice
+                tone={selectedDNSIntegrationReady ? "success" : "warning"}
+              >
+                <div>
+                  <strong>
+                    {!selectedDNSIntegration
+                      ? "Select an External DNS integration"
+                      : selectedDNSIntegrationReady
+                        ? "External DNS revision is ready"
+                        : automaticDNSPrerequisiteUnavailable
+                          ? "Automatic DNS changes are temporarily unavailable"
+                          : "External DNS runtime is not ready"}
+                  </strong>
+                  <p>
+                    {!selectedDNSIntegration
+                      ? "Choose one authorized integration before previewing or saving automatic DNS."
+                      : selectedDNSIntegrationReady
+                        ? "The selected revision is protected-Git materialized and freshly observed. Preview and save revalidate this exact slug, hostname, and runtime boundary."
+                        : automaticDNSPrerequisiteUnavailable
+                          ? "The selected DNS integration is ready, but a required platform service is unavailable. Try again after that service recovers."
+                          : "Existing configuration remains visible, but a new automatic-DNS selection cannot be previewed or saved until the exact integration revision is freshly observed ready."}
+                  </p>
+                </div>
+              </Notice>
+            </FormGrid>
+          ) : null}
+        </>
+      ) : null}
+    </section>
+  );
+}
+
 export function GuidedConfigForm({
   initial,
   onChange,
@@ -421,7 +892,15 @@ export function GuidedConfigForm({
   middlewareEditingUnavailableReason?: string;
   reusableMiddlewareProfilesEnabled?: boolean;
 }) {
-  const form = useForm<GuidedConfig>({ defaultValues: initial });
+  const form = useForm<GuidedConfig>({
+    // Always start with one editable route slot, even for a brand new App
+    // whose AppConfig has no route yet. An untouched blank-host slot is
+    // filtered out at save time, so this never fabricates a real route.
+    defaultValues:
+      initial.routes.length > 0
+        ? initial
+        : { ...initial, routes: [defaultGuidedRoute()] },
+  });
   const ports = useFieldArray({ control: form.control, name: "ports" });
   const variables = useFieldArray({ control: form.control, name: "variables" });
   const secretVariables = useFieldArray({
@@ -436,18 +915,8 @@ export function GuidedConfigForm({
     control: form.control,
     name: "workloadType",
   });
-  const tlsMode = useWatch({ control: form.control, name: "tlsMode" });
-  const issuerRef = useWatch({ control: form.control, name: "issuerRef" });
-  const dnsMode = useWatch({ control: form.control, name: "dnsMode" });
-  const host = useWatch({ control: form.control, name: "host" });
-  const certificateRef = useWatch({
-    control: form.control,
-    name: "certificateRef",
-  });
-  const dnsIntegrationRef = useWatch({
-    control: form.control,
-    name: "dnsIntegrationRef",
-  });
+  const routes = useFieldArray({ control: form.control, name: "routes" });
+  const routesWatch = useWatch({ control: form.control, name: "routes" });
   const probes = useWatch({ control: form.control, name: "probes" });
   const commandYaml = useWatch({ control: form.control, name: "commandYaml" });
   const argsYaml = useWatch({ control: form.control, name: "argsYaml" });
@@ -469,10 +938,6 @@ export function GuidedConfigForm({
   const middlewares = useWatch({
     control: form.control,
     name: "middlewares",
-  });
-  const middlewareRefs = useWatch({
-    control: form.control,
-    name: "middlewareRefs",
   });
   const resourceOverrides = useWatch({
     control: form.control,
@@ -498,62 +963,6 @@ export function GuidedConfigForm({
     });
     commit();
   };
-  useEffect(() => {
-    if (
-      readOnly ||
-      dnsMode !== "sslip" ||
-      !sslipHostnamePreview?.hostname ||
-      form.getValues("host") === sslipHostnamePreview.hostname
-    ) {
-      return;
-    }
-    form.setValue("host", sslipHostnamePreview.hostname, {
-      shouldDirty: true,
-    });
-    form.setValue("dnsIntegrationRef", "", { shouldDirty: true });
-    commit();
-  }, [dnsMode, form, readOnly, sslipHostnamePreview?.hostname]);
-  const dnsIntegrations = externalDNSCatalog?.items ?? [];
-  const selectedDNSIntegration = dnsIntegrations.find(
-    (integration) => integration.slug === dnsIntegrationRef,
-  );
-  const automaticDNSRuntimeReady =
-    externalDNSRuntimeEnabled &&
-    externalDNSCatalog?.runtimeAvailable === true &&
-    dnsIntegrations.some(
-      (integration) => integration.runtimeAvailable === true,
-    );
-  const selectedDNSIntegrationReady =
-    automaticDNSRuntimeReady &&
-    selectedDNSIntegration?.runtimeAvailable === true;
-  const automaticDNSPrerequisiteUnavailable =
-    !externalDNSCatalogPending &&
-    !externalDNSCatalogError &&
-    !externalDNSRuntimeEnabled &&
-    externalDNSCatalog?.runtimeAvailable === true &&
-    selectedDNSIntegration?.runtimeAvailable === true;
-  const dnsIntegrationError =
-    dnsMode !== "externalDns" || externalDNSCatalogPending
-      ? undefined
-      : externalDNSCatalogError
-        ? externalDNSCatalogError
-        : !selectedDNSIntegration
-          ? "Select an integration authorized for this App and Environment."
-          : selectedDNSIntegration.runtimeAvailable !== true
-            ? "The selected External DNS integration revision is not freshly observed ready."
-            : host &&
-                !externalDNSHostnameAllowed(
-                  host,
-                  selectedDNSIntegration.allowedDomainSuffixes,
-                )
-              ? `Hostname must be inside: ${selectedDNSIntegration.allowedDomainSuffixes.join(", ")}.`
-              : undefined;
-  const automaticDNSUnavailable =
-    !externalDNSCatalogPending &&
-    (!automaticDNSRuntimeReady ||
-      Boolean(externalDNSCatalogError) ||
-      dnsIntegrations.length === 0);
-
   return (
     <fieldset
       className="min-w-0 m-0 pt-1.5 px-6 pb-0 border-0 disabled:opacity-100 [&:disabled_input]:text-ink-soft [&:disabled_input]:cursor-not-allowed [&:disabled_input]:bg-surface-soft [&:disabled_select]:text-ink-soft [&:disabled_select]:cursor-not-allowed [&:disabled_select]:bg-surface-soft [&:disabled_textarea]:text-ink-soft [&:disabled_textarea]:cursor-not-allowed [&:disabled_textarea]:bg-surface-soft"
@@ -999,312 +1408,54 @@ export function GuidedConfigForm({
         </p>
       </section>
 
-      <section className="border-b border-line px-0 py-6 last:border-b-0 [&_h3]:m-0 [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:tracking-[-0.01em] [&_h3]:text-ink [&_p]:mx-0 [&_p]:mt-1 [&_p]:mb-0 [&_p]:text-xs [&_p]:text-ink-faint">
-        <div className="mb-4 grid grid-cols-[34px_1fr] items-center gap-3">
-          <span className="grid size-8 place-items-center rounded-[9px] bg-mint-soft text-mint-dark [&_svg]:w-[15px]">
-            <Icon name="route" />
-          </span>
-          <div>
-            <h3>Public route</h3>
-            <p>
-              Traefik exposure, TLS, DNS, and ordered middleware are one
-              Git-backed route.
-            </p>
-          </div>
-        </div>
-        <FormGrid>
-          <Field
-            label="Hostname"
-            hint={
-              dnsMode === "sslip"
-                ? "Read-only server-derived sslip.io hostname. No caller IP or free-form sslip hostname is accepted."
-                : "Leave empty for an internal-only Service."
-            }
-          >
-            <input
-              aria-label="Hostname"
-              placeholder="hello.example.com"
-              readOnly={dnsMode === "sslip"}
-              aria-readonly={dnsMode === "sslip"}
-              {...form.register("host", { onChange: commit })}
-            />
-          </Field>
-          <Field label="Path">
-            <input
-              placeholder="/"
-              {...form.register("path", { onChange: commit })}
-            />
-          </Field>
-        </FormGrid>
-        {host || sslipHostnameEnabled ? (
-          <>
-            <div className="mt-5 mx-0 mb-3">
-              <FieldLabel>TLS mode</FieldLabel>
-              <div className="grid gap-2 mt-2 [&_label]:cursor-pointer [&_input]:absolute [&_input]:w-px [&_input]:h-px [&_input]:opacity-0 [&_label_>_span]:flex [&_label_>_span]:min-h-[60px] [&_label_>_span]:flex-col [&_label_>_span]:justify-center [&_label_>_span]:py-3 [&_label_>_span]:px-3 [&_label_>_span]:border [&_label_>_span]:border-line [&_label_>_span]:rounded-lg [&_label_>_span]:bg-surface [&_label_>_span]:transition [&_label_>_span]:duration-(--motion-fast) [&_label_>_span]:ease-(--ease-standard) [&_input:checked_+_span]:border-mint [&_input:checked_+_span]:bg-mint-soft [&_input:checked_+_span]:shadow-[0_0_0_2px_rgba(67_215_160_0.12)] [&_strong]:text-meta [&_small]:mt-1 [&_small]:text-ink-faint [&_small]:text-xs to-580:grid-cols-[1fr] grid-cols-[repeat(3,_minmax(0,_1fr))]">
-                <label>
-                  <input
-                    type="radio"
-                    value="httpOnly"
-                    {...form.register("tlsMode", { onChange: commit })}
-                  />
-                  <span>
-                    <strong>HTTP only</strong>
-                    <small>No certificate or redirect.</small>
-                  </span>
-                </label>
-                <label>
-                  <input
-                    type="radio"
-                    value="letsencrypt"
-                    {...form.register("tlsMode", { onChange: commit })}
-                  />
-                  <span>
-                    <strong>Let's Encrypt</strong>
-                    <small>Admin-approved HTTP-01 or DNS-01.</small>
-                  </span>
-                </label>
-                <label>
-                  <input
-                    type="radio"
-                    value="customCertificate"
-                    {...form.register("tlsMode", { onChange: commit })}
-                  />
-                  <span>
-                    <strong>Custom certificate</strong>
-                    <small>Use a scoped certificate.</small>
-                  </span>
-                </label>
-              </div>
-            </div>
-            {tlsMode === "letsencrypt" ? (
-              <FormGrid>
-                <CertificateIssuerPicker
-                  applicationId={runtimeSecretApplicationId}
-                  environmentId={runtimeSecretEnvironmentId}
-                  hostname={
-                    dnsMode === "sslip" ? sslipHostnamePreview?.hostname : host
-                  }
-                  value={issuerRef}
-                  enabled={certificateIssuersEnabled}
-                  disabled={readOnly}
-                  unavailableReason={certificateIssuersUnavailableReason}
-                  onChange={(issuer) => {
-                    form.setValue("issuerRef", issuer, { shouldDirty: true });
-                    commit();
-                  }}
-                />
-                <Field label="HTTP redirect">
-                  <label className="flex min-h-[39px] items-center gap-2 text-meta cursor-pointer [&_input]:absolute [&_input]:w-px [&_input]:h-px [&_input]:opacity-0 [&_span]:relative [&_span]:w-8 [&_span]:h-[18px] [&_span]:rounded-full [&_span]:bg-line-strong [&_span]:transition [&_span]:duration-(--motion-fast) [&_span]:ease-(--ease-standard) [&_span::after]:absolute [&_span::after]:top-[3px] [&_span::after]:left-[3px] [&_span::after]:w-3 [&_span::after]:h-3 [&_span::after]:content-[''] [&_span::after]:rounded-full [&_span::after]:bg-surface [&_span::after]:shadow-[0_1px_3px_rgba(0_0_0_0.2)] [&_span::after]:transition [&_span::after]:duration-(--motion-fast) [&_span::after]:ease-(--ease-standard) [&_input:checked_+_span]:bg-mint [&_input:checked_+_span::after]:transform-[translateX(14px)]">
-                    <input
-                      type="checkbox"
-                      {...form.register("redirectHttp", { onChange: commit })}
-                    />
-                    <span />
-                    Redirect port 80 to HTTPS
-                  </label>
-                </Field>
-              </FormGrid>
-            ) : null}
-            {tlsMode === "customCertificate" ? (
-              <CertificateReferencePicker
-                applicationId={runtimeSecretApplicationId}
-                environmentId={runtimeSecretEnvironmentId}
-                value={certificateRef}
-                enabled={certificateReferencesEnabled}
-                disabled={readOnly}
-                unavailableReason={certificateReferencesUnavailableReason}
-                onChange={(reference) => {
-                  form.setValue("certificateRef", reference, {
-                    shouldDirty: true,
-                  });
-                  commit();
-                }}
-              />
-            ) : null}
 
-            <div className="mt-5 mx-0 mb-3">
-              <FieldLabel>DNS management</FieldLabel>
-              <div className="grid gap-2 mt-2 [&_label]:cursor-pointer [&_input]:absolute [&_input]:w-px [&_input]:h-px [&_input]:opacity-0 [&_label_>_span]:flex [&_label_>_span]:min-h-[60px] [&_label_>_span]:flex-col [&_label_>_span]:justify-center [&_label_>_span]:py-3 [&_label_>_span]:px-3 [&_label_>_span]:border [&_label_>_span]:border-line [&_label_>_span]:rounded-lg [&_label_>_span]:bg-surface [&_label_>_span]:transition [&_label_>_span]:duration-(--motion-fast) [&_label_>_span]:ease-(--ease-standard) [&_input:checked_+_span]:border-mint [&_input:checked_+_span]:bg-mint-soft [&_input:checked_+_span]:shadow-[0_0_0_2px_rgba(67_215_160_0.12)] [&_strong]:text-meta [&_small]:mt-1 [&_small]:text-ink-faint [&_small]:text-xs to-580:grid-cols-[1fr] grid-cols-[repeat(3,_minmax(0,_1fr))]">
-                <label>
-                  <input
-                    type="radio"
-                    value="manual"
-                    {...form.register("dnsMode", { onChange: commit })}
-                  />
-                  <span>
-                    <strong>Manual DNS</strong>
-                    <small>Show the exact required record.</small>
-                  </span>
-                </label>
-                <label>
-                  <input
-                    type="radio"
-                    value="externalDns"
-                    disabled={
-                      automaticDNSUnavailable && dnsMode !== "externalDns"
-                    }
-                    {...form.register("dnsMode", { onChange: commit })}
-                  />
-                  <span>
-                    <strong>Automatic DNS</strong>
-                    <small>Use an allowed external-dns integration.</small>
-                  </span>
-                </label>
-                <label>
-                  <input
-                    type="radio"
-                    value="sslip"
-                    disabled={
-                      (!sslipHostnamePreview ||
-                        sslipHostnamePending ||
-                        Boolean(sslipHostnameError)) &&
-                      dnsMode !== "sslip"
-                    }
-                    {...form.register("dnsMode", {
-                      onChange: (event) => {
-                        if (
-                          event.target.value === "sslip" &&
-                          sslipHostnamePreview?.hostname
-                        ) {
-                          form.setValue("host", sslipHostnamePreview.hostname, {
-                            shouldDirty: true,
-                          });
-                          form.setValue("dnsIntegrationRef", "", {
-                            shouldDirty: true,
-                          });
-                        }
-                        commit();
-                      },
-                    })}
-                  />
-                  <span>
-                    <strong>Free sslip.io hostname</strong>
-                    <small>Test/convenience only · server-derived.</small>
-                  </span>
-                </label>
-              </div>
-            </div>
-            {dnsMode === "sslip" ? (
-              <Notice tone="warning" role="status">
-                <div>
-                  <strong>
-                    {sslipHostnamePreview
-                      ? sslipHostnamePreview.hostname
-                      : "sslip.io hostname unavailable"}
-                  </strong>
-                  <p>
-                    A public ingress IP and exact fresh edge runtime readiness
-                    are required. Dynamic ALB/load-balancer hostnames are not
-                    eligible unless the operator provides a verified static
-                    public IP observation. No External DNS integration is used.
-                  </p>
-                  {sslipHostnamePreview ? (
-                    <small>
-                      Source: {sslipHostnamePreview.source} · observed{" "}
-                      {sslipHostnamePreview.observedAt}
-                    </small>
-                  ) : sslipHostnamePending ? (
-                    <small>Loading the exact server-derived preview…</small>
-                  ) : (
-                    <small>
-                      {sslipHostnameError ??
-                        "This mode fails closed until a fresh exact preview is available."}
-                    </small>
-                  )}
-                </div>
-              </Notice>
-            ) : null}
-            {dnsMode === "externalDns" ? (
-              <FormGrid>
-                <Field
-                  label="DNS integration"
-                  error={dnsIntegrationError}
-                  hint={
-                    externalDNSCatalogPending
-                      ? "Loading the authorized environment catalog…"
-                      : "Only exact profiles authorized for this App and Environment are selectable."
-                  }
-                >
-                  <Select
-                    disabled={
-                      externalDNSCatalogPending ||
-                      Boolean(externalDNSCatalogError) ||
-                      !automaticDNSRuntimeReady ||
-                      selectedDNSIntegration?.runtimeAvailable === false
-                    }
-                    {...form.register("dnsIntegrationRef", {
-                      onChange: commit,
-                    })}
-                    value={form.watch("dnsIntegrationRef")}
-                  >
-                    {dnsIntegrationRef && !selectedDNSIntegration ? (
-                      <option value={dnsIntegrationRef} disabled>
-                        {dnsIntegrationRef} (unavailable)
-                      </option>
-                    ) : null}
-                    <option value="">
-                      {externalDNSCatalogPending
-                        ? "Loading integrations…"
-                        : dnsIntegrations.length === 0
-                          ? "No authorized integrations"
-                          : "Select an integration"}
-                    </option>
-                    {dnsIntegrations.map((integration) => (
-                      <option
-                        value={integration.slug}
-                        key={integration.id}
-                        disabled={!integration.runtimeAvailable}
-                      >
-                        {integration.name} · {integration.providerKind} ·{" "}
-                        {integration.allowedDomainSuffixes.join(", ")}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-                <Field label="TTL (seconds)">
-                  <input
-                    type="number"
-                    min={30}
-                    {...form.register("dnsTtl", {
-                      valueAsNumber: true,
-                      onChange: commit,
-                    })}
-                  />
-                </Field>
-                <Notice
-                  tone={selectedDNSIntegrationReady ? "success" : "warning"}
-                >
-                  <div>
-                    <strong>
-                      {!selectedDNSIntegration
-                        ? "Select an External DNS integration"
-                        : selectedDNSIntegrationReady
-                          ? "External DNS revision is ready"
-                          : automaticDNSPrerequisiteUnavailable
-                            ? "Automatic DNS changes are temporarily unavailable"
-                            : "External DNS runtime is not ready"}
-                    </strong>
-                    <p>
-                      {!selectedDNSIntegration
-                        ? "Choose one authorized integration before previewing or saving automatic DNS."
-                        : selectedDNSIntegrationReady
-                          ? "The selected revision is protected-Git materialized and freshly observed. Preview and save revalidate this exact slug, hostname, and runtime boundary."
-                          : automaticDNSPrerequisiteUnavailable
-                            ? "The selected DNS integration is ready, but a required platform service is unavailable. Try again after that service recovers."
-                            : "Existing configuration remains visible, but a new automatic-DNS selection cannot be previewed or saved until the exact integration revision is freshly observed ready."}
-                    </p>
-                  </div>
-                </Notice>
-              </FormGrid>
-            ) : null}
-          </>
-        ) : null}
-      </section>
+      {routes.fields.map((field, index) => (
+        <RouteFields
+          key={field.id}
+          index={index}
+          totalRoutes={routes.fields.length}
+          form={form}
+          commit={commit}
+          onRemove={() => routes.remove(index)}
+          externalDNSCatalog={externalDNSCatalog}
+          externalDNSCatalogPending={externalDNSCatalogPending}
+          externalDNSCatalogError={externalDNSCatalogError}
+          externalDNSRuntimeEnabled={externalDNSRuntimeEnabled}
+          runtimeSecretApplicationId={runtimeSecretApplicationId}
+          runtimeSecretEnvironmentId={runtimeSecretEnvironmentId}
+          certificateReferencesEnabled={certificateReferencesEnabled}
+          certificateReferencesUnavailableReason={
+            certificateReferencesUnavailableReason
+          }
+          certificateIssuersEnabled={certificateIssuersEnabled}
+          certificateIssuersUnavailableReason={
+            certificateIssuersUnavailableReason
+          }
+          sslipHostnameEnabled={sslipHostnameEnabled}
+          sslipHostnamePreview={sslipHostnamePreview}
+          sslipHostnamePending={sslipHostnamePending}
+          sslipHostnameError={sslipHostnameError}
+          readOnly={readOnly}
+        />
+      ))}
+      <div className="px-0 py-4">
+        <Button
+          type="button"
+          variant="secondary"
+          disabled={readOnly}
+          onClick={() => {
+            routes.append(defaultGuidedRoute());
+            commit();
+          }}
+        >
+          <Icon name="plus" /> Add route
+        </Button>
+      </div>
       <TraefikMiddlewareEditor
         definitions={middlewares ?? initial.middlewares}
-        refs={middlewareRefs ?? initial.middlewareRefs}
+        refs={routesWatch?.[0]?.middlewareRefs ?? initial.routes[0]?.middlewareRefs ?? []}
         issue={initial.middlewareGuidedIssue}
-        routeEnabled={Boolean(host)}
+        routeEnabled={Boolean(routesWatch?.[0]?.host)}
         readOnly={readOnly}
         editingUnavailableReason={middlewareEditingUnavailableReason}
         applicationId={runtimeSecretApplicationId}
@@ -1312,7 +1463,9 @@ export function GuidedConfigForm({
         reusableProfilesEnabled={reusableMiddlewareProfilesEnabled}
         onChange={({ definitions, refs }) => {
           form.setValue("middlewares", definitions, { shouldDirty: true });
-          form.setValue("middlewareRefs", refs, { shouldDirty: true });
+          form.setValue("routes.0.middlewareRefs", refs, {
+            shouldDirty: true,
+          });
           commit();
         }}
       />

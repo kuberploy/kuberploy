@@ -8,7 +8,11 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { defaultConfigYaml, guidedConfigFromYaml } from "../lib/configDraft";
+import {
+  defaultConfigYaml,
+  defaultGuidedRoute,
+  guidedConfigFromYaml,
+} from "../lib/configDraft";
 import { GuidedConfigForm } from "./GuidedConfigForm";
 
 afterEach(cleanup);
@@ -178,9 +182,14 @@ describe("guided External DNS catalog", () => {
   it("preserves an existing selection while stale and reports exact runtime unavailability", async () => {
     const initial = {
       ...guidedConfigFromYaml(defaultConfigYaml({ name: "api" })),
-      host: "api.example.com",
-      dnsMode: "externalDns" as const,
-      dnsIntegrationRef: "public-dns",
+      routes: [
+        {
+          ...defaultGuidedRoute(),
+          host: "api.example.com",
+          dnsMode: "externalDns" as const,
+          dnsIntegrationRef: "public-dns",
+        },
+      ],
     };
     render(
       <GuidedConfigForm
@@ -208,7 +217,7 @@ describe("guided External DNS catalog", () => {
   it("requires an explicit integration before reporting an exactly ready runtime", async () => {
     const initial = {
       ...guidedConfigFromYaml(defaultConfigYaml({ name: "api" })),
-      host: "api.example.com",
+      routes: [{ ...defaultGuidedRoute(), host: "api.example.com" }],
     };
     render(
       <GuidedConfigForm
@@ -245,7 +254,7 @@ describe("guided External DNS catalog", () => {
   it("keeps a new automatic-DNS selection disabled when the operational capability is off", () => {
     const initial = {
       ...guidedConfigFromYaml(defaultConfigYaml({ name: "api" })),
-      host: "api.example.com",
+      routes: [{ ...defaultGuidedRoute(), host: "api.example.com" }],
     };
     render(
       <GuidedConfigForm
@@ -272,9 +281,14 @@ describe("guided External DNS catalog", () => {
   it("distinguishes a ready DNS revision from an unavailable platform prerequisite", () => {
     const initial = {
       ...guidedConfigFromYaml(defaultConfigYaml({ name: "api" })),
-      host: "api.example.com",
-      dnsMode: "externalDns" as const,
-      dnsIntegrationRef: "public-dns",
+      routes: [
+        {
+          ...defaultGuidedRoute(),
+          host: "api.example.com",
+          dnsMode: "externalDns" as const,
+          dnsIntegrationRef: "public-dns",
+        },
+      ],
     };
     const readyCatalog = {
       ...catalog,
@@ -340,9 +354,14 @@ describe("guided External DNS catalog", () => {
   it("preserves an unavailable existing slug and reports catalog errors safely", () => {
     const initial = {
       ...guidedConfigFromYaml(defaultConfigYaml({ name: "api" })),
-      host: "api.example.com",
-      dnsMode: "externalDns" as const,
-      dnsIntegrationRef: "removed-profile",
+      routes: [
+        {
+          ...defaultGuidedRoute(),
+          host: "api.example.com",
+          dnsMode: "externalDns" as const,
+          dnsIntegrationRef: "removed-profile",
+        },
+      ],
     };
     render(
       <GuidedConfigForm
@@ -395,9 +414,13 @@ describe("guided sslip.io hostname", () => {
       expect(hostname).toHaveValue(preview.hostname);
       expect(hostname).toHaveAttribute("readonly");
       expect(onChange.mock.lastCall?.[0]).toMatchObject({
-        dnsMode: "sslip",
-        host: preview.hostname,
-        dnsIntegrationRef: "",
+        routes: [
+          expect.objectContaining({
+            dnsMode: "sslip",
+            host: preview.hostname,
+            dnsIntegrationRef: "",
+          }),
+        ],
       });
     });
     expect(screen.queryByLabelText(/^DNS integration/)).toBeNull();
@@ -431,8 +454,13 @@ describe("guided sslip.io hostname", () => {
       <GuidedConfigForm
         initial={{
           ...newRoute,
-          dnsMode: "sslip",
-          host: "existing-203-0-113-20.sslip.io",
+          routes: [
+            {
+              ...defaultGuidedRoute(),
+              dnsMode: "sslip",
+              host: "existing-203-0-113-20.sslip.io",
+            },
+          ],
         }}
         onChange={vi.fn()}
         sslipHostnameEnabled
@@ -490,5 +518,80 @@ describe("guided sslip.io hostname", () => {
           "metadata:\n  annotations:\n    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/app",
       }),
     );
+  });
+});
+
+describe("guided multi-route editing", () => {
+  it("adds, independently configures, and removes additional routes", async () => {
+    const user = userEvent.setup();
+    const initial = {
+      ...guidedConfigFromYaml(defaultConfigYaml({ name: "api" })),
+      routes: [{ ...defaultGuidedRoute(), host: "api.example.com" }],
+    };
+    const onChange = vi.fn();
+    render(<GuidedConfigForm initial={initial} onChange={onChange} />);
+
+    // A single route shows the original unprefixed labels.
+    expect(
+      screen.getByRole("textbox", { name: "Hostname" }),
+    ).toHaveValue("api.example.com");
+    expect(screen.queryByText("Route 1")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Remove route" }),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Add route" }));
+
+    // Two routes: each gets its own numbered label and independent fields.
+    expect(screen.getByText("Route 1")).toBeInTheDocument();
+    expect(screen.getByText("Route 2")).toBeInTheDocument();
+    const secondHostname = screen.getByRole("textbox", {
+      name: "Route 2 hostname",
+    });
+    expect(secondHostname).toHaveValue("");
+    await user.type(secondHostname, "metrics.example.com");
+
+    await waitFor(() => {
+      const latest = onChange.mock.lastCall?.[0];
+      expect(latest.routes).toHaveLength(2);
+      expect(latest.routes[0]).toMatchObject({ host: "api.example.com" });
+      expect(latest.routes[1]).toMatchObject({
+        host: "metrics.example.com",
+      });
+    });
+
+    // Removing the first route shifts the second up without losing its data.
+    const removeButtons = screen.getAllByRole("button", {
+      name: "Remove route",
+    });
+    await user.click(removeButtons[0]!);
+
+    await waitFor(() => {
+      const latest = onChange.mock.lastCall?.[0];
+      expect(latest.routes).toHaveLength(1);
+      expect(latest.routes[0]).toMatchObject({
+        host: "metrics.example.com",
+      });
+    });
+    expect(screen.queryByText(/Route \d/)).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", { name: "Hostname" }),
+    ).toHaveValue("metrics.example.com");
+  });
+
+  it("only the first route's middleware chain is Guided-editable", async () => {
+    const user = userEvent.setup();
+    const initial = {
+      ...guidedConfigFromYaml(defaultConfigYaml({ name: "api" })),
+      routes: [
+        { ...defaultGuidedRoute(), host: "api.example.com" },
+        { ...defaultGuidedRoute(), host: "metrics.example.com" },
+      ],
+    };
+    render(<GuidedConfigForm initial={initial} onChange={vi.fn()} />);
+
+    expect(screen.getByText("Traefik middleware")).toBeInTheDocument();
+    // Only one middleware editor renders, not one per route.
+    expect(screen.getAllByText("Traefik middleware")).toHaveLength(1);
   });
 });
