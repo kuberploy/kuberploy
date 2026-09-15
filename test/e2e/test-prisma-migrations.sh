@@ -116,39 +116,6 @@ kp_second="$(docker run --rm --network "${kp_network}" \
   "${kp_image}" 2>&1)"
 grep -q 'No pending migrations to apply' <<<"${kp_second}"
 
-# Upgrade the exact published baseline with retained secret history through the
-# real migration image. No schema history rewrite or database reset is needed.
-docker exec "${kp_postgres}" createdb --username postgres upgrade
-kp_upgrade_url="postgresql://postgres:kuberploy-test-only@${kp_postgres}:5432/upgrade?schema=public"
-# The disposable container installs the unchanged baseline through Prisma, so
-# its history has the real successful deployment receipt rather than a resolve
-# marker (which correctly fails the release's exact-history validation).
-docker run --rm --network "${kp_network}" --env DATABASE_URL="${kp_upgrade_url}" \
-  --user 0:0 --entrypoint sh "${kp_image}" -c \
-  'rm -rf prisma/migrations/002_secret_history_retention && node run.mjs' >/dev/null
-docker exec -i "${kp_postgres}" psql --username postgres --dbname upgrade \
-  --set ON_ERROR_STOP=1 <"${kp_root}/test/e2e/fixtures/secret-history-upgrade.sql" >/dev/null
-kp_history_query="SELECT md5(jsonb_build_array(
-  (SELECT jsonb_agg(to_jsonb(r) ORDER BY id) FROM secret_binding_events r),
-  (SELECT jsonb_agg(to_jsonb(r) ORDER BY version_id,ordinal) FROM secret_binding_deliveries r),
-  (SELECT jsonb_agg(to_jsonb(r) ORDER BY actor_id,idempotency_key) FROM mutation_receipts r))::text)"
-kp_upgrade_before="$(docker exec "${kp_postgres}" psql --username postgres --dbname upgrade \
-  --tuples-only --no-align --command "${kp_history_query}")"
-docker run --rm --network "${kp_network}" --env DATABASE_URL="${kp_upgrade_url}" "${kp_image}" >/dev/null
-[[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname upgrade \
-  --tuples-only --no-align --command "${kp_history_query}")" == "${kp_upgrade_before}" ]]
-docker exec "${kp_postgres}" psql --username postgres --dbname upgrade --set ON_ERROR_STOP=1 --command '
-  DELETE FROM secret_binding_versions;
-  DELETE FROM secret_bindings;
-  DELETE FROM applications;
-  DELETE FROM environments;
-  DELETE FROM projects;' >/dev/null
-[[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname upgrade \
-  --tuples-only --no-align --command "${kp_history_query}")" == "${kp_upgrade_before}" ]]
-kp_upgrade_second="$(docker run --rm --network "${kp_network}" \
-  --env DATABASE_URL="${kp_upgrade_url}" "${kp_image}" 2>&1)"
-grep -q 'No pending migrations to apply' <<<"${kp_upgrade_second}"
-
 docker exec "${kp_postgres}" createdb --username postgres --template fresh tampered_initial
 docker exec "${kp_postgres}" psql --username postgres --dbname tampered_initial \
   --set ON_ERROR_STOP=1 --command "
@@ -169,6 +136,10 @@ grep -q 'Database migration history does not match this Kuberploy release' \
       FROM _prisma_migrations
      WHERE migration_name='001_initial';")" == "t" ]]
 
+# A database still on the pre-0.1.0-rc.483 two-migration shape (the published
+# 001_initial baseline plus the former, now-squashed 002_secret_history_retention)
+# must fail closed rather than silently attempt an in-place upgrade: see
+# docs/adr/0010-baseline-reset-before-stable.md.
 docker exec "${kp_postgres}" createdb --username postgres --template fresh old_rc_history
 docker exec "${kp_postgres}" psql --username postgres --dbname old_rc_history \
   --set ON_ERROR_STOP=1 --command "
@@ -176,17 +147,17 @@ docker exec "${kp_postgres}" psql --username postgres --dbname old_rc_history \
       id,checksum,finished_at,migration_name,started_at,applied_steps_count
     ) VALUES(
       '99999999-9999-4999-8999-999999999999',repeat('f',64),now(),
-      '020_external_dns_runtime_republish',now(),1
+      '002_secret_history_retention',now(),1
     );" >/dev/null
 kp_old_rc_url="postgresql://postgres:kuberploy-test-only@${kp_postgres}:5432/old_rc_history?schema=public"
 if kp_old_rc_output="$(docker run --rm --network "${kp_network}" \
   --env DATABASE_URL="${kp_old_rc_url}" "${kp_image}" 2>&1)"; then
-  printf 'Migration image accepted an older release-candidate history\n' >&2
+  printf 'Migration image accepted a pre-baseline-reset release-candidate history\n' >&2
   exit 1
 fi
-grep -q 'Database migration history has 3 row(s); release requires 2' <<<"${kp_old_rc_output}"
+grep -q 'Database migration history has 2 row(s); release requires 1' <<<"${kp_old_rc_output}"
 [[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname old_rc_history \
-  --tuples-only --no-align --command "SELECT count(*) FROM _prisma_migrations")" == "3" ]]
+  --tuples-only --no-align --command "SELECT count(*) FROM _prisma_migrations")" == "2" ]]
 
 kp_counts="$(docker exec "${kp_postgres}" psql --username postgres --dbname fresh --tuples-only --no-align --command "
   SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL;
@@ -197,7 +168,7 @@ kp_counts="$(docker exec "${kp_postgres}" psql --username postgres --dbname fres
   SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace WHERE n.nspname='public' AND c.condeferrable;
   SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid=i.indrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND i.indexprs IS NOT NULL;
 ")"
-kp_expected_counts=$'2\n98\n64\n70\n666\n9\n2'
+kp_expected_counts=$'1\n98\n64\n70\n666\n9\n2'
 if [[ "${kp_counts}" != "${kp_expected_counts}" ]]; then
   printf 'Unexpected fresh-schema authority counts:\n%s\n' "${kp_counts}" >&2
   exit 1
@@ -300,4 +271,4 @@ if docker run --rm --network "${kp_network}" --env DATABASE_URL="${kp_legacy_url
 fi
 [[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname legacy --tuples-only --no-align --command "SELECT to_regclass('public.users') IS NULL")" == "t" ]]
 
-printf 'Prisma migration image delayed database wait, fresh apply, retained-history upgrade, exact migration history, declarative drift, personal/team scope authority, idempotency, native authority, and legacy rejection passed\n'
+printf 'Prisma migration image delayed database wait, fresh apply, exact migration history, pre-baseline-reset rejection, declarative drift, personal/team scope authority, idempotency, native authority, and legacy rejection passed\n'

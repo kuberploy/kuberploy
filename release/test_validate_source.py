@@ -224,10 +224,11 @@ def main() -> None:
 
         (fixture / "README.md").write_text(
             readme.replace(
-                "This candidate upgrades the published `001_initial` database baseline in place\n"
-                "> while preserving existing data. Published migrations are now append-only.\n"
-                "> After upgrading, use a release that supports `002_secret_history_retention`;\n"
-                "> earlier binaries cannot start against the new migration history.",
+                "This candidate resets the published `001_initial` database baseline before\n"
+                "> stable release, squashing every prior release-candidate migration. Upgrading\n"
+                "> in place from any earlier `0.1.0-rc.*` install is not supported; start from a\n"
+                "> fresh database. Installations already on this baseline or later remain\n"
+                "> append-only and upgrade in place as before.",
                 "All earlier release candidates can be restored after this upgrade.",
                 1,
             ),

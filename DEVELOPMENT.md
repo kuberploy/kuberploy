@@ -108,11 +108,14 @@ make a local fixture pass.
 
 ## Database schema changes
 
-`migrations/prisma/migrations/001_initial/migration.sql` is the frozen published
-`0.1.0` baseline. Starting with `002_secret_history_retention`, preserve existing
-installation data with append-only migrations, including release candidates.
-This replaces the earlier pre-stable baseline-replacement policy. Never rewrite
-a published migration or reset a retained database to apply a schema correction.
+`migrations/prisma/migrations/001_initial/migration.sql` is the published
+baseline. `0.1.0-rc.483` squashed every prior release-candidate migration
+(including the former `002_secret_history_retention`) back into `001_initial`
+one final time before stable release; see
+[`docs/adr/0010-baseline-reset-before-stable.md`](docs/adr/0010-baseline-reset-before-stable.md).
+From this baseline onward, preserve existing installation data with
+append-only migrations, including release candidates. Never rewrite a
+published migration or reset a retained database to apply a schema correction.
 Every schema change must add the next ordered native SQL migration, exercise the real
 upgrade, review the print-only `npm --prefix migrations run pull` output
 against the migrated disposable database, and bump `migrations.CurrentSchema`

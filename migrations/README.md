@@ -26,27 +26,32 @@ For every schema change, including release candidates that preserve existing dat
 6. Run `npm run format`, `npm run validate`, `npm run check:drift`,
    `make prisma-migration-test`, and the normal Go, chart, and release gates.
 
-`001_initial` is the frozen published `0.1.0` baseline. Starting with
-`002_secret_history_retention`, release candidates use append-only upgrades to
-preserve existing installation data. This supersedes the earlier pre-stable
-baseline-replacement policy. Remove
+`001_initial` is the published baseline. `0.1.0-rc.483` squashed every prior
+release-candidate migration (including the former
+`002_secret_history_retention`) back into `001_initial` one final time before
+stable release — see
+[`docs/adr/0010-baseline-reset-before-stable.md`](../docs/adr/0010-baseline-reset-before-stable.md).
+Upgrading in place from any earlier `0.1.0-rc.*` install is not supported;
+those installs must start from a fresh database. From `0.1.0-rc.483` onward,
+release candidates use append-only upgrades to preserve existing installation
+data, same as before the reset. Remove
 `pg_dump`'s psql-only `\\restrict` /
 `\\unrestrict` transport lines and its empty `search_path` session directive;
 Prisma executes migration SQL directly and owns `_prisma_migrations`.
 
-`002_secret_history_retention` retains immutable secret deliveries, lifecycle
-events, and mutation receipts when a deleted binding's App or Environment is
-removed. Native insertion guards validate and lock exact existing binding and
-version identities; immutable update/delete guards remain in force. No historical
+The squashed baseline retains immutable secret deliveries, lifecycle events,
+and mutation receipts when a deleted binding's App or Environment is removed.
+Native insertion guards validate and lock exact existing binding and version
+identities; immutable update/delete guards remain in force. No historical
 rows, credentials, or parent resources are rewritten by the migration.
 
-The migration runs atomically before API/worker rollout. Existing processes can
-continue their reads and secret writes during rollout; their old resource-deletion
-path still rejects immutable history until the new binaries take over. A binary
-that knows only `001_initial` refuses the additional migration on startup. Do not
-downgrade the database or restore old foreign keys after resource deletion has
-retained history without parent metadata. Recover using a chart and binary that
-support the same schema (or a later compatible schema), preserving the database.
+Every migration after this baseline runs atomically before API/worker rollout.
+Existing processes can continue reads and writes during rollout on the schema
+they know; a binary that knows only an older migration name refuses to start
+against a newer one. Do not downgrade the database or restore dropped
+constraints after a later migration has removed them. Recover using a chart
+and binary that support the same schema (or a later compatible schema),
+preserving the database.
 
 The baseline separates presentation `display_name` from local-auth `email`.
 Fresh installs ask for an administrator email and display name separately;

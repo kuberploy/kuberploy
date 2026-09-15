@@ -16,9 +16,11 @@ import (
 //go:embed prisma/migrations/*/migration.sql
 var FS embed.FS
 
-// CurrentSchema advances with each ordered append-only migration. The published
-// baseline stays unchanged so upgrades preserve existing installation data.
-const CurrentSchema = "002_secret_history_retention"
+// CurrentSchema advances with each ordered append-only migration since the
+// published baseline. The 0.1.0-rc.483 baseline reset squashed all prior
+// migrations (including the former 002_secret_history_retention) back into
+// 001_initial; see docs/adr/0010-baseline-reset-before-stable.md.
+const CurrentSchema = "001_initial"
 
 var namePattern = regexp.MustCompile(`^[0-9]{3}_[a-z0-9]+(?:_[a-z0-9]+)*$`)
 

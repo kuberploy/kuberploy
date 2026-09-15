@@ -1,6 +1,6 @@
 {
-  "breakingChanges": false,
-  "summary": "Fixed a credentialed-CORS gap where a regex origin list combined with allow-credentials could reflect any matching site's origin back with credentials allowed, and closed a tenant Deployment override path that could add a second privileged container, an initContainer, or a hostPath volume beyond the sanitized primary container. Also removed a vestigial, permanently unreachable desired-state recovery code path and fixed a duplicate registry cleanup reason code.",
-  "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.482"
+  "breakingChanges": true,
+  "summary": "Squashed every prior release-candidate database migration into a single new baseline before stable release. In-place upgrade from any earlier release candidate is no longer supported; those installs must start from a fresh database. Fresh installs and upgrades from this candidate onward are unaffected.",
+  "supportedUpgradeFrom": ">=0.1.0-rc.483 <0.2.0",
+  "version": "0.1.0-rc.483"
 }

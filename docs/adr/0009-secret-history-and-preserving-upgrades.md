@@ -1,6 +1,10 @@
 # ADR 0009: Retain secret history through resource deletion
 
-- Status: Accepted
+- Status: Accepted; the append-only baseline this ADR built on was squashed by
+  [ADR 0010](0010-baseline-reset-before-stable.md) at `0.1.0-rc.483`. The
+  secret-history behavior described below is unchanged and still in force —
+  only its physical migration (`002_secret_history_retention`) was folded back
+  into `001_initial`.
 - Date: 2026-09-13
 
 ## Context
