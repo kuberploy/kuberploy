@@ -1,10 +1,16 @@
 version: 2
+# Routine version-update PRs are disabled everywhere below
+# (open-pull-requests-limit: 0). GitHub's separate Dependabot security-updates
+# feature (Settings > Code security > Dependabot > Dependabot security
+# updates) still opens PRs automatically, independent of this file, whenever
+# a dependency has a known vulnerability. This file only controls the
+# routine/non-security version-bump PRs.
 updates:
   - package-ecosystem: gomod
     directory: /
     schedule:
       interval: weekly
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 0
     groups:
       go-runtime:
         patterns: ["*"]
@@ -13,7 +19,7 @@ updates:
     directory: /release/tools
     schedule:
       interval: weekly
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 0
     groups:
       release-tools:
         patterns: ["*"]
@@ -23,7 +29,7 @@ updates:
     schedule:
       interval: weekly
     versioning-strategy: increase-if-necessary
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 0
     groups:
       web-runtime:
         dependency-type: production
@@ -39,7 +45,7 @@ updates:
     schedule:
       interval: weekly
     versioning-strategy: increase-if-necessary
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 0
     groups:
       migration-tooling:
         patterns: ["*"]
@@ -51,13 +57,13 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 0
 
   - package-ecosystem: docker
     directory: /build/package
     schedule:
       interval: weekly
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 0
     ignore:
       - dependency-name: "alpine"
         versions: [">=3.25"]
@@ -74,7 +80,7 @@ updates:
     directory: /web
     schedule:
       interval: weekly
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 0
     ignore:
       # Move the frontend builder only when the selected production line
       # changes and the complete toolchain matrix has passed.
