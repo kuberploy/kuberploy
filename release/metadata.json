@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Fixed registry-credential and custom-certificate attestation triggers so App/Environment deletion works again: history stays append-only against UPDATE, but DELETE is now allowed so the resource-deletion cascade can remove them. In-place upgrade from any earlier release candidate, including 0.1.0-rc.484, is not supported; those installs must start from a fresh database. Fresh installs and upgrades from this candidate onward are unaffected.",
-  "supportedUpgradeFrom": ">=0.1.0-rc.485 <0.2.0",
-  "version": "0.1.0-rc.485"
+  "summary": "Corrected rc.485's App-deletion fix: registry-credential and custom-certificate attestations stay append-only against direct DELETE too, allowed only inside the App/Environment deletion cascade. In-place upgrade from any earlier release candidate is not supported; those installs must start from a fresh database. Fresh installs and upgrades from this candidate onward are unaffected.",
+  "supportedUpgradeFrom": ">=0.1.0-rc.486 <0.2.0",
+  "version": "0.1.0-rc.486"
 }

@@ -1001,6 +1001,13 @@ func purgeDeletedSecretBindings(ctx context.Context, tx pgx.Tx, scopeColumn, sco
 	if _, err := tx.Exec(ctx, bindingIDs+` ORDER BY id FOR UPDATE`, scopeID); err != nil {
 		return err
 	}
+	// Registry-credential and TLS-certificate attestations are otherwise
+	// append-only, including against DELETE: their trigger only lifts that
+	// guard for this exact transaction, so an ordinary direct DELETE outside
+	// this cascade still fails closed.
+	if _, err := tx.Exec(ctx, `SET LOCAL kuberploy.secret_attestation_cascade_delete = on`); err != nil {
+		return err
+	}
 	// Deliveries, events, and mutation receipts are immutable history. Their
 	// insertion guards validate live identity; resource deletion retains those
 	// records while removing only the deleted binding's operational metadata.
