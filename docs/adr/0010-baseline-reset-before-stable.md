@@ -1,6 +1,7 @@
 # ADR 0010: Squash the release-candidate migration history before stable
 
-- Status: Accepted
+- Status: Accepted; its "last time" framing (Decision, Consequences) is
+  superseded by [ADR 0011](0011-squash-every-pre-stable-schema-change.md)
 - Date: 2026-09-15
 
 ## Context

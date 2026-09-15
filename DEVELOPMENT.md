@@ -110,18 +110,21 @@ make a local fixture pass.
 
 `migrations/prisma/migrations/001_initial/migration.sql` is the published
 baseline. `0.1.0-rc.483` squashed every prior release-candidate migration
-(including the former `002_secret_history_retention`) back into `001_initial`
-one final time before stable release; see
-[`docs/adr/0010-baseline-reset-before-stable.md`](docs/adr/0010-baseline-reset-before-stable.md).
-From this baseline onward, preserve existing installation data with
-append-only migrations, including release candidates. Never rewrite a
-published migration or reset a retained database to apply a schema correction.
-Every schema change must add the next ordered native SQL migration, exercise the real
-upgrade, review the print-only `npm --prefix migrations run pull` output
-against the migrated disposable database, and bump `migrations.CurrentSchema`
-in the same change. Prisma is used only as the migration engine: PostgreSQL
-functions, triggers, deferred constraints, expression indexes, and checks
-remain authoritative native SQL; Kuberploy does not use Prisma Client.
+(including the former `002_secret_history_retention`) back into `001_initial`;
+see [`docs/adr/0010-baseline-reset-before-stable.md`](docs/adr/0010-baseline-reset-before-stable.md).
+[ADR 0011](docs/adr/0011-squash-every-pre-stable-schema-change.md) supersedes
+ADR 0010's "last time" framing: until the first stable (non-`-rc.`) release
+ships, every schema change is folded directly back into `001_initial` (edited
+in place, new checksum, `migrations.CurrentSchema` and `embed_test.go`
+updated in the same change) rather than added as a new ordered migration
+file, and `release/metadata.json` pins `breakingChanges: true` and
+`supportedUpgradeFrom` to the RC introducing the change. Append-only
+migrations, adding the next ordered native SQL migration and exercising a
+real upgrade against retained data, begin only at the first stable release
+and are permanent from that point on. Prisma is used only as the migration
+engine: PostgreSQL functions, triggers, deferred constraints, expression
+indexes, and checks remain authoritative native SQL; Kuberploy does not use
+Prisma Client.
 
 The dedicated `kuberploy-migration` Helm hook runs `prisma migrate deploy`
 before install or upgrade. API and worker startup only verify the exact Prisma

@@ -13,28 +13,38 @@ indexes, and other database-owned guards belong in that SQL because Prisma
 cannot represent them losslessly. Do not replace them with application-only
 checks.
 
-For every schema change, including release candidates that preserve existing data:
+Until the first stable (non-`-rc.`) release ships, every schema change is
+folded directly back into `001_initial` instead of added as a new ordered
+migration — see
+[`docs/adr/0011-squash-every-pre-stable-schema-change.md`](../docs/adr/0011-squash-every-pre-stable-schema-change.md),
+which supersedes ADR 0010's original "last time" framing:
 
 1. Edit `prisma/schema.prisma` for the declarative part of the change.
-2. Add the next ordered three-digit migration containing matching SQL and native
-   PostgreSQL authority. Never rewrite a published migration.
-3. Apply the full history to a fresh disposable PostgreSQL 18 database and prove
-   an upgrade from the previous schema with representative retained data.
+2. Edit `prisma/migrations/001_initial/migration.sql` in place with the
+   matching SQL and native PostgreSQL authority. Do not add a new ordered
+   migration directory pre-stable.
+3. Apply the full history to a fresh disposable PostgreSQL 18 database and
+   prove the resulting schema with representative data.
 4. Review `npm run pull:print`.
-5. Bump `migrations.CurrentSchema` and update history assertions in `embed_test.go`,
-   preserving the published baseline checksum.
-6. Run `npm run format`, `npm run validate`, `npm run check:drift`,
+5. Bump `migrations.CurrentSchema` and the checksum assertion in
+   `embed_test.go` to match the recomputed baseline checksum.
+6. Set `breakingChanges: true` and pin `supportedUpgradeFrom` in
+   `release/metadata.json` to the RC introducing the change; record it in
+   that RC's bug ledger.
+7. Run `npm run format`, `npm run validate`, `npm run check:drift`,
    `make prisma-migration-test`, and the normal Go, chart, and release gates.
+
+Append-only migrations (adding the next ordered three-digit migration,
+never rewriting a published one) resume only at the first stable release and
+are permanent from that point on.
 
 `001_initial` is the published baseline. `0.1.0-rc.483` squashed every prior
 release-candidate migration (including the former
-`002_secret_history_retention`) back into `001_initial` one final time before
-stable release — see
+`002_secret_history_retention`) back into `001_initial` — see
 [`docs/adr/0010-baseline-reset-before-stable.md`](../docs/adr/0010-baseline-reset-before-stable.md).
 Upgrading in place from any earlier `0.1.0-rc.*` install is not supported;
-those installs must start from a fresh database. From `0.1.0-rc.483` onward,
-release candidates use append-only upgrades to preserve existing installation
-data, same as before the reset. Remove
+those installs must start from a fresh database, same as any later pre-stable
+squash under ADR 0011. Remove
 `pg_dump`'s psql-only `\\restrict` /
 `\\unrestrict` transport lines and its empty `search_path` session directive;
 Prisma executes migration SQL directly and owns `_prisma_migrations`.

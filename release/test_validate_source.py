@@ -222,20 +222,16 @@ def main() -> None:
             encoding="utf-8",
         )
 
-        (fixture / "README.md").write_text(
-            readme.replace(
-                "This candidate resets the published `001_initial` database baseline before\n"
-                "> stable release, squashing every prior release-candidate migration. Upgrading\n"
-                "> in place from any earlier `0.1.0-rc.*` install is not supported; start from a\n"
-                "> fresh database. Installations already on this baseline or later remain\n"
-                "> append-only and upgrade in place as before.",
-                "All earlier release candidates can be restored after this upgrade.",
-                1,
-            ),
-            encoding="utf-8",
-        )
+        false_upgrade_readme = readme.replace(
+            "is not supported;", "is fully supported;", 1
+        ).replace("fresh database", "existing database", 1)
+        if false_upgrade_readme == readme:
+            raise SystemExit(
+                "README no longer contains the breaking-upgrade markers this mutation test targets"
+            )
+        (fixture / "README.md").write_text(false_upgrade_readme, encoding="utf-8")
         false_upgrade_claim = run_validator(root, fixture, workflow)
-        if false_upgrade_claim.returncode == 0 or "compatible-binary recovery boundary" not in (
+        if false_upgrade_claim.returncode == 0 or "fresh-database boundary" not in (
             false_upgrade_claim.stdout + false_upgrade_claim.stderr
         ):
             raise SystemExit("validator accepted a false release-candidate downgrade claim")

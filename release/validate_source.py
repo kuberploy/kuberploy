@@ -229,16 +229,22 @@ def main() -> None:
     if lower >= upper:
         raise SystemExit("release metadata supportedUpgradeFrom has an empty range")
     readme = (args.root / "README.md").read_text(encoding="utf-8")
-    upgrade_truth = (
-        "This candidate resets the published `001_initial` database baseline before\n"
-        "> stable release, squashing every prior release-candidate migration. Upgrading\n"
-        "> in place from any earlier `0.1.0-rc.*` install is not supported; start from a\n"
-        "> fresh database. Installations already on this baseline or later remain\n"
-        "> append-only and upgrade in place as before."
-    )
-    if upgrade_truth not in readme:
+    if f"`{version}`" not in readme:
+        raise SystemExit("README must state the exact current release-candidate version")
+    if metadata["breakingChanges"]:
+        breaking_markers = (
+            "is not supported",
+            "fresh database",
+        )
+        if not all(marker in readme for marker in breaking_markers):
+            raise SystemExit(
+                "README must state the not-supported in-place upgrade and fresh-database boundary "
+                "for a breaking release candidate"
+            )
+    elif "append-only" not in readme:
         raise SystemExit(
-            "README must state the preserved-data upgrade and compatible-binary recovery boundary"
+            "README must state the append-only preserved-data upgrade boundary for a "
+            "non-breaking release candidate"
         )
     if "--reset-values" not in readme or "--reuse-values" not in readme:
         raise SystemExit(

@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Squashed every prior release-candidate database migration into a single new baseline before stable release. In-place upgrade from any earlier release candidate is no longer supported; those installs must start from a fresh database. Fresh installs and upgrades from this candidate onward are unaffected.",
-  "supportedUpgradeFrom": ">=0.1.0-rc.483 <0.2.0",
-  "version": "0.1.0-rc.483"
+  "summary": "Folded the registry pull credential table into the single 001_initial baseline per ADR 0011's standing pre-stable squash policy. In-place upgrade from any earlier release candidate, including 0.1.0-rc.483, is not supported; those installs must start from a fresh database. Fresh installs and upgrades from this candidate onward are unaffected.",
+  "supportedUpgradeFrom": ">=0.1.0-rc.484 <0.2.0",
+  "version": "0.1.0-rc.484"
 }
