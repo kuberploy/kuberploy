@@ -1,6 +1,6 @@
 {
-  "breakingChanges": true,
-  "summary": "Corrected rc.485's App-deletion fix: registry-credential and custom-certificate attestations stay append-only against direct DELETE too, allowed only inside the App/Environment deletion cascade. In-place upgrade from any earlier release candidate is not supported; those installs must start from a fresh database. Fresh installs and upgrades from this candidate onward are unaffected.",
+  "breakingChanges": false,
+  "summary": "No schema, API, or runtime change from rc.486. Re-cuts the release to include a test-only fix (corrected four stale hardcoded PostgreSQL catalog-object counts in the migration authority test) that had already landed on the branch after rc.486 was tagged. In-place upgrade from rc.486 is supported.",
   "supportedUpgradeFrom": ">=0.1.0-rc.486 <0.2.0",
-  "version": "0.1.0-rc.486"
+  "version": "0.1.0-rc.487"
 }

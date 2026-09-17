@@ -222,20 +222,36 @@ def main() -> None:
             encoding="utf-8",
         )
 
-        false_upgrade_readme = readme.replace(
-            "is not supported;", "is fully supported;", 1
-        ).replace("fresh database", "existing database", 1)
-        if false_upgrade_readme == readme:
-            raise SystemExit(
-                "README no longer contains the breaking-upgrade markers this mutation test targets"
-            )
-        (fixture / "README.md").write_text(false_upgrade_readme, encoding="utf-8")
-        false_upgrade_claim = run_validator(root, fixture, workflow)
-        if false_upgrade_claim.returncode == 0 or "fresh-database boundary" not in (
-            false_upgrade_claim.stdout + false_upgrade_claim.stderr
-        ):
-            raise SystemExit("validator accepted a false release-candidate downgrade claim")
-        (fixture / "README.md").write_text(readme, encoding="utf-8")
+        if metadata["breakingChanges"]:
+            false_upgrade_readme = readme.replace(
+                "is not supported;", "is fully supported;", 1
+            ).replace("fresh database", "existing database", 1)
+            if false_upgrade_readme == readme:
+                raise SystemExit(
+                    "README no longer contains the breaking-upgrade markers this mutation test targets"
+                )
+            (fixture / "README.md").write_text(false_upgrade_readme, encoding="utf-8")
+            false_upgrade_claim = run_validator(root, fixture, workflow)
+            if false_upgrade_claim.returncode == 0 or "fresh-database boundary" not in (
+                false_upgrade_claim.stdout + false_upgrade_claim.stderr
+            ):
+                raise SystemExit("validator accepted a false release-candidate downgrade claim")
+            (fixture / "README.md").write_text(readme, encoding="utf-8")
+        else:
+            false_nonbreaking_readme = readme.replace("append-only", "not append-anything")
+            if false_nonbreaking_readme == readme:
+                raise SystemExit(
+                    "README no longer contains the append-only upgrade marker this mutation test targets"
+                )
+            (fixture / "README.md").write_text(false_nonbreaking_readme, encoding="utf-8")
+            false_nonbreaking_claim = run_validator(root, fixture, workflow)
+            if false_nonbreaking_claim.returncode == 0 or "preserved-data upgrade boundary" not in (
+                false_nonbreaking_claim.stdout + false_nonbreaking_claim.stderr
+            ):
+                raise SystemExit(
+                    "validator accepted a non-breaking release candidate missing its append-only marker"
+                )
+            (fixture / "README.md").write_text(readme, encoding="utf-8")
 
         (fixture / ".github/workflows/ci.yml").write_text(
             ci_workflow.replace("actions/checkout@v7", "actions/checkout@main", 1),
