@@ -1,0 +1,9 @@
+{
+  "candidateVersion": "1.0.0-rc.1",
+  "candidateTag": "v1.0.0-rc.1",
+  "candidateCommit": "ff787d54773695aa001081aa2b284ba327392582",
+  "qualificationReportSHA256": "sha256:26c955b0d22220e502462047552fb0503f19877e71b0977c37820ba622d46301",
+  "qualificationCompletedAt": "2026-09-17T06:58:30Z",
+  "status": "passed",
+  "teardownStatus": "passed"
+}

@@ -9,7 +9,7 @@ applications on Kubernetes. It combines a straightforward web experience with
 a GitOps control plane: Git stores non-secret desired state, Argo CD reconciles
 workloads, and PostgreSQL holds durable operations and recovery state.
 
-> **Release status:** `1.0.0-rc.1` is a release candidate — the first candidate
+> **Release status:** `1.0.0` is a release candidate — the first candidate
 > of the 1.0.0 line, and the final candidate before the first stable release.
 > Use a dedicated test cluster until the production qualification matrix is
 > complete. This candidate makes no schema, API, or runtime change from
@@ -94,7 +94,7 @@ cp examples/installer/managed-platform-values.yaml installer-values.yaml
 ```bash
 helm upgrade --install kuberploy-installer \
   oci://ghcr.io/kuberploy/charts/kuberploy-installer \
-  --version 1.0.0-rc.1 \
+  --version 1.0.0 \
   --namespace kuberploy-system --create-namespace \
   --kubeconfig /absolute/path/to/kubeconfig \
   --kube-context exact-context \

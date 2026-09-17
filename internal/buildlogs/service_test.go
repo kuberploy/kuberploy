@@ -89,8 +89,8 @@ func TestSnapshotRejectsResolverScopeConfusion(t *testing.T) {
 
 func TestSnapshotRejectsResolverJobBindingConfusion(t *testing.T) {
 	for _, test := range []struct {
-		name   string
-		stage  string
+		name  string
+		stage string
 		mutate func(*AuthorizedAttempt)
 	}{
 		{name: "namespace", stage: "resolve Job namespace", mutate: func(authorized *AuthorizedAttempt) {

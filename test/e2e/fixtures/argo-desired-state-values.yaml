@@ -19,7 +19,7 @@ config:
     platformBindingID: 11111111-1111-4111-8111-111111111111
     namespace: kuberploy-e2e-render
     runtimeChartRepository: oci://ghcr.io/kuberploy/charts
-    runtimeChartVersion: 1.0.0-rc.1
+    runtimeChartVersion: 1.0.0
     runtimeChartDigest: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
     pollIntervalSeconds: 2
     catalogMaxAgeSeconds: 300
