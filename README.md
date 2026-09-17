@@ -9,16 +9,18 @@ applications on Kubernetes. It combines a straightforward web experience with
 a GitOps control plane: Git stores non-secret desired state, Argo CD reconciles
 workloads, and PostgreSQL holds durable operations and recovery state.
 
-> **Release status:** `0.1.0-rc.487` is a release candidate. Use a dedicated test
-> cluster until the production qualification matrix is complete.
-> This candidate makes no schema, API, or runtime change from `0.1.0-rc.486`
-> (it only re-cuts a test-only fix that had already landed on the branch).
-> In-place upgrade from `0.1.0-rc.486` is supported and preserves data: the
+> **Release status:** `1.0.0-rc.1` is a release candidate — the first candidate
+> of the 1.0.0 line, and the final candidate before the first stable release.
+> Use a dedicated test cluster until the production qualification matrix is
+> complete. This candidate makes no schema, API, or runtime change from
+> `0.1.0-rc.486` (only a test-only fix and the version-line bump). In-place
+> upgrade from `0.1.0-rc.486` is supported and preserves data: the
 > `001_initial` baseline is unchanged, so this is an append-only step rather
 > than another baseline reset. Upgrading in place from any earlier
 > `0.1.0-rc.*` install, including `0.1.0-rc.483` through `0.1.0-rc.485`,
-> remains unsupported; those installs still require a fresh database. Regular
-> append-only migrations begin permanently at the first stable release.
+> remains unsupported; those installs still require a fresh database. Once
+> `1.0.0` ships, this baseline becomes the permanent append-only starting
+> point for every future migration.
 
 ## Highlights
 
@@ -92,7 +94,7 @@ cp examples/installer/managed-platform-values.yaml installer-values.yaml
 ```bash
 helm upgrade --install kuberploy-installer \
   oci://ghcr.io/kuberploy/charts/kuberploy-installer \
-  --version 0.1.0-rc.487 \
+  --version 1.0.0-rc.1 \
   --namespace kuberploy-system --create-namespace \
   --kubeconfig /absolute/path/to/kubeconfig \
   --kube-context exact-context \

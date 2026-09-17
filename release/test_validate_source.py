@@ -203,7 +203,8 @@ def main() -> None:
         metadata_link.unlink()
         metadata = json.loads((root / "release/metadata.json").read_text(encoding="utf-8"))
         if "-" in current_version:
-            metadata["summary"] = "RC1 stale release summary."
+            real_rc = int(current_version.rsplit(".", 1)[1])
+            metadata["summary"] = f"RC{real_rc + 1} stale release summary."
             metadata_link.write_text(json.dumps(metadata), encoding="utf-8")
             stale_rc = run_validator(root, fixture, workflow)
             if stale_rc.returncode == 0 or "different release candidate" not in (

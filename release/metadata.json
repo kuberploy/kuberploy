@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "No schema, API, or runtime change from rc.486. Re-cuts the release to include a test-only fix (corrected four stale hardcoded PostgreSQL catalog-object counts in the migration authority test) that had already landed on the branch after rc.486 was tagged. In-place upgrade from rc.486 is supported.",
-  "supportedUpgradeFrom": ">=0.1.0-rc.486 <0.2.0",
-  "version": "0.1.0-rc.487"
+  "summary": "First release candidate of the 1.0.0 line. No schema, API, or runtime change from 0.1.0-rc.486 (only a test-only fix and the version-line bump to prepare for the first stable release). In-place upgrade from 0.1.0-rc.486 is supported and preserves data.",
+  "supportedUpgradeFrom": ">=0.1.0-rc.486 <2.0.0",
+  "version": "1.0.0-rc.1"
 }
